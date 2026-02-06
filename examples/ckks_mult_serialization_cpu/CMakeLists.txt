@@ -1,0 +1,3 @@
+# CKKS Multiplication with Serialization Example (CPU)
+add_executable(ckks_mult_serialization_cpu ckks_mult_serialization_cpu.cpp)
+target_link_libraries(ckks_mult_serialization_cpu PRIVATE lattisense)

@@ -1,0 +1,97 @@
+header:
+  license:
+    spdx-id: Apache-2.0
+    copyright-owner: CipherFlow (Shenzhen) Co., Ltd.
+    content: |
+      Copyright (c) 2025-2026 CipherFlow (Shenzhen) Co., Ltd.
+
+      Licensed under the Apache License, Version 2.0 (the "License");
+      you may not use this file except in compliance with the License.
+      You may obtain a copy of the License at
+
+          http://www.apache.org/licenses/LICENSE-2.0
+
+      Unless required by applicable law or agreed to in writing, software
+      distributed under the License is distributed on an "AS IS" BASIS,
+      WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+      See the License for the specific language governing permissions and
+      limitations under the License.
+
+      SPDX-License-Identifier: Apache-2.0
+
+  paths:
+    - '**/*.cpp'
+    - '**/*.h'
+    - '**/*.c'
+    - '**/*.hpp'
+    - '**/*.cu'
+    - '**/*.cuh'
+    - '**/*.py'
+    - '**/*.go'
+    - '**/*.java'
+    - '**/*.rs'
+    - '**/*.ts'
+    - '**/*.js'
+    - '**/*.sh'
+
+  paths-ignore:
+    # Git submodules (managed separately)
+    - 'HEonGPU/**'
+    - 'fhe_ops_lib/lattigo/**'
+
+    # Third-party libraries
+    - 'lib/**'
+    - 'plug-in/**'
+    - 'unittests/catch.hpp'  # Catch2 test framework
+
+    # Build directories
+    - 'build/**'
+    - 'install/**'
+    - 'cmake-build-*/**'
+
+    # Generated files
+    - '**/*_generated.h'
+    - '**/*_generated.cpp'
+    - '**/*.pb.h'
+    - '**/*.pb.cc'
+    - '**/*.pb.go'
+
+    # Go vendor and module files
+    - '**/vendor/**'
+    - '**/go.sum'
+
+    # IDE and editor files
+    - '.idea/**'
+    - '.vscode/**'
+    - '**/*.pyc'
+    - '**/__pycache__/**'
+
+    # Documentation (optional headers)
+    - '**/*.md'
+    - '**/*.rst'
+    - '**/*.txt'
+
+    # Configuration files
+    - '**/*.json'
+    - '**/*.yaml'
+    - '**/*.yml'
+    - '**/*.toml'
+    - '**/*.xml'
+    - '**/*.ini'
+    - '**/*.cfg'
+
+    # CMake files
+    - '**/CMakeLists.txt'
+    - '**/*.cmake'
+
+    # Resource and data files
+    - 'resource/**'
+    - '**/*.dat'
+    - '**/*.bin'
+
+  comment: on-failure
+
+dependency:
+  files:
+    - go.mod
+    - go.sum

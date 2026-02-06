@@ -1,0 +1,12 @@
+"""
+Auto-generated test configuration
+These paths are configured via CMake variables:
+- CPU_TEST_BASE_DIR
+- GPU_TEST_BASE_DIR
+
+To change these paths, reconfigure CMake with:
+cmake -DCPU_TEST_BASE_DIR=/your/cpu/path -DGPU_TEST_BASE_DIR=/your/gpu/path
+"""
+
+CPU_OUTPUT_BASE_DIR = "@CPU_TEST_BASE_DIR@"
+GPU_OUTPUT_BASE_DIR = "@GPU_TEST_BASE_DIR@"

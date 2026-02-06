@@ -1,0 +1,46 @@
+# Build artifacts
+build/
+install/
+.cache/
+
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Git
+.git/
+.gitignore
+.gitmodules
+
+# Compiled objects
+*.o
+*.a
+*.so
+*.so.*
+
+# Documentation build
+doc/*.html
+doc/*.pdf
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Test data
+unittests/test_data/
+
+# Logs
+*.log
+frontend/log/
+
+# Temporary files
+*.tmp
+*.bak
+
+# OS files
+.DS_Store
+Thumbs.db

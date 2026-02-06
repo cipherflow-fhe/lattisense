@@ -1,0 +1,65 @@
+name: Code Format Check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  clang-format:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install clang-format
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-format
+
+      - name: Check C/C++ formatting
+        run: |
+          # Find all C/C++ files, excluding third-party directories
+          files=$(find . \
+            -path './HEonGPU' -prune -o \
+            -path './fhe_ops_lib/lattigo' -prune -o \
+            -path './lib' -prune -o \
+            -path './build' -prune -o \
+            -path './install' -prune -o \
+            \( -name '*.cpp' -o -name '*.h' -o -name '*.hpp' -o -name '*.c' -o -name '*.cu' -o -name '*.cuh' \) \
+            -type f -print)
+
+          if [ -z "$files" ]; then
+            echo "No C/C++ files found to check"
+            exit 0
+          fi
+
+          # Check formatting
+          echo "Checking formatting for the following files:"
+          echo "$files" | head -20
+          file_count=$(echo "$files" | wc -l)
+          echo "... and $((file_count - 20)) more files" || true
+          echo ""
+
+          # Run clang-format in dry-run mode
+          unformatted=""
+          for file in $files; do
+            if ! clang-format --dry-run --Werror "$file" 2>/dev/null; then
+              unformatted="$unformatted$file\n"
+            fi
+          done
+
+          if [ -n "$unformatted" ]; then
+            echo "The following files are not properly formatted:"
+            echo -e "$unformatted"
+            echo ""
+            echo "Please run: clang-format -i <file> to fix formatting"
+            echo "Or run the following to fix all files:"
+            echo "  find . -path './HEonGPU' -prune -o -path './fhe_ops_lib/lattigo' -prune -o -path './lib' -prune -o -path './build' -prune -o -path './install' -prune -o \\( -name '*.cpp' -o -name '*.h' -o -name '*.hpp' -o -name '*.c' -o -name '*.cu' -o -name '*.cuh' \\) -type f -print | xargs clang-format -i"
+            exit 1
+          fi
+
+          echo "All files are properly formatted!"

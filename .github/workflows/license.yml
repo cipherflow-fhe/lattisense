@@ -1,0 +1,22 @@
+name: License Check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  license-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check License Headers
+        uses: apache/skywalking-eyes/header@v0.6.0
+        with:
+          config: .licenserc.yaml
+          mode: check

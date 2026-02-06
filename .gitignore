@@ -1,0 +1,87 @@
+# Build directories
+build/
+install/
+.cache/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+venv/
+env/
+ENV/
+.Python
+pip-log.txt
+pip-delete-this-directory.txt
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Go build artifacts
+# *.a
+*.so
+fhe_ops_lib/lattigo/go_sdk/liblattigo.a
+fhe_ops_lib/lattigo/go_sdk/liblattigo.so
+
+# Test and local development
+examples/test/
+local_test/
+scratch/
+test_results.xml
+
+# Temporary and backup files
+*.log
+*.tmp
+*.bak
+*.orig
+*~
+
+# Build artifacts
+*.o
+*.obj
+*.exe
+*.out
+*.app
+*.i*86
+*.x86_64
+*.hex
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+*.cmake
+!CMakeLists.txt
+!**/cmake/*.cmake
+
+# Documentation build
+doc/html/
+doc/latex/
+*.html
+!manual.html
+
+# Submodule build artifacts (gitignored patterns)
+BFV*/
+CKKS*/
+CLAUDE*
+Testing*/
+unittests/test_config.py
+
+
+# Secrets and credentials
+*.pem
+*.key
+*.cert
+credentials.json
+.env
+.env.local

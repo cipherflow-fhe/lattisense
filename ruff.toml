@@ -1,0 +1,7 @@
+line-length = 120
+lint.select = ["E"]
+lint.ignore = ["E501", "E402"]
+
+[format]
+quote-style = "single"
+docstring-code-format = true

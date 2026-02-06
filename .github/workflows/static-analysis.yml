@@ -1,0 +1,106 @@
+name: Static Analysis
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  cppcheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install cppcheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cppcheck
+
+      - name: Run cppcheck
+        run: |
+          cppcheck \
+            --enable=warning,performance,portability \
+            --suppress=missingIncludeSystem \
+            --suppress=unmatchedSuppression \
+            --suppress=useStlAlgorithm \
+            --suppress=noExplicitConstructor \
+            --suppress=unusedFunction \
+            --suppress=*:lib/* \
+            --error-exitcode=1 \
+            --inline-suppr \
+            --language=c++ \
+            --std=c++20 \
+            -i HEonGPU \
+            -i fhe_ops_lib/lattigo \
+            -i lib \
+            -i build \
+            -i install \
+            -i unittests \
+            cxx_sdk_v2 \
+            fhe_ops_lib \
+            mega_ag_runners \
+            common \
+            examples
+
+  clang-tidy:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-tidy cmake build-essential python3
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.0'
+
+      - name: Generate compile_commands.json
+        run: |
+          mkdir -p build && cd build
+          cmake .. -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+          cd ..
+          ln -sf build/compile_commands.json .
+
+      - name: Run clang-tidy
+        run: |
+          # Find source files, excluding third-party and test directories
+          files=$(find . \
+            -path './HEonGPU' -prune -o \
+            -path './fhe_ops_lib/lattigo' -prune -o \
+            -path './lib' -prune -o \
+            -path './build' -prune -o \
+            -path './install' -prune -o \
+            -path './unittests' -prune -o \
+            \( -name '*.cpp' -o -name '*.h' -o -name '*.hpp' \) \
+            -type f -print | head -50)
+
+          if [ -z "$files" ]; then
+            echo "No files to analyze"
+            exit 0
+          fi
+
+          echo "Analyzing files with clang-tidy..."
+
+          # Run clang-tidy with basic checks (warnings only, not errors for now)
+          for file in $files; do
+            echo "Checking: $file"
+            clang-tidy "$file" \
+              -p build \
+              --checks='-*,bugprone-*,performance-*,-bugprone-easily-swappable-parameters,-bugprone-narrowing-conversions' \
+              --warnings-as-errors='' \
+              2>/dev/null || true
+          done
+
+          echo "Static analysis complete."

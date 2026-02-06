@@ -1,0 +1,32 @@
+@PACKAGE_INIT@
+
+# LattiSense CMake Config File
+# This file allows you to use find_package(LattiSense) to import the SDK
+#
+# Usage:
+#   find_package(LattiSense REQUIRED)
+#   target_link_libraries(my_app PRIVATE LattiSense::lattisense)
+
+include(CMakeFindDependencyMacro)
+
+# Check required dependencies
+find_dependency(Threads REQUIRED)
+
+# Set package variables
+set(LattiSense_VERSION @PROJECT_VERSION@)
+
+# Import targets
+include("${CMAKE_CURRENT_LIST_DIR}/LattiSenseTargets.cmake")
+
+# Provide legacy variables for compatibility
+set(LattiSense_LIBRARIES LattiSense::lattisense)
+set(LattiSense_FOUND TRUE)
+
+# Get install prefix from this file's location
+# Config file is installed to: <prefix>/lib/cmake/LattiSense/
+get_filename_component(LattiSense_INSTALL_PREFIX "${CMAKE_CURRENT_LIST_DIR}/../../.." ABSOLUTE)
+set(LattiSense_INCLUDE_DIRS "${LattiSense_INSTALL_PREFIX}/@CMAKE_INSTALL_INCLUDEDIR@/lattisense")
+set(LattiSense_LIBRARY_DIR "${LattiSense_INSTALL_PREFIX}/@CMAKE_INSTALL_LIBDIR@")
+set(LattiSense_DATA_DIR "${LattiSense_INSTALL_PREFIX}/@CMAKE_INSTALL_DATADIR@/lattisense")
+
+check_required_components(LattiSense)

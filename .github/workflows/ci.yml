@@ -1,0 +1,175 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake python3 python3-pip
+          pip3 install networkx
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.0'
+
+      - name: Build SDK
+        run: |
+          mkdir -p build && cd build
+          cmake .. -DLATTISENSE_BUILD_TESTS=ON
+          make -j$(nproc)
+
+      - name: Generate test data
+        run: |
+          cd unittests
+          export PYTHONPATH=${{ github.workspace }}/build/unittests:${{ github.workspace }}:$PYTHONPATH
+          python3 test_cpu_bfv.py
+          python3 test_cpu_ckks.py
+
+      - name: Run tests
+        timeout-minutes: 30
+        run: |
+          cd build/unittests
+          export LD_LIBRARY_PATH=${{ github.workspace }}/build/lib:$LD_LIBRARY_PATH
+          ./test_lattigo
+          ./test_mp_lattigo
+          ./test_cpu_bfv
+          ./test_cpu_ckks
+
+  build-docker:
+    runs-on: ubuntu-22.04
+    needs: build-and-test
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata for Docker (release)
+        id: meta-release
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+
+      - name: Extract metadata for Docker (dev)
+        id: meta-dev
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          flavor: |
+            suffix=-dev
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+
+      # Build and verify release image
+      - name: Build Docker image (release)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          target: release
+          load: true
+          tags: lattisense:release
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Verify Docker image (release)
+        timeout-minutes: 10
+        run: |
+          docker run --rm lattisense:release bash -c "                                                                                                     
+            cd /workspace/project_template                                                                                                                        
+            python3 bfv_mult.py                                                                                                                                   
+            mkdir -p build && cd build                                                                                                                            
+            cmake .. && make && cd ..                                                                                                                                      
+            ./build/my_fhe_app                                                                                                                                          
+          "
+
+      # Build and verify dev image
+      - name: Build Docker image (dev)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          target: dev
+          load: true
+          tags: lattisense:dev
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Verify Docker image (dev)
+        timeout-minutes: 10
+        run: |
+          docker run --rm lattisense:dev bash -c "                                                                                                     
+            cd /workspace/project_template                                                                                                                        
+            python3 bfv_mult.py                                                                                                                                   
+            mkdir -p build && cd build                                                                                                                            
+            cmake .. && make && cd ..                                                                                                                                      
+            ./build/my_fhe_app                                                                                                                                          
+          "
+
+      # Push release image (only on push, not PR)
+      - name: Push Docker image (release)
+        if: github.event_name != 'pull_request'
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          target: release
+          push: true
+          tags: ${{ steps.meta-release.outputs.tags }}
+          labels: ${{ steps.meta-release.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Push dev image (only on push, not PR)
+      - name: Push Docker image (dev)
+        if: github.event_name != 'pull_request'
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          target: dev
+          push: true
+          tags: ${{ steps.meta-dev.outputs.tags }}
+          labels: ${{ steps.meta-dev.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
