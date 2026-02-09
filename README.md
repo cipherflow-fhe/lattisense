@@ -121,7 +121,13 @@ git clone --recursive https://github.com/cipherflow-fhe/lattisense.git
 cd lattisense
 ```
 
-#### 2. Build SDK (CPU Version)
+#### 2. Install Python Dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+#### 3. Build SDK (CPU Version)
 
 ```bash
 mkdir build && cd build
@@ -129,7 +135,7 @@ cmake ..
 make -j$(nproc)
 ```
 
-#### 3. Install
+#### 4. Install
 
 ```bash
 # Install to custom directory

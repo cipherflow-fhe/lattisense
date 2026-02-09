@@ -121,7 +121,13 @@ git clone --recursive https://github.com/cipherflow-fhe/lattisense.git
 cd lattisense
 ```
 
-#### 2. 编译 SDK
+#### 2. 安装依赖
+
+```bash
+pip install -r requirements.txt
+```
+
+#### 3. 编译 SDK
 
 ```bash
 mkdir build && cd build
@@ -129,7 +135,7 @@ cmake ..
 make -j$(nproc)
 ```
 
-#### 3. 安装
+#### 4. 安装
 
 ```bash
 # 安装到自定义目录
