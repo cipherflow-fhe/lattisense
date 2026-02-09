@@ -52,15 +52,45 @@ find_package(Threads REQUIRED)
 # CUDA Support #
 ################
 
+set(LATTISENSE_CUDA_ARCH "" CACHE STRING
+    "CUDA architecture (e.g., 80 for A100, 86 for RTX 30xx, 89 for RTX 40xx, 90 for H100). Required when LATTISENSE_ENABLE_GPU=ON")
+
 find_package(CUDAToolkit QUIET)
 
 if(CUDAToolkit_FOUND)
     message(STATUS "Found CUDA toolkit version ${CUDAToolkit_VERSION}")
     message(STATUS "CUDA_TOOLKIT_ROOT_DIR: ${CUDAToolkit_ROOT}")
+else()
+    message(STATUS "CUDA toolkit not found, GPU support will be disabled")
+endif()
+
+message(STATUS "LATTISENSE_ENABLE_GPU: ${LATTISENSE_ENABLE_GPU}")
+
+if(LATTISENSE_ENABLE_GPU)
+    if(NOT CUDAToolkit_FOUND)
+        message(FATAL_ERROR
+            "CUDA toolkit is required when LATTISENSE_ENABLE_GPU=ON.\n"
+            "Please install CUDA toolkit >= 12.0.")
+    endif()
+
+    if(NOT LATTISENSE_CUDA_ARCH)
+        message(FATAL_ERROR
+            "LATTISENSE_CUDA_ARCH is required when LATTISENSE_ENABLE_GPU=ON.\n"
+            "\n"
+            "Please specify the CUDA architecture for your GPU:\n"
+            "  -DLATTISENSE_CUDA_ARCH=80  # A100\n"
+            "  -DLATTISENSE_CUDA_ARCH=86  # RTX 30xx\n"
+            "  -DLATTISENSE_CUDA_ARCH=89  # RTX 40xx\n"
+            "  -DLATTISENSE_CUDA_ARCH=90  # H100\n"
+            "\n"
+            "See https://developer.nvidia.com/cuda-gpus for your GPU's compute capability.\n"
+            "\n"
+            "Example:\n"
+            "  cmake .. -DLATTISENSE_ENABLE_GPU=ON -DLATTISENSE_CUDA_ARCH=89")
+    endif()
 
     set(CMAKE_CUDA_COMPILER "${CUDAToolkit_BIN_DIR}/nvcc")
-
-    set(CMAKE_CUDA_ARCHITECTURES 89)
+    set(CMAKE_CUDA_ARCHITECTURES ${LATTISENSE_CUDA_ARCH})
 
     enable_language(CUDA)
     cmake_policy(SET CMP0025 NEW)
@@ -70,13 +100,7 @@ if(CUDAToolkit_FOUND)
         VERSION 2.0
         DESCRIPTION "FHE SDK Version 2.0"
     )
-else()
-    message(STATUS "CUDA toolkit not found, GPU support will be disabled")
-endif()
 
-message(STATUS "LATTISENSE_ENABLE_GPU: ${LATTISENSE_ENABLE_GPU}")
-
-if(LATTISENSE_ENABLE_GPU)
     # Check if HEonGPU is installed
     set(HEONGPU_INSTALL_DIR "${LATTISENSE_ROOT_DIR}/HEonGPU/install")
     set(HEONGPU_BUILD_DIR "${LATTISENSE_ROOT_DIR}/HEonGPU/build")
@@ -89,13 +113,13 @@ if(LATTISENSE_ENABLE_GPU)
             "\n"
             "  cd ${LATTISENSE_ROOT_DIR}/HEonGPU\n"
             "  cmake -S . -B build \\\n"
-            "    -DCMAKE_CUDA_ARCHITECTURES=89 \\\n"
+            "    -DCMAKE_CUDA_ARCHITECTURES=${LATTISENSE_CUDA_ARCH} \\\n"
             "    -DCMAKE_CUDA_COMPILER=/usr/local/cuda/bin/nvcc \\\n"
             "    -DCMAKE_INSTALL_PREFIX=\$(pwd)/install\n"
             "  cmake --build build -j\$(nproc)\n"
             "  cmake --install build\n"
             "\n"
-            "Then re-run cmake with -DLATTISENSE_ENABLE_GPU=ON")
+            "Then re-run cmake with -DLATTISENSE_ENABLE_GPU=ON -DLATTISENSE_CUDA_ARCH=${LATTISENSE_CUDA_ARCH}")
     endif()
 
     list(APPEND CMAKE_PREFIX_PATH "${HEONGPU_INSTALL_DIR}")
@@ -109,7 +133,7 @@ if(LATTISENSE_ENABLE_GPU)
     find_package(HEonGPU REQUIRED)
     set(CMAKE_CUDA_FLAGS_DEBUG "${CMAKE_CUDA_FLAGS_DEBUG} -g")
     set(CMAKE_CUDA_FLAGS_RELEASE "${CMAKE_CUDA_FLAGS_RELEASE} -O3")
-    message(STATUS "GPU support enabled with HEonGPU")
+    message(STATUS "GPU support enabled with HEonGPU (CUDA arch: ${LATTISENSE_CUDA_ARCH})")
 endif()
 
 # standard
