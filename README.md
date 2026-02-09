@@ -1,5 +1,10 @@
 # LattiSense
 
+[![CI](https://github.com/cipherflow-fhe/lattisense/actions/workflows/ci.yml/badge.svg)](https://github.com/cipherflow-fhe/lattisense/actions/workflows/ci.yml)
+[![Static Analysis](https://github.com/cipherflow-fhe/lattisense/actions/workflows/static-analysis.yml/badge.svg)](https://github.com/cipherflow-fhe/lattisense/actions/workflows/static-analysis.yml)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![Version](https://img.shields.io/badge/version-2.0-green.svg)](CMakeLists.txt)
+
 **LattiSense** is a development framework for Fully Homomorphic Encryption (FHE), built by [CipherFlow](https://cipherflow.ai/). It empowers developers to build privacy-preserving applications that perform complex computations on encrypted data without ever needing to decrypt it.
 
 By providing a unified, abstract interface, LattiSense removes the cryptographic complexity of FHE, allowing you to focus on logic while our compiler and scheduler handle the heavy lifting across heterogeneous hardware.
@@ -154,6 +159,7 @@ sudo make install
 |--------|---------|-------------|
 | `CMAKE_INSTALL_PREFIX` | /usr/local | Installation directory |
 | `LATTISENSE_ENABLE_GPU` | OFF | Enable GPU acceleration |
+| `LATTISENSE_CUDA_ARCH` | (none) | CUDA architecture (required when GPU enabled, e.g., 86, 89, 90) |
 | `LATTISENSE_BUILD_TESTS` | OFF | Build unit tests |
 | `LATTISENSE_BUILD_EXAMPLES` | OFF | Build example programs |
 | `LATTISENSE_DEV` | OFF | Development mode (verbose logging) |
@@ -162,10 +168,8 @@ sudo make install
 Example:
 ```bash
 cmake .. -DCMAKE_INSTALL_PREFIX=$(pwd)/../install -DLATTISENSE_BUILD_EXAMPLES=ON
-cmake .. -DLATTISENSE_ENABLE_GPU=ON
+cmake .. -DLATTISENSE_ENABLE_GPU=ON -DLATTISENSE_CUDA_ARCH=89
 ```
-
-### GPU Support
 
 To enable GPU acceleration, first build and install HEonGPU:
 
@@ -183,11 +187,11 @@ make install
 # 2. Return to SDK directory and build with GPU support
 cd ../..
 mkdir build && cd build
-cmake .. -DLATTISENSE_ENABLE_GPU=ON
+cmake .. -DLATTISENSE_ENABLE_GPU=ON -DLATTISENSE_CUDA_ARCH=<arch>
 make -j$(nproc)
 ```
 
-> **Note**: Set `CMAKE_CUDA_ARCHITECTURES` according to your GPU (see [CUDA GPUs](https://developer.nvidia.com/cuda-gpus) for reference):
+> **Note**: Set `LATTISENSE_CUDA_ARCH` (and the matching `CMAKE_CUDA_ARCHITECTURES` for HEonGPU) according to your GPU (see [CUDA GPUs](https://developer.nvidia.com/cuda-gpus) for reference):
 > - RTX 30xx series: 86
 > - RTX 40xx series: 89
 > - H100: 90
