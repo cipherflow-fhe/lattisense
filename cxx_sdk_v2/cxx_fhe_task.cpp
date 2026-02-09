@@ -29,7 +29,11 @@ namespace cxx_sdk_v2 {
 
 FheTask::FheTask(const std::string& project_path) : _project_path{project_path} {
     std::ifstream sig_file;
-    sig_file.open(_project_path + "/task_signature.json");
+    std::string sig_file_path = _project_path + "/task_signature.json";
+    sig_file.open(sig_file_path);
+    if (!sig_file.is_open()) {
+        throw std::runtime_error("Cannot open task signature file " + sig_file_path);
+    }
     _task_signature = nlohmann::json::parse(sig_file);
     sig_file.close();
 }
