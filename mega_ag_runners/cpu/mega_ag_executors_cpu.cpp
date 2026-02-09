@@ -20,11 +20,12 @@
  * @brief CPU executor implementations for MegaAG compute nodes
  */
 
-#include "../mega_ag_executors.h"
-#include "fhe_lib_v2.h"
 #include <memory>
 #include <stdexcept>
 #include <any>
+
+#include "../mega_ag_executors.h"
+#include "fhe_lib_v2.h"
 
 using namespace fhe_ops_lib;
 
