@@ -103,7 +103,7 @@ uint64_t FheTaskCpu::run(FheContext* context, const std::vector<CxxVectorArgumen
     auto end = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start);
 #ifdef LATTISENSE_DEV
-    std::cout << "Run CPU time: " << duration.count() / 1000000.0 << " milliseconds" << std::endl;
+    std::cout << "Run CPU time: " << duration.count() / 1.0e6 << " us" << std::endl;
 #endif
 
     return duration.count();
