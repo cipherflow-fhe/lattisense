@@ -47,7 +47,10 @@ const std::unordered_map<std::string, OperationType> str_to_operation_type = {
 MegaAG MegaAG::from_json(const std::string& json_path, Processor processor) {
     std::ifstream json_fs;
     json_fs.open(json_path);
-    auto mega_ag_json = nlohmann::json::parse(json_fs);
+    if (!json_fs.is_open()) {
+        throw std::runtime_error("Cannot open MegaAG file " + json_path);
+    }
+    nlohmann::json mega_ag_json = nlohmann::json::parse(json_fs);
     json_fs.close();
 
     MegaAG mega_ag;
