@@ -1,5 +1,10 @@
 # LattiSense
 
+[![CI](https://github.com/cipherflow-fhe/lattisense/actions/workflows/ci.yml/badge.svg)](https://github.com/cipherflow-fhe/lattisense/actions/workflows/ci.yml)
+[![Static Analysis](https://github.com/cipherflow-fhe/lattisense/actions/workflows/static-analysis.yml/badge.svg)](https://github.com/cipherflow-fhe/lattisense/actions/workflows/static-analysis.yml)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![Version](https://img.shields.io/badge/version-2.0-green.svg)](CMakeLists.txt)
+
 **LattiSense** 是由 [CipherFlow](https://cipherflow.ai/) 构建的全同态加密（FHE）开发框架。它帮助开发者构建隐私保护应用，在加密数据上执行复杂计算，全程无需解密。
 
 通过提供统一的抽象接口，LattiSense 屏蔽了 FHE 的密码学复杂性，让您专注于业务逻辑，而编译器和调度器会自动处理异构硬件上的繁重工作。
@@ -104,6 +109,7 @@ int main() {
 | C++ 编译器 | GCC 10+ / Clang 11+ | 需支持 C++20 |
 | Go | >= 1.18 | 用于编译底层全同态密码算法库 |
 | Python | >= 3.10 | 用于计算图编译器 |
+| networkx | （Python 包） | 计算图编译器依赖 |
 
 **GPU 加速（可选）**：
 
@@ -121,7 +127,13 @@ git clone --recursive https://github.com/cipherflow-fhe/lattisense.git
 cd lattisense
 ```
 
-#### 2. 编译 SDK
+#### 2. 安装依赖
+
+```bash
+pip install -r requirements.txt
+```
+
+#### 3. 编译 SDK
 
 ```bash
 mkdir build && cd build
@@ -129,7 +141,7 @@ cmake ..
 make -j$(nproc)
 ```
 
-#### 3. 安装
+#### 4. 安装
 
 ```bash
 # 安装到自定义目录
@@ -148,6 +160,7 @@ sudo make install
 |------|--------|------|
 | `CMAKE_INSTALL_PREFIX` | /usr/local | 安装目录 |
 | `LATTISENSE_ENABLE_GPU` | OFF | 启用 GPU 加速支持 |
+| `LATTISENSE_CUDA_ARCH` | （无） | CUDA 架构（启用 GPU 时必须指定，如 86、89、90） |
 | `LATTISENSE_BUILD_TESTS` | OFF | 编译单元测试 |
 | `LATTISENSE_BUILD_EXAMPLES` | OFF | 编译示例程序 |
 | `LATTISENSE_DEV` | OFF | 开发模式（详细日志输出） |
@@ -156,10 +169,8 @@ sudo make install
 示例：
 ```bash
 cmake .. -DCMAKE_INSTALL_PREFIX=$(pwd)/../install -DLATTISENSE_BUILD_EXAMPLES=ON
-cmake .. -DLATTISENSE_ENABLE_GPU=ON
+cmake .. -DLATTISENSE_ENABLE_GPU=ON -DLATTISENSE_CUDA_ARCH=89
 ```
-
-### GPU 支持
 
 启用 GPU 加速需要先编译安装 HEonGPU：
 
@@ -177,11 +188,11 @@ make install
 # 2. 返回 SDK 目录，启用 GPU 编译
 cd ../..
 mkdir build && cd build
-cmake .. -DLATTISENSE_ENABLE_GPU=ON
+cmake .. -DLATTISENSE_ENABLE_GPU=ON -DLATTISENSE_CUDA_ARCH=<arch>
 make -j$(nproc)
 ```
 
-> **注意**：`CMAKE_CUDA_ARCHITECTURES` 需要根据您的 GPU 型号设置（参考 [CUDA GPUs](https://developer.nvidia.com/cuda-gpus)）：
+> **注意**：`LATTISENSE_CUDA_ARCH`（以及 HEonGPU 对应的 `CMAKE_CUDA_ARCHITECTURES`）需要根据您的 GPU 型号设置（参考 [CUDA GPUs](https://developer.nvidia.com/cuda-gpus)）：
 > - RTX 30xx 系列: 86
 > - RTX 40xx 系列: 89
 > - H100: 90
