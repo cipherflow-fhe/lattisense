@@ -70,9 +70,9 @@ uint64_t FheTaskGpu::run(FheContext* context, const std::vector<CxxVectorArgumen
     }
 
     auto end = std::chrono::high_resolution_clock::now();
-    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+    auto duration = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start);
     if (print_time) {
-        std::cout << "Run GPU time: " << duration.count() / 1000.0 << " milliseconds" << std::endl;
+        std::cout << "Run GPU time: " << duration.count() / 1.0e6 << " us" << std::endl;
     }
 
     return duration.count();

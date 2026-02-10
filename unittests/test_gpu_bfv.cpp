@@ -35,58 +35,6 @@ uint64_t mod_exp(uint64_t x, int power, uint64_t mod) {
         return mod_exp(x * x % mod, power / 2, mod) % mod;
 };
 
-static bool cuda_warmup = []() {
-    int n{8192 * 2};
-    int t{65537};
-    BfvParameter param{BfvParameter::create_parameter(n, t)};
-    BfvContext ctx{BfvContext::create_random_context(param)};
-    int n_op{4};
-
-    vector<BfvCiphertext> x_list;
-    vector<BfvCiphertext> y_list;
-    vector<BfvCiphertext> z_list;
-
-    vector<vector<uint64_t>> x(n_op);
-    vector<vector<uint64_t>> y(n_op);
-
-    vector<vector<uint64_t>> z_true(n_op);
-
-    for (int i = 0; i < n_op; i++) {
-        for (int j = 0; j < n; j++) {
-            x[i].push_back(i + j + 2);
-            y[i].push_back(i + j + 3);
-            z_true[i].push_back((x[i].back() + y[i].back()) % t);
-        }
-    }
-
-    for (int i = 0; i < n_op; i++) {
-        vector<uint64_t> x_mg;
-        vector<uint64_t> y_mg;
-        for (int j = 0; j < n; j++) {
-            x_mg.push_back(x[i][j]);
-            y_mg.push_back(y[i][j]);
-        }
-        auto x_pt = ctx.encode(x_mg, 1);
-        auto y_pt = ctx.encode(y_mg, 1);
-        auto x_ct = ctx.encrypt_asymmetric(x_pt);
-        auto y_ct = ctx.encrypt_asymmetric(y_pt);
-        x_list.push_back(std::move(x_ct));
-        y_list.push_back(std::move(y_ct));
-        z_list.push_back(ctx.new_ciphertext(1));
-    }
-
-    string project_path = gpu_base_path + "/BFV_" + to_string(n_op) + "_cac/level_" + to_string(1);
-    FheTaskGpu project(project_path);
-    vector<CxxVectorArgument> cxx_args = {
-        CxxVectorArgument{"in_x_list", &x_list},
-        CxxVectorArgument{"in_y_list", &y_list},
-        CxxVectorArgument{"out_z_list", &z_list},
-    };
-    project.run(&ctx, cxx_args, false);
-
-    return true;
-}();
-
 TEST_CASE_METHOD(BfvGpuFixture, "BFV ct_add_pt_ringt", "") {
     vector<BfvCiphertext> x_list;
     vector<BfvPlaintextRingt> y_list;
