@@ -687,13 +687,25 @@ class FheGpuTask {
 public:
     FheGpuTask(const std::string& project_path) {
         mega_ag_ = MegaAG::from_json(project_path + "/mega_ag.json", Processor::GPU);
+
+        cudaSetDevice(0);
+
+        // Warm up the CUDA context, so that the computation time measurment is more accurate.
+        heongpu::HEContext<heongpu::Scheme::BFV> context(heongpu::keyswitching_type::KEYSWITCHING_METHOD_II,
+                                                         heongpu::sec_level_type::none);
+        context.set_poly_modulus_degree(8192);
+        context.set_coeff_modulus_values({18014398508400641, 18014398510645249, 18014398510661633},
+                                         {36028797018652673});
+        context.set_plain_modulus(65537);
+        context.generate();
+        heongpu::HEKeyGenerator<heongpu::Scheme::BFV> keygen(context);
+        heongpu::Secretkey<heongpu::Scheme::BFV> secret_key(context);
+        keygen.generate_secret_key(secret_key);
     }
 
     ~FheGpuTask() {}
 
     int run(gsl::span<CArgument> input_args, gsl::span<CArgument> output_args, Algo algo) {
-        cudaSetDevice(0);
-
         switch (algo) {
             case Algo::ALGO_BFV: _run_mega_ag<heongpu::Scheme::BFV>(input_args, output_args, mega_ag_); break;
             case Algo::ALGO_CKKS: _run_mega_ag<heongpu::Scheme::CKKS>(input_args, output_args, mega_ag_); break;
