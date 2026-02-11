@@ -27,7 +27,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential cmake python3 python3-pip
-          pip3 install networkx
+          pip3 install --break-system-packages networkx
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -82,94 +82,43 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract metadata for Docker (release)
-        id: meta-release
+      - name: Extract metadata for Docker
+        id: meta
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=ref,event=branch
+            type=raw,value=latest,enable={{is_default_branch}}
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
 
-      - name: Extract metadata for Docker (dev)
-        id: meta-dev
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          flavor: |
-            suffix=-dev
-          tags: |
-            type=ref,event=branch
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-
-      # Build and verify release image
-      - name: Build Docker image (release)
+      - name: Build Docker image
         uses: docker/build-push-action@v5
         with:
           context: .
-          target: release
           load: true
-          tags: lattisense:release
+          tags: lattisense:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Verify Docker image (release)
+      - name: Verify Docker image
         timeout-minutes: 10
         run: |
-          docker run --rm lattisense:release bash -c "                                                                                                     
-            cd /workspace/project_template                                                                                                                        
-            python3 bfv_mult.py                                                                                                                                   
-            mkdir -p build && cd build                                                                                                                            
-            cmake .. && make && cd ..                                                                                                                                      
-            ./build/my_fhe_app                                                                                                                                          
+          docker run --rm lattisense:latest bash -c "
+            cd /workspace/project_template
+            python3 bfv_mult.py
+            mkdir -p build && cd build
+            cmake .. && make && cd ..
+            ./build/my_fhe_app
           "
 
-      # Build and verify dev image
-      - name: Build Docker image (dev)
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          target: dev
-          load: true
-          tags: lattisense:dev
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Verify Docker image (dev)
-        timeout-minutes: 10
-        run: |
-          docker run --rm lattisense:dev bash -c "                                                                                                     
-            cd /workspace/project_template                                                                                                                        
-            python3 bfv_mult.py                                                                                                                                   
-            mkdir -p build && cd build                                                                                                                            
-            cmake .. && make && cd ..                                                                                                                                      
-            ./build/my_fhe_app                                                                                                                                          
-          "
-
-      # Push release image (only on push, not PR)
-      - name: Push Docker image (release)
+      - name: Push Docker image
         if: github.event_name != 'pull_request'
         uses: docker/build-push-action@v5
         with:
           context: .
-          target: release
           push: true
-          tags: ${{ steps.meta-release.outputs.tags }}
-          labels: ${{ steps.meta-release.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      # Push dev image (only on push, not PR)
-      - name: Push Docker image (dev)
-        if: github.event_name != 'pull_request'
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          target: dev
-          push: true
-          tags: ${{ steps.meta-dev.outputs.tags }}
-          labels: ${{ steps.meta-dev.outputs.labels }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
