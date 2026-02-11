@@ -1,13 +1,11 @@
 # ============================================================================
 # LattiSense Docker Image
 # ============================================================================
-# Multi-stage build for two image variants:
-#   - release: Image with pre-built SDK and compilation toolchain (~800MB)
-#   - dev: Full development environment with toolchain, Go, and source (~2.5GB)
+# Two-stage build: compile the SDK, then set up the development environment
+# with source code, pre-built SDK, and compilation toolchain.
 #
-# Build commands:
-#   docker build --target release -t lattisense:release .
-#   docker build --target dev -t lattisense:dev .
+# Build command:
+#   docker build -t lattisense .
 # ============================================================================
 
 # ============================================================================
@@ -19,7 +17,7 @@ FROM ubuntu:22.04 AS builder
 ENV DEBIAN_FRONTEND=noninteractive
 
 # Install build dependencies
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     cmake \
     git \
@@ -46,54 +44,23 @@ RUN mkdir -p build && cd build \
     && make -j$(nproc) install
 
 # ============================================================================
-# Stage 2: Release - Image with SDK and compilation toolchain
+# Stage 2: Final image - Source code + pre-built SDK + toolchain
 # ============================================================================
-FROM ubuntu:22.04 AS release
+FROM builder
 
-ENV DEBIAN_FRONTEND=noninteractive
-
-# Install compilation toolchain and Python dependencies
-RUN apt-get update && apt-get install -y \
-    build-essential \
-    cmake \
+# Install development tools and Python dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     python3-pip \
-    && pip3 install networkx \
-    && rm -rf /var/lib/apt/lists/*
-
-# Copy pre-built SDK from builder
-COPY --from=builder /opt/lattisense /opt/lattisense
-
-# Set environment variables for SDK
-ENV LD_LIBRARY_PATH="/opt/lattisense/lib:${LD_LIBRARY_PATH}"
-ENV CMAKE_PREFIX_PATH="/opt/lattisense/lib/cmake/LattiSense:${CMAKE_PREFIX_PATH}"
-ENV PYTHONPATH="/opt/lattisense/share/lattisense/mega_ag_generator:${PYTHONPATH}"
-
-WORKDIR /workspace
-
-# Copy project_template to workspace for easy access
-RUN cp -r /opt/lattisense/share/lattisense/project_template /workspace/project_template
-
-# Default command
-CMD ["/bin/bash"]
-
-# ============================================================================
-# Stage 3: Dev - Full development environment
-# ============================================================================
-FROM builder AS dev
-
-# Install additional development tools and Python dependencies
-RUN apt-get update && apt-get install -y \
     vim \
     gdb \
-    python3-pip \
     && pip3 install networkx \
     && rm -rf /var/lib/apt/lists/*
 
 # Set environment variables for SDK
-ENV LD_LIBRARY_PATH="/opt/lattisense/lib:${LD_LIBRARY_PATH}"
-ENV CMAKE_PREFIX_PATH="/opt/lattisense/lib/cmake/LattiSense:${CMAKE_PREFIX_PATH}"
-ENV PYTHONPATH="/opt/lattisense/share/lattisense/mega_ag_generator:${PYTHONPATH}"
+ENV LD_LIBRARY_PATH="/opt/lattisense/lib"
+ENV CMAKE_PREFIX_PATH="/opt/lattisense/lib/cmake/LattiSense"
+ENV PYTHONPATH="/opt/lattisense/share/lattisense/mega_ag_generator"
 
 # Source code is already at /workspace/lattisense from builder stage
 WORKDIR /workspace

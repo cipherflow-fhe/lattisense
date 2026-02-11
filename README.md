@@ -101,14 +101,31 @@ int main() {
 
 ## Build & Installation
 
-### Requirements
+The easiest way to install LattiSense is to use the official LattiSense Docker image. For developers, you can build LattiSense from source. For Windows users, you can install LattiSense through WSL2. After installation, please run the example programs to verify the installation.
+
+### Docker
+
+Get started instantly with the official Docker image, no manual dependency installation required:
+
+```bash
+docker run -it ghcr.io/cipherflow-fhe/lattisense:latest
+```
+
+The container includes the pre-built SDK, compilation toolchain, and project template, ready for development.
+
+### Build from Source
+
+#### Requirements
 
 | Dependency | Version | Description |
 |------------|---------|-------------|
+| CPU / Memory | 8 cores / 16 GB | Recommended minimum configuration |
+| OS | Linux / WSL2 | Operating system requirement |
 | CMake | >= 3.13 | Build system |
 | C++ Compiler | GCC 10+ / Clang 11+ | C++20 support required |
 | Go | >= 1.18 | For building Lattigo crypto library |
 | Python | >= 3.10 | For computation graph compiler |
+| networkx | (Python package) | Computation graph compiler dependency |
 
 **GPU Acceleration (Optional)**:
 
@@ -116,8 +133,6 @@ int main() {
 |------------|---------|-------------|
 | CUDA Toolkit | >= 12.0 | GPU compute support |
 | HEonGPU | 1.1 | GPU acceleration library (requires pre-build) |
-
-### Build Steps
 
 #### 1. Clone Repository
 
@@ -153,7 +168,7 @@ make
 sudo make install
 ```
 
-### Build Options
+#### Build Options
 
 | Option | Default | Description |
 |--------|---------|-------------|
@@ -180,7 +195,7 @@ mkdir build && cd build
 cmake .. \
   -DCMAKE_CUDA_ARCHITECTURES=<arch> \
   -DCMAKE_CUDA_COMPILER=<path/to/cuda>/bin/nvcc \
-  -DCMAKE_INSTALL_PREFIX=<path/to/install>
+  -DCMAKE_INSTALL_PREFIX=<path/to/HEonGPU>/install
 make -j$(nproc)
 make install
 
@@ -197,7 +212,7 @@ make -j$(nproc)
 > - H100: 90
 > - A100: 80
 
-### Installation Directory Structure
+#### Installation Directory Structure
 
 ```
 <install_prefix>/
