@@ -1346,3 +1346,56 @@ TEST_CASE_METHOD(CkksGpuFixture, "CKKS cmc_relin rescale and bootstrap", "") {
         }
     }
 }
+
+TEST_CASE_METHOD(CkksGpuFixture, "CKKS public context serialization", "") {
+    vector<CkksCiphertext> x_list;
+    vector<CkksCiphertext> y_list;
+    vector<CkksCiphertext> z_list;
+
+    vector<double> x(n_op);
+    vector<double> y(n_op);
+    vector<double> z_true(n_op);
+    for (int i = 0; i < n_op; i++) {
+        x[i] = 0.2;
+        y[i] = 0.3;
+        z_true[i] = x[i] * y[i];
+    }
+
+    for (int level = min_level + 1; level <= max_level; level++) {
+        SECTION("n=" + to_string(n_op) + ", lv=" + to_string(level)) {
+            for (int i = 0; i < n_op; i++) {
+                vector<double> x_mg{x[i]};
+                vector<double> y_mg{y[i]};
+
+                auto x_pt = ctx.encode(x_mg, level, default_scale);
+                auto y_pt = ctx.encode(y_mg, level, default_scale);
+                auto x_ct = ctx.encrypt_asymmetric(x_pt);
+                auto y_ct = ctx.encrypt_asymmetric(y_pt);
+                x_list.push_back(std::move(x_ct));
+                y_list.push_back(std::move(y_ct));
+                z_list.push_back(ctx.new_ciphertext(level, default_scale * default_scale));
+            }
+
+            CkksContext public_context = ctx.make_public_context();
+            vector<uint8_t> data = public_context.serialize();
+            CkksContext deserialized = CkksContext::deserialize(data);
+
+            string project_path =
+                gpu_base_path + "/CKKS_" + to_string(n_op) + "_public_context_serialization/level_" + to_string(level);
+            FheTaskGpu gpu_project(project_path);
+            vector<CxxVectorArgument> cxx_args = {
+                CxxVectorArgument{"in_x_list", &x_list},
+                CxxVectorArgument{"in_y_list", &y_list},
+                CxxVectorArgument{"out_z_list", &z_list},
+            };
+            gpu_project.run(&deserialized, cxx_args);
+
+            double tolerance = 1.0e-4;
+            for (int i = 0; i < n_op; i++) {
+                auto z_pt = ctx.decrypt(z_list[i]);
+                auto z_mg = ctx.decode(z_pt);
+                REQUIRE(compare_double_vectors(z_mg, vector<double>{z_true[i]}, 1, tolerance) == false);
+            }
+        }
+    }
+}
