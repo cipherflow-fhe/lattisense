@@ -14,14 +14,15 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-import sys
 import os
+import sys
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import unittest
 
-from frontend.custom_task import *
 from test_config import GPU_OUTPUT_BASE_DIR
+
+from frontend.custom_task import *
 
 param = Param.create_ckks_default_param(n=16384)
 
@@ -1059,7 +1060,6 @@ class TestTask(unittest.TestCase):
                 )
 
     def test_custom_param_cmc_relin_rescale(self, n_op=4, levels=[1, 2, 3, 4, 5]):
-        """测试使用自定义参数"""
         custom_param = Param.create_ckks_custom_param(
             n=8192, q=[0x1FFFEC001, 0x3FFF4001, 0x3FFE8001, 0x40020001, 0x40038001, 0x3FFC0001], p=[0x800004001]
         )
@@ -1098,12 +1098,10 @@ class TestTask(unittest.TestCase):
                     output_instruction_path=task_dir,
                 )
 
-        # 重置为默认参数，避免影响其他测试
         default_param = Param.create_ckks_default_param(n=16384)
         set_fhe_param(default_param)
 
     def test_custom_param_cap(self, n_op=4, levels=[0, 1, 2, 3, 4, 5]):
-        """测试使用自定义参数"""
         custom_param = Param.create_ckks_custom_param(
             n=8192, q=[0x1FFFEC001, 0x3FFF4001, 0x3FFE8001, 0x40020001, 0x40038001, 0x3FFC0001], p=[0x800004001]
         )
@@ -1147,7 +1145,6 @@ class TestTask(unittest.TestCase):
         set_fhe_param(default_param)
 
     def test_custom_param_cac(self, n_op=4, levels=[0, 1, 2, 3, 4, 5]):
-        """测试使用自定义参数"""
         custom_param = Param.create_ckks_custom_param(
             n=8192, q=[0x1FFFEC001, 0x3FFF4001, 0x3FFE8001, 0x40020001, 0x40038001, 0x3FFC0001], p=[0x800004001]
         )
@@ -1186,10 +1183,42 @@ class TestTask(unittest.TestCase):
                     output_instruction_path=task_dir,
                 )
 
-        # 重置为默认参数，避免影响其他测试
         default_param = Param.create_ckks_default_param(n=16384)
         set_fhe_param(default_param)
 
+    def test_public_context_serialization(self, n_op=4, levels=[i for i in range(1, param.max_level + 1)]):
+        def cmc_relin(x: list[DataNode], y: list[DataNode]) -> DataNode:
+            z_list = []
+            for i in range(len(x_list)):
+                z_list.append(mult_relin(x[i], y[i], f'z_{i}'))
+            return z_list
+
+        for lv in levels:
+            with self.subTest(n=n_op, lv=lv):
+                task = f'CKKS_{n_op}_public_context_serialization/level_{lv}'
+                task_dir = os.path.join(GPU_OUTPUT_BASE_DIR, task)
+
+                x_list = []
+                y_list = []
+                for i in range(n_op):
+                    x_list.append(CkksCiphertextNode(f'x_{i}', level=lv))
+                    y_list.append(CkksCiphertextNode(f'y_{i}', level=lv))
+
+                z_list = cmc_relin(x_list, y_list)
+
+                arg_x = Argument('in_x_list', x_list)
+                arg_y = Argument('in_y_list', y_list)
+                arg_z = Argument('out_z_list', z_list)
+
+                process_custom_task(
+                    input_args=[arg_x, arg_y],
+                    offline_input_args=[],
+                    output_args=[arg_z],
+                    output_instruction_path=task_dir,
+                )
+
 
 if __name__ == '__main__':
-    unittest.main()
+    set_fhe_param(param)
+    test_task = TestTask()
+    test_task.test_public_context_serialization()
