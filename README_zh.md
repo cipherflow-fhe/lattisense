@@ -101,10 +101,26 @@ int main() {
 
 ## 构建与安装
 
-### 环境要求
+最简单的安装lattisense的方式是使用lattisense的官方 docker image。对于开发者，可以从源码安装lattisense。对于Windows用户，可以通过WSL2安装lattisense安装完成后，请运行示例程序来验证安装是否成功。
+
+### 使用 Docker
+
+无需手动安装依赖，直接使用官方的 Docker 镜像：
+
+```bash
+docker run -it ghcr.io/cipherflow-fhe/lattisense:latest
+```
+
+容器内已包含编译好的 SDK、编译工具链和项目模板，可以直接开始开发。
+
+### 从源码构建
+
+#### 环境要求
 
 | 依赖 | 版本要求 | 说明 |
 |------|----------|------|
+| CPU/内存 | 8核/16GB | 推荐最低配置 |
+| OS | Linux/WSL2 | 操作系统要求 |
 | CMake | >= 3.13 | 构建系统 |
 | C++ 编译器 | GCC 10+ / Clang 11+ | 需支持 C++20 |
 | Go | >= 1.18 | 用于编译底层全同态密码算法库 |
@@ -117,8 +133,6 @@ int main() {
 |------|----------|------|
 | CUDA Toolkit | >= 12.0 | GPU 计算支持 |
 | HEonGPU | 1.1 | GPU 加速库（需预先编译安装） |
-
-### 构建步骤
 
 #### 1. 克隆项目
 
@@ -154,7 +168,7 @@ make
 sudo make install
 ```
 
-### 编译选项
+#### 编译选项
 
 | 选项 | 默认值 | 说明 |
 |------|--------|------|
@@ -181,7 +195,7 @@ mkdir build && cd build
 cmake .. \
   -DCMAKE_CUDA_ARCHITECTURES=<arch> \
   -DCMAKE_CUDA_COMPILER=<path/to/cuda>/bin/nvcc \
-  -DCMAKE_INSTALL_PREFIX=<path/to/install>
+  -DCMAKE_INSTALL_PREFIX=<path/to/HEonGPU>/install
 make -j$(nproc)
 make install
 
@@ -198,7 +212,7 @@ make -j$(nproc)
 > - H100: 90
 > - A100: 80
 
-### 安装目录结构
+#### 安装目录结构
 
 ```
 <install_prefix>/
@@ -274,3 +288,9 @@ cd ../build/unittests
 ```
 
 ---
+
+## 许可证
+
+本项目基于 Apache License 2.0 开源，详见 [LICENSE](LICENSE) 文件。
+
+第三方依赖及其许可证详见 [NOTICE](NOTICE) 文件。
