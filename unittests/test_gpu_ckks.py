@@ -14,14 +14,15 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-import sys
 import os
+import sys
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import unittest
 
-from frontend.custom_task import *
 from test_config import GPU_OUTPUT_BASE_DIR
+
+from frontend.custom_task import *
 
 param = Param.create_ckks_default_param(n=16384)
 
@@ -1059,7 +1060,6 @@ class TestTask(unittest.TestCase):
                 )
 
     def test_custom_param_cmc_relin_rescale(self, n_op=4, levels=[1, 2, 3, 4, 5]):
-        """测试使用自定义参数"""
         custom_param = Param.create_ckks_custom_param(
             n=8192, q=[0x1FFFEC001, 0x3FFF4001, 0x3FFE8001, 0x40020001, 0x40038001, 0x3FFC0001], p=[0x800004001]
         )
@@ -1098,12 +1098,10 @@ class TestTask(unittest.TestCase):
                     output_instruction_path=task_dir,
                 )
 
-        # 重置为默认参数，避免影响其他测试
         default_param = Param.create_ckks_default_param(n=16384)
         set_fhe_param(default_param)
 
     def test_custom_param_cap(self, n_op=4, levels=[0, 1, 2, 3, 4, 5]):
-        """测试使用自定义参数"""
         custom_param = Param.create_ckks_custom_param(
             n=8192, q=[0x1FFFEC001, 0x3FFF4001, 0x3FFE8001, 0x40020001, 0x40038001, 0x3FFC0001], p=[0x800004001]
         )
@@ -1147,7 +1145,6 @@ class TestTask(unittest.TestCase):
         set_fhe_param(default_param)
 
     def test_custom_param_cac(self, n_op=4, levels=[0, 1, 2, 3, 4, 5]):
-        """测试使用自定义参数"""
         custom_param = Param.create_ckks_custom_param(
             n=8192, q=[0x1FFFEC001, 0x3FFF4001, 0x3FFE8001, 0x40020001, 0x40038001, 0x3FFC0001], p=[0x800004001]
         )
@@ -1186,7 +1183,6 @@ class TestTask(unittest.TestCase):
                     output_instruction_path=task_dir,
                 )
 
-        # 重置为默认参数，避免影响其他测试
         default_param = Param.create_ckks_default_param(n=16384)
         set_fhe_param(default_param)
 

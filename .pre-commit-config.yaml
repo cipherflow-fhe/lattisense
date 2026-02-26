@@ -1,0 +1,45 @@
+repos:
+  - repo: https://github.com/pre-commit/mirrors-clang-format
+    rev: v18.1.8
+    hooks:
+      - id: clang-format
+        stages: [pre-commit]
+        types_or: [c, c++, cuda]
+        exclude: ^(HEonGPU/|build/|venv/|lib/)
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.9.10
+    hooks:
+      - id: ruff
+        stages: [pre-commit]
+        args: [--fix]
+        exclude: ^(HEonGPU/|build/|venv/|lib/)
+      - id: ruff-format
+        stages: [pre-commit]
+        exclude: ^(HEonGPU/|build/|venv/|lib/)
+
+  - repo: https://github.com/alessandrojcm/commitlint-pre-commit-hook
+    rev: v9.18.0
+    hooks:
+      - id: commitlint
+        stages: [commit-msg]
+        additional_dependencies: ['@commitlint/config-conventional']
+
+  - repo: local
+    hooks:
+      - id: branch-name-check
+        name: branch name check
+        entry: >-
+          bash -c '
+          branch=$(git branch --show-current);
+          if [ -z "$branch" ]; then exit 0; fi;
+          if echo "$branch" | grep -qE "^(main|develop)$"; then exit 0; fi;
+          if echo "$branch" | grep -qE "^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)/[a-z0-9._-]+$"; then exit 0; fi;
+          echo "Branch name \"$branch\" does not match pattern: <type>/<description>";
+          echo "Allowed types: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert";
+          echo "Example: feat/add-gpu-support, fix/ckks-precision";
+          exit 1'
+        language: system
+        stages: [pre-push]
+        always_run: true
+        pass_filenames: false
