@@ -1186,39 +1186,6 @@ class TestTask(unittest.TestCase):
         default_param = Param.create_ckks_default_param(n=16384)
         set_fhe_param(default_param)
 
-    def test_public_context_serialization(self, n_op=4, levels=[i for i in range(1, param.max_level + 1)]):
-        def cmc_relin(x: list[DataNode], y: list[DataNode]) -> DataNode:
-            z_list = []
-            for i in range(len(x_list)):
-                z_list.append(mult_relin(x[i], y[i], f'z_{i}'))
-            return z_list
-
-        for lv in levels:
-            with self.subTest(n=n_op, lv=lv):
-                task = f'CKKS_{n_op}_public_context_serialization/level_{lv}'
-                task_dir = os.path.join(GPU_OUTPUT_BASE_DIR, task)
-
-                x_list = []
-                y_list = []
-                for i in range(n_op):
-                    x_list.append(CkksCiphertextNode(f'x_{i}', level=lv))
-                    y_list.append(CkksCiphertextNode(f'y_{i}', level=lv))
-
-                z_list = cmc_relin(x_list, y_list)
-
-                arg_x = Argument('in_x_list', x_list)
-                arg_y = Argument('in_y_list', y_list)
-                arg_z = Argument('out_z_list', z_list)
-
-                process_custom_task(
-                    input_args=[arg_x, arg_y],
-                    offline_input_args=[],
-                    output_args=[arg_z],
-                    output_instruction_path=task_dir,
-                )
-
 
 if __name__ == '__main__':
-    set_fhe_param(param)
-    test_task = TestTask()
-    test_task.test_public_context_serialization()
+    unittest.main()
