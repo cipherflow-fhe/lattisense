@@ -51,10 +51,10 @@ inline std::map<std::string, CxxArgumentType> str_cxx_argument_type_map = {
  * @brief Check if a single argument conforms to signature requirements
  */
 inline void check_with_sig(const CxxVectorArgument& cxx_arg,
-                            const std::string& expected_id,
-                            CxxArgumentType expected_type,
-                            const std::vector<size_t>& expected_shape,
-                            int expected_level) {
+                           const std::string& expected_id,
+                           CxxArgumentType expected_type,
+                           const std::vector<size_t>& expected_shape,
+                           int expected_level) {
     if (cxx_arg.arg_id != expected_id) {
         std::string message = "For argument " + cxx_arg.arg_id + ", expected id is " + expected_id +
                               ", but input id is " + cxx_arg.arg_id + ".";
@@ -225,10 +225,10 @@ inline void check_parameter(FheContext* context, const nlohmann::json& param_jso
  * @throws std::runtime_error if any check fails
  */
 inline int check_signatures(FheContext* context,
-                     const std::vector<CxxVectorArgument>& cxx_args,
-                     const nlohmann::json& task_sig_json,
-                     Algo expected_algo,
-                     bool online_phase=true) {
+                            const std::vector<CxxVectorArgument>& cxx_args,
+                            const nlohmann::json& task_sig_json,
+                            Algo expected_algo,
+                            bool online_phase = true) {
     if (expected_algo == Algo::ALGO_BFV) {
         if (typeid(*context) != typeid(BfvContext)) {
             throw std::runtime_error("Algorithm is BFV but context is not BfvContext");
