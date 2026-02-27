@@ -74,7 +74,7 @@ protected:
     std::string _project_path = "";
     nlohmann::json _task_signature;
     nlohmann::json _param_json;
-    Algo _algo;
+    Algo _algo = Algo::ALGO_BFV;
 
     bool _heterogeneous_mode = false;  // false for CPU mode (homogeneous), true for GPU/FPGA mode (heterogeneous)
 
