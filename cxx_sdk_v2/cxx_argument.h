@@ -16,59 +16,113 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef CXX_FHE_TASK_COMMON_H
-#define CXX_FHE_TASK_COMMON_H
+#ifndef CXX_ARGUMENT_H
+#define CXX_ARGUMENT_H
 
-#include "cxx_fhe_task.h"
+#include <vector>
+#include <string>
+#include <typeindex>
+#include <unordered_map>
+#include <stdexcept>
 #include "nlohmann/json.hpp"
-#include <map>
+#include "../fhe_ops_lib/fhe_lib_v2.h"
 
 extern "C" {
 #include "../fhe_ops_lib/structs_v2.h"
+#include "../mega_ag_runners/wrapper.h"
 }
 
 namespace cxx_sdk_v2 {
 
-// Type mapping declarations
-extern std::map<CxxArgumentType, std::string> cxx_argument_type_str_map;
-extern std::map<std::string, CxxArgumentType> str_cxx_argument_type_map;
+using namespace fhe_ops_lib;
+
+enum class CxxArgumentType {
+    PLAINTEXT,
+    PLAINTEXT_MUL,
+    PLAINTEXT_RINGT,
+    CIPHERTEXT,
+    CIPHERTEXT3,
+    RELIN_KEY,
+    GALOIS_KEY,
+    CUSTOM
+};
+
+inline std::unordered_map<CxxArgumentType, DataType> type_map = {
+    {CxxArgumentType::CIPHERTEXT, DataType::TYPE_CIPHERTEXT},
+    {CxxArgumentType::CIPHERTEXT3, DataType::TYPE_CIPHERTEXT},
+    {CxxArgumentType::PLAINTEXT, DataType::TYPE_PLAINTEXT},
+    {CxxArgumentType::PLAINTEXT_RINGT, DataType::TYPE_PLAINTEXT},
+    {CxxArgumentType::PLAINTEXT_MUL, DataType::TYPE_PLAINTEXT},
+    {CxxArgumentType::RELIN_KEY, DataType::TYPE_RELIN_KEY},
+    {CxxArgumentType::GALOIS_KEY, DataType::TYPE_GALOIS_KEY},
+};
+
+inline std::unordered_map<std::type_index, CxxArgumentType> _type_map = {
+    {std::type_index(typeid(BfvCiphertext)), CxxArgumentType::CIPHERTEXT},
+    {std::type_index(typeid(BfvCiphertext3)), CxxArgumentType::CIPHERTEXT3},
+    {std::type_index(typeid(BfvPlaintext)), CxxArgumentType::PLAINTEXT},
+    {std::type_index(typeid(BfvPlaintextRingt)), CxxArgumentType::PLAINTEXT_RINGT},
+    {std::type_index(typeid(BfvPlaintextMul)), CxxArgumentType::PLAINTEXT_MUL},
+    {std::type_index(typeid(CkksCiphertext)), CxxArgumentType::CIPHERTEXT},
+    {std::type_index(typeid(CkksCiphertext3)), CxxArgumentType::CIPHERTEXT3},
+    {std::type_index(typeid(CkksPlaintext)), CxxArgumentType::PLAINTEXT},
+    {std::type_index(typeid(CkksPlaintextRingt)), CxxArgumentType::PLAINTEXT_RINGT},
+    {std::type_index(typeid(CkksPlaintextMul)), CxxArgumentType::PLAINTEXT_MUL},
+};
+
+template <typename T> struct is_vector {
+    static const bool value = false;
+};
+
+template <typename T> struct is_vector<std::vector<T>> {
+    static const bool value = true;
+};
+
+template <typename T>
+void add_flat(T& x,
+              std::vector<Handle*>& flat,
+              std::vector<CxxArgumentType>& flat_types,
+              std::vector<int>& flat_levels) {
+    if constexpr (is_vector<T>::value) {
+        for (auto& y : x) {
+            add_flat(y, flat, flat_types, flat_levels);
+        }
+    } else {
+        flat.push_back(&x);
+        flat_types.push_back(_type_map[std::type_index(typeid(T))]);
+        flat_levels.push_back(x.get_level());
+    }
+}
 
 /**
- * @brief Check if a single argument conforms to signature requirements
+ * @brief Structure describing the information of each input/output argument.
  */
-void check_with_sig(const CxxVectorArgument& cxx_arg,
-                    const std::string& expected_id,
-                    CxxArgumentType expected_type,
-                    const std::vector<size_t>& expected_shape,
-                    int expected_level);
+struct CxxVectorArgument {
+    /** Argument ID. */
+    std::string arg_id;
+    /** Argument type. */
+    CxxArgumentType type;
+    /** Argument level. */
+    int level;
+    /** Pointers to data handles contained in this argument. */
+    std::vector<Handle*> flat_handles;
 
-/**
- * @brief Check if context keys conform to signature requirements
- */
-void check_context_for_key_signatures(const FheContext& context, const nlohmann::json& key_signature);
-
-/**
- * @brief Check task parameter signatures
- *
- * @param context Pointer to FHE context object
- * @param cxx_args Array of task arguments
- * @param task_sig_json Task signature JSON object
- * @param online_phase Whether in online phase (default: true)
- * @return Number of input arguments
- */
-int check_signatures(FheContext* context,
-                     const std::vector<CxxVectorArgument>& cxx_args,
-                     const nlohmann::json& task_sig_json,
-                     bool online_phase = true);
-
-/**
- * @brief Check if FHE context parameters match JSON configuration
- *
- * @param context Pointer to FHE context object
- * @param param_json Parameter configuration JSON object
- * @throws std::runtime_error When parameters do not match
- */
-void check_parameter(FheContext* context, const nlohmann::json& param_json);
+    template <typename T> CxxVectorArgument(const std::string& id, T* hdl) : arg_id(id) {
+        std::vector<CxxArgumentType> flat_types;
+        std::vector<int> flat_levels;
+        add_flat(*hdl, flat_handles, flat_types, flat_levels);
+        type = flat_types[0];
+        level = flat_levels[0];
+        for (int i = 0; i < flat_handles.size(); i++) {
+            if (flat_types[i] != type) {
+                throw std::runtime_error("inconsistent types");
+            }
+            if (flat_levels[i] != level) {
+                throw std::runtime_error("inconsistent levels");
+            }
+        }
+    }
+};
 
 inline void _export_ciphertexts(const std::vector<Handle*>& src, CCiphertext* dest, const Parameter& param) {
     for (int i = 0; i < src.size(); i++) {
@@ -371,4 +425,4 @@ inline int get_n_key_arg(nlohmann::json& key_signature, bool online_phase = true
 
 }  // namespace cxx_sdk_v2
 
-#endif  // CXX_FHE_TASK_COMMON_H
+#endif  // CXX_ARGUMENT_H
