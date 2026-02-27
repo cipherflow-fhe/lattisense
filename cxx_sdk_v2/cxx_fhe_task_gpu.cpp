@@ -21,7 +21,8 @@
 #include <unordered_map>
 
 #include "cxx_fhe_task.h"
-#include "cxx_fhe_task_common.h"
+#include "cxx_argument.h"
+#include "check_sig.h"
 #include "../mega_ag_runners/wrapper.h"
 
 namespace cxx_sdk_v2 {
@@ -41,17 +42,13 @@ uint64_t FheTaskGpu::run(FheContext* context, const std::vector<CxxVectorArgumen
     auto start = std::chrono::high_resolution_clock::now();
 
     int n_in_args = 0, n_out_args = 0;
-    n_in_args = check_signatures(context, cxx_args, _task_signature);
+    n_in_args = check_signatures(context, cxx_args, _task_signature, _algo);
     n_out_args = cxx_args.size() - n_in_args;
 
-    nlohmann::json key_signature = _task_signature["key"];
+    // Check parameter
+    check_parameter(context, _param_json);
 
-    Algo algo = Algo::ALGO_BFV;
-    if (typeid(*context) == typeid(BfvContext)) {
-        algo = Algo::ALGO_BFV;
-    } else if (typeid(*context) == typeid(CkksContext) || typeid(*context) == typeid(CkksBtpContext)) {
-        algo = Algo::ALGO_CKKS;
-    }
+    nlohmann::json key_signature = _task_signature["key"];
 
     const Parameter& param = context->get_parameter();
 
@@ -63,7 +60,7 @@ uint64_t FheTaskGpu::run(FheContext* context, const std::vector<CxxVectorArgumen
 
     // call runner
     int ret = run_fhe_gpu_task(task_handle, input_args.data(), input_args.size(), output_args.data(),
-                               output_args.size(), algo);
+                               output_args.size(), _algo);
 
     if (ret != 0) {
         throw std::runtime_error("Failed to run GPU project");

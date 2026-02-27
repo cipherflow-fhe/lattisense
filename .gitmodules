@@ -4,3 +4,6 @@
 [submodule "fhe_ops_lib/lattigo"]
 	path = fhe_ops_lib/lattigo
 	url = https://github.com/cipherflow-fhe/lattigo.git
+[submodule "fpga_backend"]
+	path = fpga_backend
+	url = https://github.com/cipherflow-fhe/lattisense-lib-fpga.git
