@@ -21,11 +21,8 @@
 
 #include <fstream>
 #include <iostream>
-#include <unordered_map>
-#include <vector>
-#include <typeindex>
 #include "nlohmann/json.hpp"
-#include "../fhe_ops_lib/fhe_lib_v2.h"
+#include "cxx_argument.h"
 
 extern "C" {
 #include "../mega_ag_runners/wrapper.h"
@@ -33,75 +30,6 @@ extern "C" {
 #include "../mega_ag_runners/mega_ag.h"
 
 namespace cxx_sdk_v2 {
-
-using namespace fhe_ops_lib;
-
-enum class CxxArgumentType {
-    PLAINTEXT,
-    PLAINTEXT_MUL,
-    PLAINTEXT_RINGT,
-    CIPHERTEXT,
-    CIPHERTEXT3,
-    RELIN_KEY,
-    GALOIS_KEY,
-    CUSTOM
-};
-extern std::unordered_map<CxxArgumentType, DataType> type_map;
-extern std::unordered_map<std::type_index, CxxArgumentType> _type_map;
-
-template <typename T> struct is_vector {
-    static const bool value = false;
-};
-
-template <typename T> struct is_vector<std::vector<T>> {
-    static const bool value = true;
-};
-
-template <typename T>
-void add_flat(T& x,
-              std::vector<Handle*>& flat,
-              std::vector<CxxArgumentType>& flat_types,
-              std::vector<int>& flat_levels) {
-    if constexpr (is_vector<T>::value) {
-        for (auto& y : x) {
-            add_flat(y, flat, flat_types, flat_levels);
-        }
-    } else {
-        flat.push_back(&x);
-        flat_types.push_back(_type_map[std::type_index(typeid(T))]);
-        flat_levels.push_back(x.get_level());
-    }
-}
-
-/**
- * @brief Structure describing the information of each input/output argument.
- */
-struct CxxVectorArgument {
-    /** Argument ID. */
-    std::string arg_id;
-    /** Argument type. */
-    CxxArgumentType type;
-    /** Argument level. */
-    int level;
-    /** Pointers to data handles contained in this argument. */
-    std::vector<Handle*> flat_handles;
-
-    template <typename T> CxxVectorArgument(const std::string& id, T* hdl) : arg_id(id) {
-        std::vector<CxxArgumentType> flat_types;
-        std::vector<int> flat_levels;
-        add_flat(*hdl, flat_handles, flat_types, flat_levels);
-        type = flat_types[0];
-        level = flat_levels[0];
-        for (int i = 0; i < flat_handles.size(); i++) {
-            if (flat_types[i] != type) {
-                throw std::runtime_error("inconsistent types");
-            }
-            if (flat_levels[i] != level) {
-                throw std::runtime_error("inconsistent levels");
-            }
-        }
-    }
-};
 
 class FheTask {
 public:
@@ -113,14 +41,14 @@ public:
 
     FheTask(FheTask&& other) {
         std::swap(_project_path, other._project_path);
-        std::swap(_heterogeneous_mode, other._heterogeneous_mode);
+        std::swap(_algo, other._algo);
     }
 
     void operator=(const FheTask& other) = delete;
 
     void operator=(FheTask&& other) {
         std::swap(_project_path, other._project_path);
-        std::swap(_heterogeneous_mode, other._heterogeneous_mode);
+        std::swap(_algo, other._algo);
     }
 
     ~FheTask();
@@ -145,6 +73,9 @@ public:
 protected:
     std::string _project_path = "";
     nlohmann::json _task_signature;
+    nlohmann::json _param_json;
+    Algo _algo = Algo::ALGO_BFV;
+
     bool _heterogeneous_mode = false;  // false for CPU mode (homogeneous), true for GPU/FPGA mode (heterogeneous)
 
     std::vector<CArgument> input_args;
