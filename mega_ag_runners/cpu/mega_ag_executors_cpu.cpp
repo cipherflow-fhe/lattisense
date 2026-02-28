@@ -41,11 +41,13 @@ using namespace fhe_ops_lib;
     if constexpr (SchemeType == HEScheme::BFV) {                                                                       \
         context = ctx.get_arithmetic_context<BfvContext>();                                                            \
     } else {                                                                                                           \
-        context = ctx.get_arithmetic_context<CkksContext>();                                                           \
-        if (!context)                                                                                                  \
-            context = ctx.get_arithmetic_context<CkksBtpContext>();                                                    \
-        if (!context)                                                                                                  \
+        if (auto* ckks_ctx = ctx.get_arithmetic_context<CkksContext>()) {                                              \
+            context = ckks_ctx;                                                                                        \
+        } else if (auto* ckks_btp_ctx = ctx.get_arithmetic_context<CkksBtpContext>()) {                                \
+            context = ckks_btp_ctx;                                                                                    \
+        } else {                                                                                                       \
             throw std::runtime_error("Unknown CKKS context type");                                                     \
+        }                                                                                                              \
     }                                                                                                                  \
     std::vector<CiphertextType*> ciphertexts;                                                                          \
     std::vector<Ciphertext3Type*> ciphertexts3;                                                                        \

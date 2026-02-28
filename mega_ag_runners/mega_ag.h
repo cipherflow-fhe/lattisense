@@ -47,7 +47,8 @@ struct ExecutionContext {
                                        // e.g., ExecutionOptions* (GPU), thread pool, polyvec_64* (FPGA), etc.
 
     template <typename T> T* get_arithmetic_context() {
-        return std::any_cast<T*>(context);
+        auto* p = std::any_cast<T*>(&context);
+        return p ? *p : nullptr;
     }
 
     template <typename T> T* get_other_arg(size_t index = 0) {
