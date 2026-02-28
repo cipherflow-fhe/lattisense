@@ -29,6 +29,7 @@ typedef enum {
     TYPE_RELIN_KEY,
     TYPE_GALOIS_KEY,
     TYPE_SWITCH_KEY,
+    TYPE_CUSTOM,
 } DataType;
 
 typedef enum {

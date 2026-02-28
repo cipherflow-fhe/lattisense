@@ -464,8 +464,8 @@ void _run_mega_ag(gsl::span<CArgument> input_args, gsl::span<CArgument> output_a
             // Get galois_element only if this input is a Galois key
             uint32_t galois_element = 0;
             const DatumNode& input_node = mega_ag.data.at(input_index);
-            if (input_node.datum_type == TYPE_GALOIS_KEY && input_node.p.has_value()) {
-                galois_element = input_node.p->galois_element;
+            if (input_node.fhe_prop->datum_type == TYPE_GALOIS_KEY && input_node.fhe_prop->p.has_value()) {
+                galois_element = input_node.fhe_prop->p->galois_element;
             }
 
             auto exported_data = transfer_input_h2c<SchemeType>(input_index, input_args, *context, input_indices,
@@ -587,9 +587,8 @@ void _run_mega_ag(gsl::span<CArgument> input_args, gsl::span<CArgument> output_a
             ExecutionContext exec_ctx;
             exec_ctx.context = operators.get();
             exec_ctx.other_args.push_back(&compute_stream_options[stream_id]);
-            exec_ctx.processor = Processor::GPU;
 
-            int output_level = compute_output_node->level;
+            int output_level = compute_output_node->fhe_prop->level;
             auto output_ptr = std::make_shared<heongpu::Ciphertext<SchemeType>>(*context, output_level,
                                                                                 compute_stream_options[stream_id]);
 

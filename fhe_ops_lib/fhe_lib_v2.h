@@ -1493,5 +1493,86 @@ public:
     static RefreshAndPermuteShare deserialize(const RefreshAndPermuteContext& context, BytesView data);
 };
 
+/**
+ * @brief Custom data type for storing user-defined data nodes from mega_ag.json
+ *
+ * This class extends the Handle base class and adds a void* data member
+ * to store custom data payloads that are not part of the standard FHE types.
+ * It is designed to be used with the mega_ag execution framework for handling
+ * custom operation types (e.g., encode, decode, custom algorithms).
+ */
+class CustomData : public Handle {
+public:
+    using Handle::Handle;
+
+    /**
+     * @brief Construct a CustomData object with arbitrary typed data
+     * @tparam T The type of the custom data
+     * @param custom_data The custom data to store (will be heap-allocated and converted to void*)
+     * @param k Keep flag (default false)
+     *
+     * This constructor accepts any type T, creates a heap copy of the data,
+     * converts it to void*, and generates a random 64-bit handle value.
+     */
+    template <typename T>
+    CustomData(const T& custom_data, bool k = false)
+        : Handle(uint64_t(0), k), data(static_cast<void*>(new typename std::decay<T>::type(custom_data))) {}
+
+    /**
+     * @brief Construct a CustomData object with arbitrary typed data (move semantics)
+     * @tparam T The type of the custom data
+     * @param custom_data The custom data to store (will be moved to heap and converted to void*)
+     * @param k Keep flag (default false)
+     */
+    template <typename T>
+    CustomData(T&& custom_data,
+               bool k = false,
+               typename std::enable_if<!std::is_lvalue_reference<T>::value, int>::type = 0)
+        : Handle(uint64_t(0), k),
+          data(static_cast<void*>(new typename std::decay<T>::type(std::forward<T>(custom_data)))) {}
+
+    /**
+     * @brief Construct a CustomData object with a raw void pointer
+     * @param custom_data Pointer to custom user-defined data
+     * @param k Keep flag (default false)
+     *
+     * This constructor accepts a raw void* pointer and generates a random handle.
+     */
+    explicit CustomData(void* custom_data, bool k = false) : Handle(uint64_t(0), k), data(custom_data) {}
+
+    /**
+     * @brief Default constructor
+     */
+    CustomData() : Handle(), data(nullptr) {}
+
+    /**
+     * @brief Move constructor
+     */
+    CustomData(CustomData&& other) : Handle(std::move(other)), data(other.data) {
+        other.data = nullptr;
+    }
+
+    /**
+     * @brief Move assignment operator
+     */
+    void operator=(CustomData&& other) {
+        Handle::operator=(std::move(other));
+        data = other.data;
+        other.data = nullptr;
+    }
+
+    /**
+     * @brief Template helper to get typed custom data
+     * @tparam T The type to cast the data pointer to
+     * @return T* Typed pointer to the custom data
+     */
+    template <typename T> T* get_typed_data() const {
+        return static_cast<T*>(data);
+    }
+
+private:
+    void* data;  ///< Pointer to custom user-defined data from mega_ag.json
+};
+
 }  // namespace fhe_ops_lib
 #endif  // CXX_FHE_LIB_H

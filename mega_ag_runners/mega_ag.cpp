@@ -71,80 +71,127 @@ MegaAG MegaAG::from_json(const std::string& json_path, Processor processor) {
 
     for (auto& [key, value] : data_json.items()) {
         const std::string& json_type = value["type"].get<std::string>();
-
-        auto datum_type = str_to_datum_type.at(json_type);
-        if (processor == Processor::CPU) {
-            if (datum_type == DataType::TYPE_RELIN_KEY || datum_type == DataType::TYPE_GALOIS_KEY ||
-                datum_type == DataType::TYPE_SWITCH_KEY) {
-                continue;
-            }
-        }
+        NodeIndex index = std::stoull(key);
 
         DatumNode node;
-        node.index = std::stoull(key);
+        node.index = index;
         node.id = value["id"].get<std::string>();
-        node.level = value["level"].get<int32_t>();
-        node.is_ntt = value["is_ntt"].get<bool>();
-        node.is_mform = value["is_mform"].get<bool>();
-        node.degree = value["degree"].get<int32_t>();
-        node.datum_type = datum_type;
 
-        if (node.datum_type == DataType::TYPE_GALOIS_KEY) {
-            DatumNode::ExtraProperty prop;
-            prop.galois_element = value["galois_element"].get<uint32_t>();
-            node.p = prop;
-        } else if (json_type == "pt_ringt") {
-            DatumNode::ExtraProperty prop;
-            prop.is_ringt = true;
-            node.p = prop;
+        if (value.contains("is_custom") && value["is_custom"].get<bool>()) {
+            // Custom data node
+            DatumNode::CustomProperty custom_prop;
+            custom_prop.type = json_type;
+            if (value.contains("attributes")) {
+                custom_prop.attributes = value["attributes"];
+            }
+            node.custom_prop = custom_prop;
+        } else {
+            // FHE data node
+            auto datum_type = str_to_datum_type.at(json_type);
+            if (processor == Processor::CPU) {
+                if (datum_type == DataType::TYPE_RELIN_KEY || datum_type == DataType::TYPE_GALOIS_KEY ||
+                    datum_type == DataType::TYPE_SWITCH_KEY) {
+                    continue;
+                }
+            }
+
+            DatumNode::FheProperty fhe_prop;
+            fhe_prop.datum_type = datum_type;
+            fhe_prop.level = value["level"].get<int32_t>();
+            fhe_prop.is_ntt = value["is_ntt"].get<bool>();
+            fhe_prop.is_mform = value["is_mform"].get<bool>();
+            fhe_prop.degree = value["degree"].get<int32_t>();
+
+            // Set sp_level if present in JSON
+            if (value.contains("sp_level")) {
+                fhe_prop.sp_level = value["sp_level"].get<int32_t>();
+            } else {
+                fhe_prop.sp_level = -1;  // Default value
+            }
+
+            if (datum_type == DataType::TYPE_GALOIS_KEY) {
+                DatumNode::FheProperty::ExtraProperty extra_prop;
+                extra_prop.galois_element = value["galois_element"].get<uint32_t>();
+                fhe_prop.p = extra_prop;
+            } else if (json_type == "pt_ringt") {
+                DatumNode::FheProperty::ExtraProperty extra_prop;
+                extra_prop.is_ringt = true;
+                fhe_prop.p = extra_prop;
+            }
+
+            node.fhe_prop = fhe_prop;
         }
 
-        mega_ag.data.emplace(node.index, std::move(node));
+        mega_ag.data.emplace(index, std::move(node));
     }
 
     for (auto& [key, value] : computes_json.items()) {
+        NodeIndex index = std::stoull(key);
+        const std::string& json_type = value["type"].get<std::string>();
+
         ComputeNode node;
-        node.index = std::stoull(key);
+        node.index = index;
         node.id = value["id"].get<std::string>();
 
-        const std::string& json_type = value["type"].get<std::string>();
-        node.op_type = str_to_operation_type.at(json_type);
+        auto input_indices = value["inputs"].get<std::vector<NodeIndex>>();
+        auto output_indices = value["outputs"].get<std::vector<NodeIndex>>();
 
-        if (node.op_type == OperationType::ROTATE_COL) {
-            ComputeNode::ExtraProperty prop;
-            prop.rotation_step = value["step"].get<int32_t>();
-            node.p = prop;
-        } else if (node.op_type == OperationType::MAC_WO_PARTIAL_SUM ||
-                   node.op_type == OperationType::MAC_W_PARTIAL_SUM) {
-            ComputeNode::ExtraProperty prop;
-            prop.sum_cnt = value["sum_cnt"].get<int32_t>();
-            node.p = prop;
+        if (value.contains("is_custom") && value["is_custom"].get<bool>()) {
+            // Custom compute node
+            ComputeNode::CustomProperty custom_prop;
+            custom_prop.type = json_type;
+            if (value.contains("attributes")) {
+                custom_prop.attributes = value["attributes"];
+            }
+            node.custom_prop = custom_prop;
+        } else {
+            // FHE compute node
+            ComputeNode::FheProperty fhe_prop;
+            fhe_prop.op_type = str_to_operation_type.at(json_type);
+
+            if (fhe_prop.op_type == OperationType::ROTATE_COL) {
+                ComputeNode::FheProperty::ExtraProperty extra_prop;
+                extra_prop.rotation_step = value["step"].get<int32_t>();
+                fhe_prop.p = extra_prop;
+            } else if (fhe_prop.op_type == OperationType::MAC_WO_PARTIAL_SUM ||
+                       fhe_prop.op_type == OperationType::MAC_W_PARTIAL_SUM) {
+                ComputeNode::FheProperty::ExtraProperty extra_prop;
+                extra_prop.sum_cnt = value["sum_cnt"].get<int32_t>();
+                fhe_prop.p = extra_prop;
+            }
+
+            node.fhe_prop = fhe_prop;
         }
 
-        auto input_indices = value["inputs"].get<std::vector<NodeIndex>>();
-
+        // Add input/output nodes (common for both custom and FHE)
         for (NodeIndex i : input_indices) {
             if (processor == Processor::CPU && mega_ag.data.find(i) == mega_ag.data.end()) {
                 continue;
             }
-            DatumNode& input_node = mega_ag.data.at(i);
-            node.input_nodes.push_back(&input_node);
+            node.input_nodes.push_back(&mega_ag.data.at(i));
         }
 
-        auto output_indices = value["outputs"].get<std::vector<NodeIndex>>();
         for (NodeIndex i : output_indices) {
             node.output_nodes.push_back(&mega_ag.data.at(i));
         }
 
-        // Bind executor based on algorithm and processor type
-        ExecutorBinder::bind_executor(node, processor, algorithm);
+        // Bind executor for FHE nodes
+        if (!node.custom_prop.has_value() && processor != Processor::FPGA) {
+            ExecutorBinder::bind_executor(node, processor, algorithm);
+        }
 
-        mega_ag.computes.emplace(node.index, std::move(node));
+        mega_ag.computes.emplace(index, std::move(node));
     }
 
+    // Build successor and predecessor relationships after all ComputeNodes are in the map
     for (auto& [compute_index, compute_node] : mega_ag.computes) {
         for (auto* input_node : compute_node.input_nodes) {
+            // Add to successor list (unified for both FHE and custom)
             input_node->successors.push_back(&compute_node);
+        }
+        for (auto* output_node : compute_node.output_nodes) {
+            // Add to predecessor list (unified for both FHE and custom)
+            output_node->predecessors.push_back(&compute_node);
         }
     }
 
@@ -153,10 +200,14 @@ MegaAG MegaAG::from_json(const std::string& json_path, Processor processor) {
         for (auto& index : input_indices) {
             if (mega_ag.data.find(index) != mega_ag.data.end()) {
                 mega_ag.inputs.push_back(index);
+                mega_ag.data.at(index).is_input = true;
             }
         }
     } else {
         mega_ag.inputs = input_indices;
+        for (auto i : mega_ag.inputs) {
+            mega_ag.data.at(i).is_input = true;
+        }
     }
 
     mega_ag.outputs = mega_ag_json["outputs"].get<std::vector<NodeIndex>>();

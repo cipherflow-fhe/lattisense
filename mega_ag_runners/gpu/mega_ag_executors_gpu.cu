@@ -37,7 +37,10 @@ template <heongpu::Scheme S> using Swk = heongpu::Switchkey<S>;
 static DatumNode* find_plaintext_node(const ComputeNode& node) {
     if (node.input_nodes.size() == 2) {
         auto* datum_node = node.input_nodes[1];
-        if (datum_node->datum_type == DataType::TYPE_PLAINTEXT) {
+        if (!datum_node->fhe_prop.has_value()) {
+            throw std::runtime_error("FHE property not found for compute node");
+        }
+        if (datum_node->fhe_prop->datum_type == DataType::TYPE_PLAINTEXT) {
             return datum_node;  // 2nd input node is plaintext
         }
     }
@@ -60,7 +63,7 @@ std::unordered_map<std::type_index, DataType> _type_map = {
 template <heongpu::Scheme S>
 std::tuple<heongpu::HEArithmeticOperator<S>&, heongpu::ExecutionOptions&>
 _get_operator_and_stream_option(ExecutionContext& ctx) {
-    auto* operators = std::any_cast<heongpu::HEArithmeticOperator<S>*>(ctx.context);
+    auto* operators = ctx.get_arithmetic_context<heongpu::HEArithmeticOperator<S>>();
     if (!operators) {
         throw std::runtime_error("Operators not found in GPU Execution context");
     }
@@ -72,7 +75,10 @@ _get_operator_and_stream_option(ExecutionContext& ctx) {
 }
 
 template <typename T> T& _get_input_data(const std::unordered_map<NodeIndex, std::any>& inputs, const DatumNode& node) {
-    assert(node.datum_type == _type_map[std::type_index(typeid(T))]);
+    if (!node.fhe_prop.has_value()) {
+        throw std::runtime_error("FHE property not found for input node " + std::to_string(node.index));
+    }
+    assert(node.fhe_prop->datum_type == _type_map[std::type_index(typeid(T))]);
     T& data = *std::any_cast<std::shared_ptr<T>>(inputs.at(node.index));
     return data;
 }
@@ -90,7 +96,7 @@ template <heongpu::Scheme S> void bind_gpu_add(ComputeNode& node) {
     } else {
         DatumNode* pt_node = find_plaintext_node(node);
         if (pt_node) {
-            if (pt_node->p && pt_node->p->is_ringt) {
+            if (pt_node->fhe_prop->p && pt_node->fhe_prop->p->is_ringt) {
                 node.executor = [](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
                                    std::any& output, const ComputeNode& self) -> void {
                     auto [operators, stream_option] = _get_operator_and_stream_option<S>(ctx);
@@ -138,7 +144,7 @@ template <heongpu::Scheme S> void bind_gpu_sub(ComputeNode& node) {
     } else {
         DatumNode* pt_node = find_plaintext_node(node);
         if (pt_node) {
-            if (pt_node->p && pt_node->p->is_ringt) {
+            if (pt_node->fhe_prop->p && pt_node->fhe_prop->p->is_ringt) {
                 node.executor = [](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
                                    std::any& output, const ComputeNode& self) -> void {
                     auto [operators, stream_option] = _get_operator_and_stream_option<S>(ctx);
@@ -196,7 +202,7 @@ template <heongpu::Scheme S> void bind_gpu_mult(ComputeNode& node) {
     } else {
         DatumNode* pt_node = find_plaintext_node(node);
         if (pt_node) {
-            if (pt_node->p && pt_node->p->is_ringt) {
+            if (pt_node->fhe_prop->p && pt_node->fhe_prop->p->is_ringt) {
                 node.executor = [](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
                                    std::any& output, const ComputeNode& self) -> void {
                     auto [operators, stream_option] = _get_operator_and_stream_option<S>(ctx);
@@ -271,7 +277,10 @@ template <heongpu::Scheme S> void bind_gpu_drop_level(ComputeNode& node) {
 }
 
 template <heongpu::Scheme S> void bind_gpu_rotate_col(ComputeNode& node) {
-    int step = node.p->rotation_step;
+    if (!node.fhe_prop->p.has_value()) {
+        throw std::runtime_error("Rotation step not found in FHE property");
+    }
+    int step = node.fhe_prop->p->rotation_step;
     node.executor = [step](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
                            std::any& output, const ComputeNode& self) -> void {
         auto [operators, stream_option] = _get_operator_and_stream_option<S>(ctx);
@@ -298,10 +307,17 @@ template <heongpu::Scheme S> void bind_gpu_rotate_row(ComputeNode& node) {
 }
 
 template <heongpu::Scheme S> void bind_gpu_cmpac_sum(ComputeNode& node) {
-    int n = node.p->sum_cnt;
+    if (!node.fhe_prop->p.has_value()) {
+        throw std::runtime_error("Sum count not found in FHE property");
+    }
+    int n = node.fhe_prop->p->sum_cnt;
     // Find the first plaintext node to determine type (plaintext nodes start at index n+1)
     DatumNode* pt_node = node.input_nodes[n + 1];
-    if (pt_node->p && pt_node->p->is_ringt) {
+    if (!pt_node->fhe_prop.has_value()) {
+        throw std::runtime_error("FHE property not found for compute node");
+    }
+
+    if (pt_node->fhe_prop->p && pt_node->fhe_prop->p->is_ringt) {
         node.executor = [n](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
                             std::any& output, const ComputeNode& self) -> void {
             auto [operators, stream_option] = _get_operator_and_stream_option<S>(ctx);
@@ -347,11 +363,17 @@ template <heongpu::Scheme S> void bind_gpu_cmpac_sum(ComputeNode& node) {
 }
 
 template <heongpu::Scheme S> void bind_gpu_cmp_sum(ComputeNode& node) {
-    int n = node.p->sum_cnt;
+    if (!node.fhe_prop->p.has_value()) {
+        throw std::runtime_error("Sum count not found in FHE property");
+    }
+    int n = node.fhe_prop->p->sum_cnt;
     // Find the first plaintext node to determine type (plaintext nodes start at index n)
     DatumNode* pt_node = node.input_nodes[n];
+    if (!pt_node->fhe_prop.has_value()) {
+        throw std::runtime_error("FHE property not found for compute node");
+    }
 
-    if (pt_node->p && pt_node->p->is_ringt) {
+    if (pt_node->fhe_prop->p && pt_node->fhe_prop->p->is_ringt) {
         node.executor = [n](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
                             std::any& output, const ComputeNode& self) -> void {
             auto [operators, stream_option] = _get_operator_and_stream_option<S>(ctx);
@@ -448,9 +470,13 @@ template void bind_gpu_bootstrap<heongpu::Scheme::CKKS>(ComputeNode& node);
 
 // Wrapper function for ExecutorBinder (callable from non-CUDA code)
 void bind_gpu_executor(ComputeNode& node, Algo algorithm) {
+    if (!node.fhe_prop.has_value()) {
+        throw std::runtime_error("FHE property not found for compute node");
+    }
+
     switch (algorithm) {
         case ALGO_BFV:
-            switch (node.op_type) {
+            switch (node.fhe_prop->op_type) {
                 case OperationType::ADD: bind_gpu_add<heongpu::Scheme::BFV>(node); break;
                 case OperationType::SUB: bind_gpu_sub<heongpu::Scheme::BFV>(node); break;
                 case OperationType::NEGATE: bind_gpu_neg<heongpu::Scheme::BFV>(node); break;
@@ -465,7 +491,7 @@ void bind_gpu_executor(ComputeNode& node, Algo algorithm) {
             }
             break;
         case ALGO_CKKS:
-            switch (node.op_type) {
+            switch (node.fhe_prop->op_type) {
                 case OperationType::ADD: bind_gpu_add<heongpu::Scheme::CKKS>(node); break;
                 case OperationType::SUB: bind_gpu_sub<heongpu::Scheme::CKKS>(node); break;
                 case OperationType::NEGATE: bind_gpu_neg<heongpu::Scheme::CKKS>(node); break;

@@ -44,11 +44,10 @@ struct ExecutionContext {
     std::any context;                  // BfvContext* | CkksContext* | CkksBtpContext* (CPU)
                                        // HEArithmeticOperator* (GPU)
     std::vector<std::any> other_args;  // Additional backend-specific arguments
-                                       // e.g., ExecutionOptions* (GPU), thread pool, etc.
-    Processor processor;
+                                       // e.g., ExecutionOptions* (GPU), thread pool, polyvec_64* (FPGA), etc.
 
-    template <typename T> T& get_context() {
-        return *std::any_cast<T*>(context);
+    template <typename T> T* get_arithmetic_context() {
+        return std::any_cast<T*>(context);
     }
 
     template <typename T> T* get_other_arg(size_t index = 0) {
@@ -66,6 +65,7 @@ using ExecutorFunc = std::function<void(ExecutionContext& ctx,
                                         const ComputeNode& self)>;
 
 enum class OperationType {
+    UNKNOWN,
     ADD,
     SUB,
     NEGATE,
@@ -83,27 +83,47 @@ enum class OperationType {
 // Forward declaration
 struct ComputeNode;
 
+/**
+ * @brief Unified data node for both FHE and custom types
+ */
 struct DatumNode {
-    NodeIndex index = 0;
+    NodeIndex index;
     std::string id;
-    std::vector<ComputeNode*> successors;
+    std::vector<ComputeNode*> predecessors;  // Producer compute nodes (both FHE and custom)
+    std::vector<ComputeNode*> successors;    // Consumer compute nodes (both FHE and custom)
+    bool is_input = false;
     bool is_output = false;
 
-    DataType datum_type = DataType::TYPE_CIPHERTEXT;
-    int32_t level = 0;
-    int32_t degree = 0;
-    bool is_ntt = false;
-    bool is_mform = false;
-    int32_t sp_level = 0;
+    // FHE-specific properties (use custom_prop.has_value() to check if custom node)
+    struct FheProperty {
+        DataType datum_type;
+        int32_t level;
+        int32_t degree;
+        bool is_ntt;
+        bool is_mform;
 
-    struct ExtraProperty {
-        bool is_ringt = false;
-        bool is_compressed = false;
-        uint32_t galois_element = 0;
+        struct ExtraProperty {
+            bool is_ringt;
+            bool is_compressed;
+            uint32_t galois_element;
+        };
+        std::optional<ExtraProperty> p;
+
+        int32_t sp_level;
     };
-    std::optional<ExtraProperty> p;
+    std::optional<FheProperty> fhe_prop;
+
+    // Custom-specific properties (if has value, this is a custom node)
+    struct CustomProperty {
+        std::string type;           // Custom datum type (e.g., "msg", "custom_encoded_data")
+        nlohmann::json attributes;  // Custom attributes from JSON
+    };
+    std::optional<CustomProperty> custom_prop;
 };
 
+/**
+ * @brief Unified compute node for both FHE and custom operations
+ */
 struct ComputeNode {
     NodeIndex index;
     std::string id;
@@ -114,13 +134,31 @@ struct ComputeNode {
     // Unified executor function (CPU and GPU)
     ExecutorFunc executor;
 
-    OperationType op_type;
+    // Execution target: true if this node runs on CPU
+    bool on_cpu;
 
-    struct ExtraProperty {
-        int32_t rotation_step = 0;
-        int32_t sum_cnt = 0;
+    // Data flow reverse: true if executor produces data for input_nodes instead of output_nodes
+    // (e.g., IMPORT_FROM_ABI bound to abi_export: handle → c_struct, where c_struct is input_nodes[0])
+    bool flow_reverse = false;
+
+    // FHE-specific properties (use custom_prop.has_value() to check if custom node)
+    struct FheProperty {
+        OperationType op_type;
+
+        struct ExtraProperty {
+            int32_t rotation_step;
+            int32_t sum_cnt;
+        };
+        std::optional<ExtraProperty> p;
     };
-    std::optional<ExtraProperty> p;
+    std::optional<FheProperty> fhe_prop;
+
+    // Custom-specific properties (if has value, this is a custom node)
+    struct CustomProperty {
+        std::string type;           // Custom operation type (e.g., "encode", "decode")
+        nlohmann::json attributes;  // Custom attributes from JSON (e.g., level, scale)
+    };
+    std::optional<CustomProperty> custom_prop;
 };
 
 struct MegaAG {
@@ -138,14 +176,26 @@ struct MegaAG {
     std::set<NodeIndex> get_available_computes(const std::unordered_map<NodeIndex, T>& available_data) const {
         std::set<NodeIndex> available_computes;
         for (const auto& [compute_index, compute_node] : this->computes) {
-            const std::vector<DatumNode*>& compute_input_nodes = compute_node.input_nodes;
             bool input_missing = false;
-            for (auto* compute_input_node : compute_input_nodes) {
-                if (available_data.find(compute_input_node->index) == available_data.end()) {
-                    input_missing = true;
-                    break;
+
+            if (!compute_node.flow_reverse) {
+                // Normal flow: check if all input_nodes are available
+                for (auto* compute_input_node : compute_node.input_nodes) {
+                    if (available_data.find(compute_input_node->index) == available_data.end()) {
+                        input_missing = true;
+                        break;
+                    }
+                }
+            } else {
+                // Reverse flow: check if all output_nodes are available
+                for (auto* compute_output_node : compute_node.output_nodes) {
+                    if (available_data.find(compute_output_node->index) == available_data.end()) {
+                        input_missing = true;
+                        break;
+                    }
                 }
             }
+
             if (!input_missing) {
                 available_computes.insert(compute_index);
             }
@@ -158,18 +208,52 @@ struct MegaAG {
                                                 const std::unordered_map<NodeIndex, T>& available_data) const {
         std::set<uint64_t> newly_available_computes;
 
+        // Check successors with flow_reverse=false (normal forward consumption)
         for (auto* compute_node : newly_available_datum.successors) {
+            // Skip if this is a reverse operation (it doesn't consume from successors)
+            if (compute_node->flow_reverse) {
+                continue;
+            }
+
             bool input_missing = false;
-            for (const auto* compute_input_node : compute_node->input_nodes) {
-                if (available_data.find(compute_input_node->index) == available_data.end()) {
+            // Check if all input nodes are available
+            for (const auto* required_node : compute_node->input_nodes) {
+                if (available_data.find(required_node->index) == available_data.end()) {
                     input_missing = true;
                     break;
                 }
             }
+
             if (!input_missing) {
                 newly_available_computes.insert(compute_node->index);
             }
         }
+
+        // Check predecessors with flow_reverse=true (reverse operations that need this output)
+        for (auto* compute_node : newly_available_datum.predecessors) {
+            // Skip if this is not a reverse operation
+            if (!compute_node->flow_reverse) {
+                continue;
+            }
+
+            bool input_missing = false;
+            // For reverse operations, check if all output nodes are available
+            for (const auto* required_node : compute_node->output_nodes) {
+                if (!required_node) {
+                    input_missing = true;
+                    break;
+                }
+                if (available_data.find(required_node->index) == available_data.end()) {
+                    input_missing = true;
+                    break;
+                }
+            }
+
+            if (!input_missing) {
+                newly_available_computes.insert(compute_node->index);
+            }
+        }
+
         return newly_available_computes;
     }
 
@@ -177,9 +261,13 @@ struct MegaAG {
     void purge_unused_data(const ComputeNode& compute_node,
                            std::unordered_map<NodeIndex, std::atomic<int>>& data_ref_counts,
                            std::unordered_map<NodeIndex, T>& available_data) const {
-        for (const auto* input_node : compute_node.input_nodes) {
+        // Determine which nodes were consumed based on flow_reverse
+        const std::vector<DatumNode*>& input_nodes =
+            !compute_node.flow_reverse ? compute_node.input_nodes : compute_node.output_nodes;
+
+        for (const auto* input_node : input_nodes) {
             int remaining_use = data_ref_counts[input_node->index].fetch_sub(1) - 1;
-            if (remaining_use <= 0 && !input_node->is_output) {
+            if (remaining_use <= 0 && !input_node->is_output && !input_node->is_input) {
                 available_data.erase(input_node->index);
             }
         }
