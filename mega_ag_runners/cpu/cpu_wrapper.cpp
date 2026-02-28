@@ -143,6 +143,35 @@ void init_context(const nlohmann::json& param_json, std::unique_ptr<TContext>& c
     }
 }
 
+template <HEScheme SchemeType>
+void init_available_data(std::unordered_map<NodeIndex, std::any>& available_data,
+                         const std::vector<NodeIndex>& input_indices,
+                         const std::vector<Handle*>& input_handles) {
+    using CiphertextType = std::conditional_t<SchemeType == HEScheme::BFV, BfvCiphertext, CkksCiphertext>;
+    using Ciphertext3Type = std::conditional_t<SchemeType == HEScheme::BFV, BfvCiphertext3, CkksCiphertext3>;
+    using PlaintextType = std::conditional_t<SchemeType == HEScheme::BFV, BfvPlaintext, CkksPlaintext>;
+    using PlaintextRingtType = std::conditional_t<SchemeType == HEScheme::BFV, BfvPlaintextRingt, CkksPlaintextRingt>;
+    using PlaintextMulType = std::conditional_t<SchemeType == HEScheme::BFV, BfvPlaintextMul, CkksPlaintextMul>;
+
+    for (size_t i = 0; i < input_indices.size(); ++i) {
+        NodeIndex index = input_indices[i];
+        Handle* handle = input_handles[i];
+        if (auto* p = dynamic_cast<Ciphertext3Type*>(handle)) {
+            available_data[index] = std::shared_ptr<Ciphertext3Type>(std::shared_ptr<Ciphertext3Type>(), p);
+        } else if (auto* p = dynamic_cast<CiphertextType*>(handle)) {
+            available_data[index] = std::shared_ptr<CiphertextType>(std::shared_ptr<CiphertextType>(), p);
+        } else if (auto* p = dynamic_cast<PlaintextRingtType*>(handle)) {
+            available_data[index] = std::shared_ptr<PlaintextRingtType>(std::shared_ptr<PlaintextRingtType>(), p);
+        } else if (auto* p = dynamic_cast<PlaintextMulType*>(handle)) {
+            available_data[index] = std::shared_ptr<PlaintextMulType>(std::shared_ptr<PlaintextMulType>(), p);
+        } else if (auto* p = dynamic_cast<PlaintextType*>(handle)) {
+            available_data[index] = std::shared_ptr<PlaintextType>(std::shared_ptr<PlaintextType>(), p);
+        } else {
+            throw std::runtime_error("Unknown input handle type in init_available_data");
+        }
+    }
+}
+
 template <HEScheme SchemeType, typename TContext>
 void _run_mega_ag_impl(gsl::span<CArgument> input_args, gsl::span<CArgument> output_args, const MegaAG& mega_ag) {
     std::unique_ptr<TContext> context;
@@ -176,11 +205,8 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args, gsl::span<CArgument> out
     std::queue<NodeIndex> task_queue;
     std::set<NodeIndex> queued_computes;
 
-    std::unordered_map<NodeIndex, std::shared_ptr<Handle>> available_handles;
-    for (size_t i = 0; i < input_handles.size(); ++i) {
-        NodeIndex input_index = mega_ag.inputs[i];
-        available_handles[input_index] = std::shared_ptr<Handle>(std::shared_ptr<Handle>(), input_handles[i]);
-    }
+    std::unordered_map<NodeIndex, std::any> available_handles;
+    init_available_data<SchemeType>(available_handles, mega_ag.inputs, input_handles);
 
     std::unordered_map<NodeIndex, std::atomic<int>> data_ref_counts;
     for (const auto& [data_index, data_info] : mega_ag.data) {
@@ -217,14 +243,11 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args, gsl::span<CArgument> out
             // Prepare execution context
             ExecutionContext exec_ctx;
             exec_ctx.context = fhe_context_ptrs[thread_id].get();
-            exec_ctx.processor = Processor::CPU;
 
             // Execute the compute node using its bound executor
             std::any output;
             compute_node.executor(exec_ctx, thread_input_cache, output, compute_node);
 
-            // Get output as shared_ptr<Handle>
-            auto output_handle = std::any_cast<std::shared_ptr<Handle>>(output);
             NodeIndex output_index = compute_node.output_nodes[0]->index;
 
             const DatumNode& compute_output_node = *compute_node.output_nodes[0];
@@ -232,8 +255,8 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args, gsl::span<CArgument> out
             // Update results and find newly available tasks
             {
                 std::lock_guard<std::mutex> lock(m_mutex);
-                // Store the output shared_ptr
-                available_handles[output_index] = output_handle;
+                // Store the output
+                available_handles[output_index] = output;
                 // Clean up unreferenced data
                 mega_ag.purge_unused_data(compute_node, data_ref_counts, available_handles);
                 // Find newly available computes
@@ -291,7 +314,22 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args, gsl::span<CArgument> out
     // Move results from available_handles back to output_handles
     for (size_t i = 0; i < mega_ag.outputs.size(); ++i) {
         NodeIndex output_index = mega_ag.outputs[i];
-        Handle* result_handle = available_handles[output_index].get();
+        const std::any& result_any = available_handles[output_index];
+
+        Handle* result_handle = nullptr;
+        if constexpr (SchemeType == HEScheme::BFV) {
+            if (auto* p = std::any_cast<std::shared_ptr<BfvCiphertext>>(&result_any))
+                result_handle = p->get();
+            else if (auto* p = std::any_cast<std::shared_ptr<BfvCiphertext3>>(&result_any))
+                result_handle = p->get();
+        } else {
+            if (auto* p = std::any_cast<std::shared_ptr<CkksCiphertext>>(&result_any))
+                result_handle = p->get();
+            else if (auto* p = std::any_cast<std::shared_ptr<CkksCiphertext3>>(&result_any))
+                result_handle = p->get();
+        }
+        if (!result_handle)
+            throw std::runtime_error("Cannot extract output ciphertext from result");
 
         // Move the result into the pre-allocated output Handle
         *output_handles[i] = std::move(*result_handle);
