@@ -228,8 +228,22 @@ void set_bfv_glk_n_mform_bits(uint64_t parameter_handle, uint64_t galois_key_han
     SetBfvGlkNMFormBits(parameter_handle, galois_key_handle, n_mform_bits);
 }
 
+void set_bfv_glk_n_mform_bits_for_gal(uint64_t parameter_handle,
+                                      uint64_t galois_key_handle,
+                                      uint64_t galois_element,
+                                      int n_mform_bits) {
+    SetBfvGlkNMFormBitsForGaloisElement(parameter_handle, galois_key_handle, galois_element, n_mform_bits);
+}
+
 void set_ckks_glk_n_mform_bits(uint64_t parameter_handle, uint64_t galois_key_handle, int n_mform_bits) {
     SetCkksGlkNMFormBits(parameter_handle, galois_key_handle, n_mform_bits);
+}
+
+void set_ckks_glk_n_mform_bits_for_gal(uint64_t parameter_handle,
+                                       uint64_t galois_key_handle,
+                                       uint64_t galois_element,
+                                       int n_mform_bits) {
+    SetCkksGlkNMFormBitsForGaloisElement(parameter_handle, galois_key_handle, galois_element, n_mform_bits);
 }
 
 void set_ckks_swk_n_mform_bits(uint64_t parameter_handle, uint64_t switching_key_handle, int n_mform_bits) {
