@@ -306,16 +306,18 @@ template <heongpu::Scheme S> void bind_gpu_cmpac_sum(ComputeNode& node) {
         node.executor = [n](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
                             std::any& output, const ComputeNode& self) -> void {
             auto [operators, stream_option] = _get_operator_and_stream_option<S>(ctx);
-            std::vector<heongpu::Ciphertext<S>> products(n);
-            for (int i = 0; i < n; i++) {
+            auto& input_ct_0 = _get_input_data<Ct<S>>(inputs, *self.input_nodes[0]);
+            auto& input_pt_0 = _get_input_data<Pt<S>>(inputs, *self.input_nodes[n + 1]);
+            input_pt_0.set_ringt(true);
+            Ct<S> sum;
+            operators.multiply_plain(input_ct_0, input_pt_0, sum, stream_option);
+            for (int i = 1; i < n; i++) {
                 auto& input_ct_i = _get_input_data<Ct<S>>(inputs, *self.input_nodes[i]);
                 auto& input_pt_i = _get_input_data<Pt<S>>(inputs, *self.input_nodes[n + 1 + i]);
                 input_pt_i.set_ringt(true);
-                operators.multiply_plain(input_ct_i, input_pt_i, products[i], stream_option);
-            }
-            auto sum = std::move(products[0]);
-            for (int i = 1; i < n; i++) {
-                operators.add_inplace(sum, products[i], stream_option);
+                Ct<S> product;
+                operators.multiply_plain(input_ct_i, input_pt_i, product, stream_option);
+                operators.add_inplace(sum, product, stream_option);
             }
             auto& input_ct_n = _get_input_data<Ct<S>>(inputs, *self.input_nodes[n]);
             auto& output0 = *std::any_cast<std::shared_ptr<Ct<S>>>(output);
@@ -327,15 +329,16 @@ template <heongpu::Scheme S> void bind_gpu_cmpac_sum(ComputeNode& node) {
             node.executor = [n](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
                                 std::any& output, const ComputeNode& self) -> void {
                 auto [operators, stream_option] = _get_operator_and_stream_option<S>(ctx);
-                std::vector<heongpu::Ciphertext<S>> products(n);
-                for (int i = 0; i < n; i++) {
+                auto& input_ct_0 = _get_input_data<Ct<S>>(inputs, *self.input_nodes[0]);
+                auto& input_pt_0 = _get_input_data<Pt<S>>(inputs, *self.input_nodes[n + 1]);
+                Ct<S> sum;
+                operators.multiply_plain(input_ct_0, input_pt_0, sum, stream_option);
+                for (int i = 1; i < n; i++) {
                     auto& input_ct_i = _get_input_data<Ct<S>>(inputs, *self.input_nodes[i]);
                     auto& input_pt_i = _get_input_data<Pt<S>>(inputs, *self.input_nodes[n + 1 + i]);
-                    operators.multiply_plain(input_ct_i, input_pt_i, products[i], stream_option);
-                }
-                auto sum = std::move(products[0]);
-                for (int i = 1; i < n; i++) {
-                    operators.add_inplace(sum, products[i], stream_option);
+                    Ct<S> product;
+                    operators.multiply_plain(input_ct_i, input_pt_i, product, stream_option);
+                    operators.add_inplace(sum, product, stream_option);
                 }
                 auto& input_ct_n = _get_input_data<Ct<S>>(inputs, *self.input_nodes[n]);
                 auto& output0 = *std::any_cast<std::shared_ptr<Ct<S>>>(output);
@@ -362,16 +365,18 @@ template <heongpu::Scheme S> void bind_gpu_cmp_sum(ComputeNode& node) {
         node.executor = [n](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
                             std::any& output, const ComputeNode& self) -> void {
             auto [operators, stream_option] = _get_operator_and_stream_option<S>(ctx);
-            std::vector<Ct<S>> products(n);
-            for (int i = 0; i < n; i++) {
+            auto& input_ct_0 = _get_input_data<Ct<S>>(inputs, *self.input_nodes[0]);
+            auto& input_pt_0 = _get_input_data<Pt<S>>(inputs, *self.input_nodes[n]);
+            input_pt_0.set_ringt(true);
+            Ct<S> sum;
+            operators.multiply_plain(input_ct_0, input_pt_0, sum, stream_option);
+            for (int i = 1; i < n; i++) {
                 auto& input_ct_i = _get_input_data<Ct<S>>(inputs, *self.input_nodes[i]);
                 auto& input_pt_i = _get_input_data<Pt<S>>(inputs, *self.input_nodes[n + i]);
                 input_pt_i.set_ringt(true);
-                operators.multiply_plain(input_ct_i, input_pt_i, products[i], stream_option);
-            }
-            auto sum = std::move(products[0]);
-            for (int i = 1; i < n; i++) {
-                operators.add_inplace(sum, products[i], stream_option);
+                Ct<S> product;
+                operators.multiply_plain(input_ct_i, input_pt_i, product, stream_option);
+                operators.add_inplace(sum, product, stream_option);
             }
             auto& output0 = *std::any_cast<std::shared_ptr<Ct<S>>>(output);
             output0 = std::move(sum);
@@ -382,15 +387,16 @@ template <heongpu::Scheme S> void bind_gpu_cmp_sum(ComputeNode& node) {
             node.executor = [n](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
                                 std::any& output, const ComputeNode& self) -> void {
                 auto [operators, stream_option] = _get_operator_and_stream_option<S>(ctx);
-                std::vector<heongpu::Ciphertext<S>> products(n);
-                for (int i = 0; i < n; i++) {
+                auto& input_ct_0 = _get_input_data<Ct<S>>(inputs, *self.input_nodes[0]);
+                auto& input_pt_0 = _get_input_data<Pt<S>>(inputs, *self.input_nodes[n]);
+                Ct<S> sum;
+                operators.multiply_plain(input_ct_0, input_pt_0, sum, stream_option);
+                for (int i = 1; i < n; i++) {
                     auto& input_ct_i = _get_input_data<Ct<S>>(inputs, *self.input_nodes[i]);
                     auto& input_pt_i = _get_input_data<Pt<S>>(inputs, *self.input_nodes[n + i]);
-                    operators.multiply_plain(input_ct_i, input_pt_i, products[i], stream_option);
-                }
-                auto sum = std::move(products[0]);
-                for (int i = 1; i < n; i++) {
-                    operators.add_inplace(sum, products[i], stream_option);
+                    Ct<S> product;
+                    operators.multiply_plain(input_ct_i, input_pt_i, product, stream_option);
+                    operators.add_inplace(sum, product, stream_option);
                 }
                 auto& output0 = *std::any_cast<std::shared_ptr<Ct<S>>>(output);
                 output0 = std::move(sum);
