@@ -21,8 +21,7 @@
 #include <unordered_map>
 
 #include "cxx_fhe_task.h"
-#include "cxx_argument.h"
-#include "check_sig.h"
+#include "cxx_abi_bridge_executors.h"
 #include "../mega_ag_runners/wrapper.h"
 
 namespace cxx_sdk_v2 {
@@ -31,14 +30,45 @@ const int GPU_MFORM_BITS = 0;
 
 FheTaskGpu::FheTaskGpu(const std::string& project_path) : FheTask{project_path} {
     task_handle = create_fhe_gpu_task(project_path.c_str());
-    _heterogeneous_mode = true;  // GPU mode uses heterogeneous computation
+
+    bind_abi_executors();
 }
 
 FheTaskGpu::~FheTaskGpu() {
     release_fhe_gpu_task(task_handle);
 }
 
-uint64_t FheTaskGpu::run(FheContext* context, const std::vector<CxxVectorArgument>& cxx_args, bool print_time) {
+void FheTaskGpu::bind_abi_executors() {
+    // Create ABI export executor (Handle → c_struct, for pre-allocation)
+    ExecutorFunc* abi_export =
+        new ExecutorFunc(create_abi_export_executor(_algo, true, GPU_MFORM_BITS, GPU_MFORM_BITS));
+
+    // Create ABI import executor (c_struct → Handle, for intermediate data and output write-back)
+    ExecutorFunc* abi_import = new ExecutorFunc(create_abi_import_executor(_algo, true));
+
+    // Call C interface to bind these executors
+    // GPU uses both: export for inputs (Handle → c_struct), import for intermediate and output nodes
+    bind_gpu_task_abi_bridge_executors(task_handle, reinterpret_cast<void*>(abi_export),
+                                       reinterpret_cast<void*>(abi_import));
+}
+
+void FheTaskGpu::bind_custom_executors(const std::unordered_map<std::string, ExecutorFunc>& custom_executors) {
+    // Prepare arrays for C interface
+    std::vector<const char*> custom_types;
+    std::vector<void*> executor_ptrs;
+
+    for (const auto& [custom_type, executor] : custom_executors) {
+        custom_types.push_back(custom_type.c_str());
+        // Store executor in a persistent location
+        ExecutorFunc* executor_ptr = new ExecutorFunc(executor);
+        executor_ptrs.push_back(reinterpret_cast<void*>(executor_ptr));
+    }
+
+    // Call C interface
+    bind_gpu_task_custom_executors(task_handle, custom_types.data(), executor_ptrs.data(), custom_types.size());
+}
+
+uint64_t FheTaskGpu::run(FheContext* context, const std::vector<CxxVectorArgument>& cxx_args) {
     auto start = std::chrono::high_resolution_clock::now();
 
     int n_in_args = 0, n_out_args = 0;
@@ -50,17 +80,16 @@ uint64_t FheTaskGpu::run(FheContext* context, const std::vector<CxxVectorArgumen
 
     nlohmann::json key_signature = _task_signature["key"];
 
-    const Parameter& param = context->get_parameter();
-
     new_args(n_in_args, n_out_args);
 
-    export_cxx_arguments(cxx_args, input_args, output_args, param, GPU_MFORM_BITS, _heterogeneous_mode);
+    // Export cxx arguments to Handle (same as CPU wrapper)
+    export_cxx_arguments(cxx_args, input_args, output_args);
 
-    export_public_key_arguments(key_signature, input_args, context, GPU_MFORM_BITS, _heterogeneous_mode);
+    export_public_key_arguments(key_signature, input_args, context);
 
-    // call runner
-    int ret = run_fhe_gpu_task(task_handle, input_args.data(), input_args.size(), output_args.data(),
-                               output_args.size(), _algo);
+    // Call GPU runner (Handle will be converted via ABI bridge executors in MegaAG)
+    int ret =
+        run_fhe_gpu_task(task_handle, input_args.data(), input_args.size(), output_args.data(), output_args.size());
 
     if (ret != 0) {
         throw std::runtime_error("Failed to run GPU project");
@@ -68,9 +97,9 @@ uint64_t FheTaskGpu::run(FheContext* context, const std::vector<CxxVectorArgumen
 
     auto end = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start);
-    if (print_time) {
-        std::cout << "Run GPU time: " << duration.count() / 1.0e6 << " ms" << std::endl;
-    }
+#ifdef LATTISENSE_DEV
+    std::cout << "Run GPU time: " << duration.count() / 1.0e6 << " ms" << std::endl;
+#endif
 
     return duration.count();
 }

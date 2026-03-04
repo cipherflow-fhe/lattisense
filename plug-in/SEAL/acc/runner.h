@@ -8,13 +8,14 @@
 #include <typeindex>
 
 extern "C" {
+#include "fpga_ops_wrapper.h"
 #include "log/log.h"
 #include "fhe_types_v2.h"
 #include "wrapper.h"
 #include "structs_v2.h"
 }
 #include <seal/seal.h>
-#include "c_struct_import_export.h"
+#include "argument.h"
 
 class FheTask {
 public:
@@ -43,6 +44,8 @@ protected:
     nlohmann::json _task_signature;
     nlohmann::json _param_json;
 
+    fhe_task_handle task_handle = nullptr;
+
     std::vector<CArgument> input_args;
     std::vector<CArgument> output_args;
 
@@ -63,17 +66,66 @@ public:
                  const seal::GaloisKeys* glk,
                  const std::vector<SealVectorArgument>& args);
 
-    fhe_task_handle task_handle;
+private:
+    void bind_abi_executors(int mf_nbits);
 };
 
-// Check signature functions
-void check_parameter(seal::SEALContext* context, const nlohmann::json& param_json);
+class FheTaskFpga : public FheTask {
+public:
+    using FheTask::FheTask;
 
-int check_signatures(seal::SEALContext* context,
-                     const seal::RelinKeys& rlk,
-                     const seal::GaloisKeys& glk,
-                     const std::vector<SealVectorArgument>& seal_args,
-                     const nlohmann::json& task_sig_json,
-                     bool online_phase);
+    FheTaskFpga(const std::string& project_path, bool online_phase = true);
+
+    FheTaskFpga(const FheTaskFpga& other) = delete;
+
+    FheTaskFpga(FheTaskFpga&& other);
+
+    void operator=(const FheTaskFpga& other) = delete;
+
+    void operator=(FheTaskFpga&& other);
+
+    ~FheTaskFpga();
+
+    uint64_t run(seal::SEALContext* context,
+                 const seal::RelinKeys* rlk,
+                 const seal::GaloisKeys* glk,
+                 const std::vector<SealVectorArgument>& args);
+
+private:
+    void bind_abi_executors(int mf_nbits);
+    bool _online_phase = true;
+};
+
+class FpgaDevice {
+public:
+    FpgaDevice(const FpgaDevice& other) = delete;
+
+    void operator=(const FpgaDevice& other) = delete;
+
+    /**
+     * 初始化FPGA加速卡设备。
+     * @return 无。
+     */
+    static int init();
+
+    /**
+     * 释放FPGA加速卡设备资源。
+     * @return 无。
+     */
+    static int free();
+
+private:
+    FpgaDevice() {}
+
+    ~FpgaDevice() {
+        free();
+    }
+
+    static FpgaDevice _instance;  ///< 设备单例对象
+    static bool _in_use;          ///< 设备占用符
+};
+
+seal::EncryptionParameters GenBfvFpgaParam(uint64_t plain_modulus);
+seal::EncryptionParameters GenCkksFpgaParam();
 
 #endif  // RUNNER_H

@@ -25,26 +25,7 @@ void FheTask::new_args(int n_in_args, int n_out_args) {
 }
 
 void FheTask::free_args() {
-    for (int i = 0; i < input_args.size(); i++) {
-        for (int j = 0; j < input_args[i].size; j++) {
-            switch (input_args[i].type) {
-                case DataType::TYPE_CIPHERTEXT: free_ciphertext(&((CCiphertext*)input_args[i].data)[j], false); break;
-                case DataType::TYPE_PLAINTEXT: free_plaintext(&((CPlaintext*)input_args[i].data)[j], false); break;
-                case DataType::TYPE_RELIN_KEY: free_relin_key(&((CRelinKey*)input_args[i].data)[j], false); break;
-                case DataType::TYPE_GALOIS_KEY: free_galois_key(&((CGaloisKey*)input_args[i].data)[j], false); break;
-            }
-        }
-    }
     input_args.clear();
-
-    for (int i = 0; i < output_args.size(); i++) {
-        for (int j = 0; j < output_args[i].size; j++) {
-            switch (output_args[i].type) {
-                case DataType::TYPE_CIPHERTEXT: free_ciphertext(&((CCiphertext*)output_args[i].data)[j], false); break;
-                default: throw std::runtime_error("Unsupported output type");
-            }
-        }
-    }
     output_args.clear();
 }
 

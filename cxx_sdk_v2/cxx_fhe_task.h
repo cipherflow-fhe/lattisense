@@ -21,15 +21,23 @@
 
 #include <fstream>
 #include <iostream>
+#include <unordered_map>
+#include <vector>
+#include <typeindex>
 #include "nlohmann/json.hpp"
-#include "cxx_argument.h"
+#include "../fhe_ops_lib/fhe_lib_v2.h"
 
 extern "C" {
 #include "../mega_ag_runners/wrapper.h"
 }
+
 #include "../mega_ag_runners/mega_ag.h"
+#include "cxx_argument.h"
+#include "check_sig.h"
 
 namespace cxx_sdk_v2 {
+
+using namespace fhe_ops_lib;
 
 class FheTask {
 public:
@@ -54,35 +62,33 @@ public:
     ~FheTask();
 
     /**
-     * @brief Core function for executing Fully Homomorphic Encryption (FHE) tasks.
-     *
-     * @param context Pointer to the FHE context object containing encryption parameters and public keys required for
-     * task execution.
-     * @param cxx_args Array of task input/output argument information, where each argument is described by a
-     * `CxxVectorArgument` structure.
-     *
-     * @return Task execution time in microseconds.
-     *
-     * @note
-     * - Derived classes must implement this function to define specific heterogeneous FHE task execution logic.
-     * - Each `CxxVectorArgument` object in `cxx_args` contains the argument ID, type, level, and an array of data
-     * handle pointers.
+     * @brief Bind custom executors for specific custom operation types before running the task
+     * @param custom_executors Map of custom operation type to executor function
      */
+    virtual void bind_custom_executors(const std::unordered_map<std::string, ExecutorFunc>& custom_executors) = 0;
+
     // virtual uint64_t run(FheContext* context, const std::vector<CxxVectorArgument>& cxx_args) = 0;
 
 protected:
     std::string _project_path = "";
     nlohmann::json _task_signature;
     nlohmann::json _param_json;
-    Algo _algo = Algo::ALGO_BFV;
+    Algo _algo;  // FHE algorithm (ALGO_BFV or ALGO_CKKS), parsed from task_signature
 
-    bool _heterogeneous_mode = false;  // false for CPU mode (homogeneous), true for GPU/FPGA mode (heterogeneous)
+    fhe_task_handle task_handle;
 
     std::vector<CArgument> input_args;
     std::vector<CArgument> output_args;
 
     void new_args(int n_in_args, int n_out_args);
     void free_args();
+
+    /**
+     * @brief Bind ABI bridge executors for Frontend Handle ↔ ABI C struct bridging
+     *
+     * Called automatically in the constructor to bind ABI bridge executors.
+     */
+    virtual void bind_abi_executors() = 0;
 };
 
 class FheTaskCpu : public FheTask {
@@ -92,10 +98,11 @@ public:
     FheTaskCpu(const std::string& project_path);
     ~FheTaskCpu();
 
+    void bind_custom_executors(const std::unordered_map<std::string, ExecutorFunc>& custom_executors) override;
     uint64_t run(FheContext* context, const std::vector<CxxVectorArgument>& cxx_args);
 
-private:
-    fhe_task_handle task_handle;
+protected:
+    void bind_abi_executors() override;
 };
 
 class FheTaskGpu : public FheTask {
@@ -106,9 +113,35 @@ public:
 
     ~FheTaskGpu();
 
-    uint64_t run(FheContext* context, const std::vector<CxxVectorArgument>& cxx_args, bool print_time = true);
+    void bind_custom_executors(const std::unordered_map<std::string, ExecutorFunc>& custom_executors) override;
+    uint64_t run(FheContext* context, const std::vector<CxxVectorArgument>& cxx_args);
 
-    fhe_task_handle task_handle;
+protected:
+    void bind_abi_executors() override;
+};
+
+class FheTaskFpga : public FheTask {
+public:
+    FheTaskFpga(const std::string& project_path, bool online_phase = true);
+
+    FheTaskFpga(const FheTaskFpga& other) = delete;
+
+    FheTaskFpga(FheTaskFpga&& other);
+
+    void operator=(const FheTaskFpga& other) = delete;
+
+    void operator=(FheTaskFpga&& other);
+
+    ~FheTaskFpga();
+
+    void bind_custom_executors(const std::unordered_map<std::string, ExecutorFunc>& custom_executors) override;
+    uint64_t run(FheContext* context, const std::vector<CxxVectorArgument>& cxx_args);
+
+protected:
+    void bind_abi_executors() override;
+
+private:
+    bool _online_phase = true;
 };
 
 }  // namespace cxx_sdk_v2

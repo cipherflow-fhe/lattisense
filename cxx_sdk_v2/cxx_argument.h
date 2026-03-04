@@ -55,6 +55,7 @@ inline std::unordered_map<CxxArgumentType, DataType> type_map = {
     {CxxArgumentType::PLAINTEXT_MUL, DataType::TYPE_PLAINTEXT},
     {CxxArgumentType::RELIN_KEY, DataType::TYPE_RELIN_KEY},
     {CxxArgumentType::GALOIS_KEY, DataType::TYPE_GALOIS_KEY},
+    {CxxArgumentType::CUSTOM, DataType::TYPE_CUSTOM},
 };
 
 inline std::unordered_map<std::type_index, CxxArgumentType> _type_map = {
@@ -68,6 +69,7 @@ inline std::unordered_map<std::type_index, CxxArgumentType> _type_map = {
     {std::type_index(typeid(CkksPlaintext)), CxxArgumentType::PLAINTEXT},
     {std::type_index(typeid(CkksPlaintextRingt)), CxxArgumentType::PLAINTEXT_RINGT},
     {std::type_index(typeid(CkksPlaintextMul)), CxxArgumentType::PLAINTEXT_MUL},
+    {std::type_index(typeid(CustomData)), CxxArgumentType::CUSTOM},
 };
 
 template <typename T> struct is_vector {
@@ -90,7 +92,13 @@ void add_flat(T& x,
     } else {
         flat.push_back(&x);
         flat_types.push_back(_type_map[std::type_index(typeid(T))]);
-        flat_levels.push_back(x.get_level());
+
+        // CustomData doesn't have get_level(), use -1 as default
+        if constexpr (std::is_same_v<T, CustomData>) {
+            flat_levels.push_back(-1);
+        } else {
+            flat_levels.push_back(x.get_level());
+        }
     }
 }
 
@@ -124,218 +132,72 @@ struct CxxVectorArgument {
     }
 };
 
-inline void _export_ciphertexts(const std::vector<Handle*>& src, CCiphertext* dest, const Parameter& param) {
-    for (int i = 0; i < src.size(); i++) {
-        if (typeid(param) == typeid(BfvParameter)) {
-            export_bfv_ciphertext(src[i]->get(), &dest[i]);
-        } else if (typeid(param) == typeid(CkksParameter)) {
-            export_ckks_ciphertext(src[i]->get(), &dest[i]);
-        }
-    }
-}
-
-inline void _import_ciphertexts(CCiphertext* src, const std::vector<Handle*>& dest, const Parameter& param) {
-    for (int i = 0; i < dest.size(); i++) {
-        if (typeid(param) == typeid(BfvParameter)) {
-            *dest[i] = import_bfv_ciphertext(param.get(), &src[i]);
-        } else if (typeid(param) == typeid(CkksParameter)) {
-            double scale = ((CkksCiphertext*)dest[i])->get_scale();
-            *dest[i] = import_ckks_ciphertext(param.get(), &src[i]);
-            ((CkksCiphertext*)dest[i])->set_scale(scale);
-        }
-    }
-}
-
-inline void _export_plaintexts(const std::vector<Handle*>& src, CPlaintext* dest, const Parameter& param) {
-    for (int i = 0; i < src.size(); i++) {
-        if (typeid(param) == typeid(BfvParameter)) {
-            export_bfv_plaintext(src[i]->get(), &dest[i]);
-        } else if (typeid(param) == typeid(CkksParameter)) {
-            export_ckks_plaintext(src[i]->get(), &dest[i]);
-        }
-    }
-}
-
-inline void _export_plaintext_ringts(const std::vector<Handle*>& src, CPlaintext* dest, const Parameter& param) {
-    for (int i = 0; i < src.size(); i++) {
-        if (typeid(param) == typeid(BfvParameter)) {
-            export_bfv_plaintext_ringt(src[i]->get(), &dest[i]);
-        } else if (typeid(param) == typeid(CkksParameter)) {
-            export_ckks_plaintext_ringt(src[i]->get(), &dest[i]);
-        }
-    }
-}
-
-inline void
-_export_plaintext_muls(const std::vector<Handle*>& src, CPlaintext* dest, const Parameter& param, int mf_nbits) {
-    if (mf_nbits == 0) {
-        throw std::runtime_error("Unsupported mfrom bite");
-    }
-    for (int i = 0; i < src.size(); i++) {
-        if (typeid(param) == typeid(BfvParameter)) {
-            bfv_plaintext_mul_inv_mform_and_mul_by_pow2(param.get(), src[i]->get(), mf_nbits);
-            export_bfv_plaintext_mul(src[i]->get(), &dest[i]);
-        } else if (typeid(param) == typeid(CkksParameter)) {
-            ckks_plaintext_mul_inv_mform_and_mul_by_pow2(param.get(), src[i]->get(), mf_nbits);
-            export_ckks_plaintext_mul(src[i]->get(), &dest[i]);
-        }
-    }
-}
-
-inline void _export_relin_key(const Handle& src, CRelinKey* dest, int level, const Parameter& param, int mf_nbits) {
-    if (typeid(param) == typeid(BfvParameter)) {
-        set_bfv_rlk_n_mform_bits(param.get(), src.get(), mf_nbits);
-    } else if (typeid(param) == typeid(CkksParameter)) {
-        set_ckks_rlk_n_mform_bits(param.get(), src.get(), mf_nbits);
-    }
-    export_relin_key(src.get(), level, dest);
-}
-
-inline void _export_galois_key(const Handle& src, CGaloisKey* dest, int level, const Parameter& param, int mf_nbits) {
-    if (typeid(param) == typeid(BfvParameter)) {
-        set_bfv_glk_n_mform_bits(param.get(), src.get(), mf_nbits);
-    } else if (typeid(param) == typeid(CkksParameter)) {
-        set_ckks_glk_n_mform_bits(param.get(), src.get(), mf_nbits);
-    }
-
-    export_galois_key(src.get(), level, dest);
-}
-
-inline void _export_switching_key(const Handle& src,
-                                  CKeySwitchKey* dest,
-                                  int level,
-                                  int sp_level,
-                                  const Parameter& param,
-                                  int mf_nbits) {
-    if (typeid(param) == typeid(BfvParameter)) {
-        throw std::runtime_error("BFV does not support switching key export");
-    } else if (typeid(param) == typeid(CkksParameter)) {
-        set_ckks_swk_n_mform_bits(param.get(), src.get(), mf_nbits);
-    }
-    export_switching_key(src.get(), level, sp_level, dest);
-}
-
-inline CArgument
-export_cxx_argument(const CxxVectorArgument& src, const Parameter& param, int mf_nbits, bool is_heterogeneous = true) {
+inline CArgument export_cxx_argument(const CxxVectorArgument& src) {
     CArgument dest;
     dest.id = src.arg_id.c_str();
     dest.type = type_map[src.type];
     dest.size = src.flat_handles.size();
     dest.level = src.level;
 
-    if (!is_heterogeneous) {
-        dest.data = (void*)src.flat_handles.data();
-        return dest;
-    }
+    // 直接使用Handle*指针，ABI转换由MegaAG图中的EXPORT_TO_ABI节点完成
+    dest.data = (void*)src.flat_handles.data();
 
-    // GPU/FPGA mode: export to C struct (for GPU computation)
-    switch (src.type) {
-        case CxxArgumentType::CIPHERTEXT: {
-            dest.data = (CCiphertext*)malloc(sizeof(CCiphertext) * dest.size);
-            _export_ciphertexts(src.flat_handles, (CCiphertext*)dest.data, param);
-            break;
-        }
-        case CxxArgumentType::CIPHERTEXT3: {
-            dest.data = (CCiphertext*)malloc(sizeof(CCiphertext) * dest.size);
-            _export_ciphertexts(src.flat_handles, (CCiphertext*)dest.data, param);
-            break;
-        }
-        case CxxArgumentType::PLAINTEXT: {
-            dest.data = (CPlaintext*)malloc(sizeof(CPlaintext) * dest.size);
-            _export_plaintexts(src.flat_handles, (CPlaintext*)dest.data, param);
-            break;
-        }
-        case CxxArgumentType::PLAINTEXT_RINGT: {
-            dest.data = (CPlaintext*)malloc(sizeof(CPlaintext) * dest.size);
-            _export_plaintext_ringts(src.flat_handles, (CPlaintext*)dest.data, param);
-            break;
-        }
-        case CxxArgumentType::PLAINTEXT_MUL: {
-            dest.data = (CPlaintext*)malloc(sizeof(CPlaintext) * dest.size);
-            _export_plaintext_muls(src.flat_handles, (CPlaintext*)dest.data, param, mf_nbits);
-            break;
-        }
-        case CxxArgumentType::CUSTOM: {
-            break;
-        }
-        default: throw std::runtime_error("Unsupported argument type");
-    }
     return dest;
 }
 
 inline void export_cxx_arguments(const std::vector<CxxVectorArgument>& cxx_args,
                                  std::vector<CArgument>& input_args,
-                                 std::vector<CArgument>& output_args,
-                                 const Parameter& param,
-                                 int mf_nbits,
-                                 bool is_heterogeneous) {
+                                 std::vector<CArgument>& output_args) {
     for (int i = 0; i < input_args.size(); i++) {
-        input_args[i] = export_cxx_argument(cxx_args[i], param, mf_nbits, is_heterogeneous);
+        input_args[i] = export_cxx_argument(cxx_args[i]);
     }
 
     for (int i = 0; i < output_args.size(); i++) {
-        output_args[i] = export_cxx_argument(cxx_args[input_args.size() + i], param, mf_nbits, is_heterogeneous);
+        int arg_idx = input_args.size() + i;
+        output_args[i] = export_cxx_argument(cxx_args[arg_idx]);
     }
 }
 
-inline void export_public_key_arguments(nlohmann::json& key_signature,
-                                        std::vector<CArgument>& input_args,
-                                        FheContext* context,
-                                        int mf_nbits,
-                                        bool is_heterogeneous) {
+inline void
+export_public_key_arguments(nlohmann::json& key_signature, std::vector<CArgument>& input_args, FheContext* context) {
     if (key_signature["rlk"].get<int>() >= 0) {
         CArgument rlk_arg;
         int rlk_level = key_signature["rlk"].get<int>();
-        RelinKey rlk = context->extract_relin_key();
         rlk_arg.id = "rlk_ntt";
         rlk_arg.type = DataType::TYPE_RELIN_KEY;
         rlk_arg.size = 1;
         rlk_arg.level = rlk_level;
 
-        if (!is_heterogeneous) {
-            static RelinKey saved_rlk;
-            static std::vector<Handle*> rlk_handle_vec(1);
-            saved_rlk = std::move(rlk);
-            rlk_handle_vec[0] = (Handle*)&saved_rlk;
-            rlk_arg.data = (void*)rlk_handle_vec.data();
-            input_args.push_back(rlk_arg);
-        } else {
-            rlk_arg.data = (CRelinKey*)malloc(sizeof(CRelinKey) * rlk_arg.size);
-            input_args.push_back(rlk_arg);
-            _export_relin_key(rlk, &((CRelinKey*)(rlk_arg.data))[0], rlk_level, context->get_parameter(), mf_nbits);
-        }
+        // 使用Handle*指针，ABI转换由MegaAG图中的EXPORT_TO_ABI节点完成
+        static RelinKey saved_rlk;
+        static std::vector<Handle*> rlk_handle_vec(1);
+        saved_rlk = context->extract_relin_key();
+        rlk_handle_vec[0] = (Handle*)&saved_rlk;
+        rlk_arg.data = (void*)rlk_handle_vec.data();
+
+        input_args.push_back(rlk_arg);
     }
     if (!key_signature["glk"].empty()) {
         CArgument glk_arg;
         int glk_level = -1;
-        std::vector<uint64_t> galois_elements;
         for (auto& item : key_signature["glk"].items()) {
             int level = item.value().get<int>();
             glk_level = glk_level < level ? level : glk_level;
-            uint64_t gal_el = std::stoul(item.key());
-            galois_elements.push_back(gal_el);
         }
 
-        GaloisKey glk = context->extract_galois_key();
         glk_arg.id = "glk_ntt";
         glk_arg.type = DataType::TYPE_GALOIS_KEY;
         glk_arg.size = 1;
         glk_arg.level = glk_level;
 
-        if (!is_heterogeneous) {
-            static GaloisKey saved_glk;
-            static std::vector<Handle*> glk_handle_vec(1);
-            saved_glk = std::move(glk);
-            glk_handle_vec[0] = (Handle*)&saved_glk;
-            glk_arg.data = (void*)glk_handle_vec.data();
-            input_args.push_back(glk_arg);
-        } else {
-            CGaloisKey* c_glk = (CGaloisKey*)malloc(sizeof(CGaloisKey) * glk_arg.size);
-            set_galois_key_steps(&c_glk[0], galois_elements.data(), galois_elements.size());
-            glk_arg.data = c_glk;
-            input_args.push_back(glk_arg);
-            _export_galois_key(glk, &((CGaloisKey*)(glk_arg.data))[0], glk_level, context->get_parameter(), mf_nbits);
-        }
+        // 使用Handle*指针，ABI转换由MegaAG图中的EXPORT_TO_ABI节点完成
+        static GaloisKey saved_glk;
+        static std::vector<Handle*> glk_handle_vec(1);
+        saved_glk = context->extract_galois_key();
+        glk_handle_vec[0] = (Handle*)&saved_glk;
+        glk_arg.data = (void*)glk_handle_vec.data();
+
+        input_args.push_back(glk_arg);
     }
     if (key_signature.contains("ckks_btp_swk")) {
         auto& swk_sig = key_signature["ckks_btp_swk"];
@@ -348,55 +210,40 @@ inline void export_public_key_arguments(nlohmann::json& key_signature,
             CArgument swk_dts_arg;
             auto swk_dts_levels = swk_sig["swk_dts"].get<std::vector<int>>();
             int level = swk_dts_levels[0];
-            int sp_level = swk_dts_levels[1];
 
-            KeySwitchKey swk_dts = btp_context->extract_swk_dts();
             swk_dts_arg.id = "swk_dts";
             swk_dts_arg.type = DataType::TYPE_SWITCH_KEY;
             swk_dts_arg.size = 1;
             swk_dts_arg.level = level;
 
-            if (!is_heterogeneous) {
-                static KeySwitchKey saved_swk_dts;
-                static std::vector<Handle*> swk_dts_handle_vec(1);
-                saved_swk_dts = std::move(swk_dts);
-                swk_dts_handle_vec[0] = (Handle*)&saved_swk_dts;
-                swk_dts_arg.data = (void*)swk_dts_handle_vec.data();
-                input_args.push_back(swk_dts_arg);
-            } else {
-                swk_dts_arg.data = (CKeySwitchKey*)malloc(sizeof(CKeySwitchKey) * swk_dts_arg.size);
-                input_args.push_back(swk_dts_arg);
-                _export_switching_key(swk_dts, &((CKeySwitchKey*)(swk_dts_arg.data))[0], level, sp_level,
-                                      context->get_parameter(), mf_nbits);
-            }
+            // 使用Handle*指针，ABI转换由MegaAG图中的EXPORT_TO_ABI节点完成
+            static KeySwitchKey saved_swk_dts;
+            static std::vector<Handle*> swk_dts_handle_vec(1);
+            saved_swk_dts = btp_context->extract_swk_dts();
+            swk_dts_handle_vec[0] = (Handle*)&saved_swk_dts;
+            swk_dts_arg.data = (void*)swk_dts_handle_vec.data();
+
+            input_args.push_back(swk_dts_arg);
         }
 
         if (swk_sig.contains("swk_std")) {
             CArgument swk_std_arg;
             auto swk_std_levels = swk_sig["swk_std"].get<std::vector<int>>();
             int level = swk_std_levels[0];
-            int sp_level = swk_std_levels[1];
 
-            KeySwitchKey swk_std = btp_context->extract_swk_std();
             swk_std_arg.id = "swk_std";
             swk_std_arg.type = DataType::TYPE_SWITCH_KEY;
             swk_std_arg.size = 1;
             swk_std_arg.level = level;
 
-            if (!is_heterogeneous) {
-                // CPU mode: need to save the swk object itself
-                static KeySwitchKey saved_swk_std;
-                static std::vector<Handle*> swk_std_handle_vec(1);
-                saved_swk_std = std::move(swk_std);
-                swk_std_handle_vec[0] = (Handle*)&saved_swk_std;
-                swk_std_arg.data = (void*)swk_std_handle_vec.data();
-                input_args.push_back(swk_std_arg);
-            } else {
-                swk_std_arg.data = (CKeySwitchKey*)malloc(sizeof(CKeySwitchKey) * swk_std_arg.size);
-                input_args.push_back(swk_std_arg);
-                _export_switching_key(swk_std, &((CKeySwitchKey*)(swk_std_arg.data))[0], level, sp_level,
-                                      context->get_parameter(), mf_nbits);
-            }
+            // 使用Handle*指针，ABI转换由MegaAG图中的EXPORT_TO_ABI节点完成
+            static KeySwitchKey saved_swk_std;
+            static std::vector<Handle*> swk_std_handle_vec(1);
+            saved_swk_std = btp_context->extract_swk_std();
+            swk_std_handle_vec[0] = (Handle*)&saved_swk_std;
+            swk_std_arg.data = (void*)swk_std_handle_vec.data();
+
+            input_args.push_back(swk_std_arg);
         }
     }
 }

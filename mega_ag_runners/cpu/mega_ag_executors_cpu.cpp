@@ -59,13 +59,13 @@ using namespace fhe_ops_lib;
             throw std::runtime_error("FHE property not found for input node");                                         \
         }                                                                                                              \
         auto input_any = inputs.at(input_node->index);                                                                 \
-        if (input_node->fhe_prop->datum_type == TYPE_CIPHERTEXT) {                                                     \
+        if (input_node->datum_type == TYPE_CIPHERTEXT) {                                                               \
             if (input_node->fhe_prop->degree == 2) {                                                                   \
                 ciphertexts3.push_back(std::any_cast<std::shared_ptr<Ciphertext3Type>>(input_any).get());              \
             } else {                                                                                                   \
                 ciphertexts.push_back(std::any_cast<std::shared_ptr<CiphertextType>>(input_any).get());                \
             }                                                                                                          \
-        } else if (input_node->fhe_prop->datum_type == TYPE_PLAINTEXT) {                                               \
+        } else if (input_node->datum_type == TYPE_PLAINTEXT) {                                                         \
             if (input_node->fhe_prop->p && input_node->fhe_prop->p->is_ringt) {                                        \
                 plaintexts_ringt.push_back(std::any_cast<std::shared_ptr<PlaintextRingtType>>(input_any).get());       \
             } else if (input_node->fhe_prop->is_ntt && input_node->fhe_prop->is_mform) {                               \
@@ -86,7 +86,7 @@ static DatumNode* find_plaintext_node(const ComputeNode& node) {
         if (!datum_node->fhe_prop.has_value()) {
             throw std::runtime_error("FHE property not found for compute node");
         }
-        if (datum_node->fhe_prop->datum_type == DataType::TYPE_PLAINTEXT) {
+        if (datum_node->datum_type == DataType::TYPE_PLAINTEXT) {
             return datum_node;  // 2nd input node is plaintext
         }
     }

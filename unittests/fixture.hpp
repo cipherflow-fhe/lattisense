@@ -22,6 +22,7 @@
 
 #include "fhe_lib_v2.h"
 #include "cxx_fhe_task.h"
+#include "cxx_fpga_ops.h"
 #include "test_config.hpp"
 
 using namespace cxx_sdk_v2;
@@ -30,6 +31,55 @@ using namespace std;
 // Use paths from CMake-generated configuration
 string gpu_base_path = test_config::gpu_base_path;
 string cpu_base_path = test_config::cpu_base_path;
+string fpga_base_path = test_config::fpga_base_path;
+
+#ifdef LATTISENSE_ENABLE_FPGA
+
+class FpgaFixture {
+public:
+    FpgaFixture() {
+        FpgaDevice::init();
+    }
+
+    ~FpgaFixture() {}
+};
+
+class BfvFpgaFixture : public FpgaFixture {
+public:
+    BfvFpgaFixture()
+        : n{8192}, t{0x1b4001}, param{BfvParameter::create_fpga_parameter(t)},
+          ctx{BfvContext::create_random_context(param)}, n_op{4}, min_level{1}, max_level{param.get_max_level()} {}
+
+protected:
+    uint64_t n;
+    uint64_t t;
+    BfvParameter param;
+    BfvContext ctx;
+    int n_op;
+    int min_level;
+    int max_level;
+};
+
+class CkksFpgaFixture : public FpgaFixture {
+public:
+    CkksFpgaFixture()
+        : N{8192}, n_slot{N / 2}, level{5}, param{CkksParameter::create_fpga_parameter()},
+          ctx{CkksContext::create_random_context(param)}, n_op{4}, min_level{1}, max_level{param.get_max_level()},
+          default_scale{param.get_default_scale()} {}
+
+protected:
+    int N;
+    int n_slot;
+    int level;
+    CkksParameter param;
+    CkksContext ctx;
+    int n_op;
+    int min_level;
+    int max_level;
+    double default_scale;
+};
+
+#endif  // LATTISENSE_ENABLE_FPGA
 
 class CpuFixture {
 public:

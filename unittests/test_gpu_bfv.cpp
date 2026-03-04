@@ -1516,3 +1516,714 @@ TEST_CASE_METHOD(BfvGpuFixture, "BFV ct_pt_ringt_mac", "") {
         }
     }
 };
+
+TEST_CASE_METHOD(BfvGpuFixture, "BFV power_dag", "") {
+    for (int power_dag_idx = 0; power_dag_idx < 1; power_dag_idx++) {
+        // vector<int> source_power = all_source_powers[power_dag_idx];
+        // int max_power = all_max_powers[power_dag_idx];
+
+        // vector<int> source_power{1, 7, 12};
+        // int max_power = 52;
+
+        // vector<int> source_power{1, 8, 13};
+        // int max_power = 69;
+
+        // vector<int> source_power{1,9,15,78,115};
+        // int max_power = 512;
+
+        // vector<int> source_power{1, 3};
+        // int max_power = 7;
+
+        // vector<int> source_power{1, 8, 61, 164};
+        // int max_power = 1094;
+
+        vector<int> source_power{1, 7, 18, 62, 104, 244, 259};
+        int max_power = 1137;
+
+        string source_power_str = "";
+        for (int j = 0; j < source_power.size(); j++) {
+            source_power_str += to_string(source_power[j]);
+            if (j != source_power.size() - 1) {
+                source_power_str += "-";
+            }
+        }
+        string task_power_str = "PD-" + to_string(max_power) + "#" + source_power_str;
+
+        SECTION("power_dag " + task_power_str) {
+            vector<BfvCiphertext> x_source_power_list;
+            vector<BfvCiphertext> x_max_power_list;
+
+            vector<vector<uint64_t>> x_source_power;
+            vector<vector<uint64_t>> x_max_power;
+
+            vector<uint64_t> x_mg(n);
+            for (int j = 0; j < n; j++) {
+                x_mg[j] = uint64_t(j);
+            }
+            for (int j = 0; j < source_power.size(); j++) {
+                vector<uint64_t> x_power;
+                for (int k = 0; k < n; k++) {
+                    x_power.push_back(mod_exp(x_mg[k], source_power[j], t));
+                }
+                // print_message(x_power.data(), ("x_source_power_" + to_string(source_power[i][j])).c_str(), 10);
+                x_source_power.push_back(x_power);
+            }
+
+            for (int j = 1; j <= max_power; j++) {
+                vector<uint64_t> x_power;
+                for (int k = 0; k < n; k++) {
+                    x_power.push_back(mod_exp(x_mg[k], j, t));
+                }
+                x_max_power.push_back(x_power);
+            }
+
+            for (int level = 5; level <= 5; level++) {
+                SECTION("level " + to_string(level)) {
+                    for (int j = 0; j < source_power.size(); j++) {
+                        auto x_pt = ctx.encode(x_source_power[j], level);
+                        auto x_ct = ctx.encrypt_asymmetric(x_pt);
+                        x_source_power_list.push_back(std::move(x_ct));
+                    }
+                    for (int j = 0; j < max_power; j++) {
+                        x_max_power_list.push_back(ctx.new_ciphertext(1));
+                    }
+
+                    string project_path = gpu_base_path + "/BFV_power_dag/" + task_power_str;
+                    FheTaskGpu gpu_project(project_path);
+
+                    vector<CxxVectorArgument> cxx_args = {
+                        CxxVectorArgument{"in_x_list", &x_source_power_list},
+                        CxxVectorArgument{"out_z_list", &x_max_power_list},
+                    };
+                    gpu_project.run(&ctx, cxx_args);
+
+                    for (int j = 0; j < max_power; j++) {
+                        auto z_pt = ctx.decrypt(x_max_power_list[j]);
+                        auto z_mg = ctx.decode(z_pt);
+
+                        REQUIRE(z_mg == x_max_power[j]);
+                    }
+                }
+            }
+        }
+    }
+}
+
+TEST_CASE_METHOD(BfvGpuFixture, "BFV power_mul_coeff", "") {
+    for (int power_dag_idx = 0; power_dag_idx < 1; power_dag_idx++) {
+        // vector<int> source_power = all_source_powers[power_dag_idx];
+        // int max_power = all_max_powers[power_dag_idx];
+
+        // vector<int> source_power{1, 7, 12};
+        // int max_power = 52;
+
+        // vector<int> source_power{1, 9, 15, 78, 115};
+        // int max_power = 512;
+
+        vector<int> source_power{1, 7, 18, 62, 104, 244, 259};
+        int max_power = 1137;
+        vector<int> lane_cipher_size{2, 1, 5};
+
+        string source_power_str = "";
+        for (int j = 0; j < source_power.size(); j++) {
+            source_power_str += to_string(source_power[j]);
+            if (j != source_power.size() - 1) {
+                source_power_str += "-";
+            }
+        }
+        string task_power_str = "PD-" + to_string(max_power) + "#" + source_power_str;
+
+        SECTION("power_mul_coeff " + task_power_str) {
+            vector<vector<BfvCiphertext>> c_max_power_list(lane_cipher_size[1]);  // lane_cipher_size[1] * max_power
+            vector<vector<vector<BfvPlaintext>>> p0_list(
+                lane_cipher_size[0]);  // lane_cipher_size[0] * lane_cipher_size[1] * lane_cipher_size[2]
+            vector<vector<vector<vector<BfvPlaintextRingt>>>> p_list(
+                lane_cipher_size[0]);  // lane_cipher_size[0] * lane_cipher_size[1] * lane_cipher_size[2] * max_power
+
+            vector<vector<vector<BfvCiphertext>>> lane_list(
+                lane_cipher_size[0]);  // lane_cipher_size[0] * lane_cipher_size[1] * lane_cipher_size[2]
+
+            vector<vector<vector<uint64_t>>> x_max_power(lane_cipher_size[1]);  // lane_cipher_size[1] * max_power * n
+            vector<vector<vector<vector<vector<uint64_t>>>>> p(
+                lane_cipher_size[0]);  // lane_cipher_size[0] * lane_cipher_size[1] * lane_cipher_size[2] *
+                                       // (max_power+1) * n
+
+            vector<vector<uint64_t>> x_mg(lane_cipher_size[1]);
+            for (int i = 0; i < lane_cipher_size[1]; i++) {
+                x_mg[i].resize(n);
+                for (int j = 0; j < n; j++) {
+                    x_mg[i][j] = (i + j + 1) % t;
+                }
+
+                x_max_power[i].resize(max_power);
+                for (int j = 1; j <= max_power; j++) {
+                    x_max_power[i][j - 1].resize(n);
+                    for (int k = 0; k < n; k++) {
+                        x_max_power[i][j - 1][k] = mod_exp(x_mg[i][k], j, t);
+                    }
+                }
+            }
+
+            for (int i = 0; i < lane_cipher_size[0]; i++) {
+                p[i].resize(lane_cipher_size[1]);
+                for (int j = 0; j < lane_cipher_size[1]; j++) {
+                    p[i][j].resize(lane_cipher_size[2]);
+                    for (int k = 0; k < lane_cipher_size[2]; k++) {
+                        p[i][j][k].resize(max_power + 1);
+                        for (int l = 0; l < max_power + 1; l++) {
+                            p[i][j][k][l].resize(n);
+                            for (int m = 0; m < n; m++) {
+                                p[i][j][k][l][m] = (i + j + k + l + m + 1) % t;
+                            }
+                        }
+                    }
+                }
+            }
+
+            vector<vector<vector<vector<uint64_t>>>> z_expected(
+                lane_cipher_size[0]);  // lane_cipher_size[0] * lane_cipher_size[1] * lane_cipher_size[2] * n
+            for (int i = 0; i < lane_cipher_size[0]; i++) {
+                z_expected[i].resize(lane_cipher_size[1]);
+                for (int j = 0; j < lane_cipher_size[1]; j++) {
+                    z_expected[i][j].resize(lane_cipher_size[2]);
+                    for (int k = 0; k < lane_cipher_size[2]; k++) {
+                        z_expected[i][j][k].resize(n);
+                        for (int l = 0; l < n; l++) {
+                            z_expected[i][j][k][l] = p[i][j][k][0][l];
+                            for (int m = 1; m <= max_power; m++) {
+                                z_expected[i][j][k][l] += (p[i][j][k][m][l] * x_max_power[j][m - 1][l] % t);
+                            }
+                            z_expected[i][j][k][l] = z_expected[i][j][k][l] % t;
+                        }
+                    }
+                }
+            }
+
+            for (int level = 1; level <= 1; level++) {
+                SECTION("level " + to_string(level)) {
+                    for (int i = 0; i < lane_cipher_size[1]; i++) {
+                        c_max_power_list[i].resize(max_power);
+                        for (int j = 0; j < max_power; j++) {
+                            auto x_pt = ctx.encode(x_max_power[i][j], level);
+                            auto x_ct = ctx.encrypt_asymmetric(x_pt);
+                            c_max_power_list[i][j] = std::move(x_ct);
+                        }
+                    }
+
+                    for (int i = 0; i < lane_cipher_size[0]; i++) {
+                        p0_list[i].resize(lane_cipher_size[1]);
+                        p_list[i].resize(lane_cipher_size[1]);
+                        for (int j = 0; j < lane_cipher_size[1]; j++) {
+                            p0_list[i][j].resize(lane_cipher_size[2]);
+                            p_list[i][j].resize(lane_cipher_size[2]);
+                            for (int k = 0; k < lane_cipher_size[2]; k++) {
+                                p_list[i][j][k].resize(max_power);
+                                for (int l = 0; l <= max_power; l++) {
+                                    if (l == 0) {
+                                        auto x_pt = ctx.encode(p[i][j][k][l], level);
+                                        p0_list[i][j][k] = std::move(x_pt);
+                                    } else {
+                                        auto x_pt = ctx.encode_ringt(p[i][j][k][l]);
+                                        p_list[i][j][k][l - 1] = std::move(x_pt);
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    for (int i = 0; i < lane_cipher_size[0]; i++) {
+                        lane_list[i].resize(lane_cipher_size[1]);
+                        for (int j = 0; j < lane_cipher_size[1]; j++) {
+                            lane_list[i][j].resize(lane_cipher_size[2]);
+                            for (int k = 0; k < lane_cipher_size[2]; k++) {
+                                lane_list[i][j][k] = ctx.new_ciphertext(0);
+                            }
+                        }
+                    }
+
+                    string project_path = gpu_base_path + "/BFV_power_mul_coeff/" + task_power_str + "/" +
+                                          to_string(lane_cipher_size[0]) + "_" + to_string(lane_cipher_size[1]) + "_" +
+                                          to_string(lane_cipher_size[2]);
+                    FheTaskGpu project(project_path);
+
+                    vector<CxxVectorArgument> cxx_args = {
+                        CxxVectorArgument{"in_c_list", &c_max_power_list},
+                        CxxVectorArgument{"in_p0_list", &p0_list},
+                        CxxVectorArgument{"in_p_list", &p_list},
+                        CxxVectorArgument{"out_z_list", &lane_list},
+                    };
+                    project.run(&ctx, cxx_args);
+
+                    for (int i = 0; i < lane_cipher_size[0]; i++) {
+                        for (int j = 0; j < lane_cipher_size[1]; j++) {
+                            for (int k = 0; k < lane_cipher_size[2]; k++) {
+                                auto z_pt = ctx.decrypt(lane_list[i][j][k]);
+                                auto z_mg = ctx.decode(z_pt);
+
+                                print_message(z_mg.data(), "z_mg", 10);
+                                print_message(z_expected[i][j][k].data(), "z_expected", 10);
+                                REQUIRE(z_mg == z_expected[i][j][k]);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+TEST_CASE_METHOD(BfvCpuFixture, "BFV power_dag_and_power_mul_coeff", "[.]") {
+    for (int power_dag_idx = 0; power_dag_idx < 1; power_dag_idx++) {
+        // vector<int> source_power = all_source_powers[power_dag_idx];
+        // int max_power = all_max_powers[power_dag_idx];
+
+        // vector<int> source_power{1, 3, 11, 18};
+        // int max_power = 44;
+        vector<int> source_power{1, 7, 18, 62, 104, 244, 259};
+        int max_power = 1137;
+
+        vector<int> lane_cipher_size{2, 1, 5};
+
+        string source_power_str = "";
+        for (int j = 0; j < source_power.size(); j++) {
+            source_power_str += to_string(source_power[j]);
+            if (j != source_power.size() - 1) {
+                source_power_str += "-";
+            }
+        }
+        string task_power_str = "PD-" + to_string(max_power) + "#" + source_power_str;
+
+        SECTION("power_dag_and_power_mul_coeff " + task_power_str) {
+            vector<vector<BfvCiphertext>> c_source_power_list(
+                lane_cipher_size[1]);  // lane_cipher_size[1] * source_power.size()
+            vector<vector<vector<BfvPlaintext>>> p0_list(
+                lane_cipher_size[0]);  // lane_cipher_size[0] * lane_cipher_size[1] * lane_cipher_size[2]
+            vector<vector<vector<vector<BfvPlaintextRingt>>>> p_list(
+                lane_cipher_size[0]);  // lane_cipher_size[0] * lane_cipher_size[1] * lane_cipher_size[2] * max_power
+
+            vector<vector<vector<BfvCiphertext>>> lane_list(
+                lane_cipher_size[0]);  // lane_cipher_size[0] * lane_cipher_size[1] * lane_cipher_size[2]
+
+            vector<vector<vector<uint64_t>>> x_source_power(
+                lane_cipher_size[1]);  // lane_cipher_size[1] * source_power.size() * n
+            vector<vector<vector<uint64_t>>> x_max_power(lane_cipher_size[1]);  // lane_cipher_size[1] * max_power * n
+            vector<vector<vector<vector<vector<uint64_t>>>>> p(
+                lane_cipher_size[0]);  // lane_cipher_size[0] * lane_cipher_size[1] * lane_cipher_size[2] *
+                                       // (max_power+1) * n
+
+            vector<vector<uint64_t>> x_mg(lane_cipher_size[1]);
+            for (int i = 0; i < lane_cipher_size[1]; i++) {
+                x_mg[i].resize(n);
+                for (int j = 0; j < n; j++) {
+                    x_mg[i][j] = (i + j + 1) % t;
+                }
+
+                x_source_power[i].resize(source_power.size());
+                for (int j = 0; j < source_power.size(); j++) {
+                    x_source_power[i][j].resize(n);
+                    for (int k = 0; k < n; k++) {
+                        x_source_power[i][j][k] = mod_exp(x_mg[i][k], source_power[j], t);
+                    }
+                }
+
+                x_max_power[i].resize(max_power);
+                for (int j = 1; j <= max_power; j++) {
+                    x_max_power[i][j - 1].resize(n);
+                    for (int k = 0; k < n; k++) {
+                        x_max_power[i][j - 1][k] = mod_exp(x_mg[i][k], j, t);
+                    }
+                }
+            }
+
+            for (int i = 0; i < lane_cipher_size[0]; i++) {
+                p[i].resize(lane_cipher_size[1]);
+                for (int j = 0; j < lane_cipher_size[1]; j++) {
+                    p[i][j].resize(lane_cipher_size[2]);
+                    for (int k = 0; k < lane_cipher_size[2]; k++) {
+                        p[i][j][k].resize(max_power + 1);
+                        for (int l = 0; l < max_power + 1; l++) {
+                            p[i][j][k][l].resize(n);
+                            for (int m = 0; m < n; m++) {
+                                p[i][j][k][l][m] = (i + j + k + l + m + 1) % t;
+                            }
+                        }
+                    }
+                }
+            }
+
+            vector<vector<vector<vector<uint64_t>>>> z_expected(
+                lane_cipher_size[0]);  // lane_cipher_size[0] * lane_cipher_size[1] * lane_cipher_size[2] * n
+            for (int i = 0; i < lane_cipher_size[0]; i++) {
+                z_expected[i].resize(lane_cipher_size[1]);
+                for (int j = 0; j < lane_cipher_size[1]; j++) {
+                    z_expected[i][j].resize(lane_cipher_size[2]);
+                    for (int k = 0; k < lane_cipher_size[2]; k++) {
+                        z_expected[i][j][k].resize(n);
+                        for (int l = 0; l < n; l++) {
+                            z_expected[i][j][k][l] = p[i][j][k][0][l];
+                            for (int m = 1; m <= max_power; m++) {
+                                z_expected[i][j][k][l] += (p[i][j][k][m][l] * x_max_power[j][m - 1][l] % t);
+                            }
+                            z_expected[i][j][k][l] = z_expected[i][j][k][l] % t;
+                        }
+                    }
+                }
+            }
+
+            for (int level = 5; level <= 5; level++) {
+                SECTION("level " + to_string(level)) {
+                    for (int i = 0; i < lane_cipher_size[1]; i++) {
+                        c_source_power_list[i].resize(source_power.size());
+                        for (int j = 0; j < source_power.size(); j++) {
+                            auto x_pt = ctx.encode(x_source_power[i][j], level);
+                            auto x_ct = ctx.encrypt_asymmetric(x_pt);
+                            c_source_power_list[i][j] = std::move(x_ct);
+                        }
+                    }
+
+                    for (int i = 0; i < lane_cipher_size[0]; i++) {
+                        p0_list[i].resize(lane_cipher_size[1]);
+                        p_list[i].resize(lane_cipher_size[1]);
+                        for (int j = 0; j < lane_cipher_size[1]; j++) {
+                            p0_list[i][j].resize(lane_cipher_size[2]);
+                            p_list[i][j].resize(lane_cipher_size[2]);
+                            for (int k = 0; k < lane_cipher_size[2]; k++) {
+                                p_list[i][j][k].resize(max_power);
+                                for (int l = 0; l <= max_power; l++) {
+                                    if (l == 0) {
+                                        auto x_pt = ctx.encode(p[i][j][k][l], 1);
+                                        p0_list[i][j][k] = std::move(x_pt);
+                                    } else {
+                                        auto x_pt = ctx.encode_ringt(p[i][j][k][l]);
+                                        p_list[i][j][k][l - 1] = std::move(x_pt);
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    for (int i = 0; i < lane_cipher_size[0]; i++) {
+                        lane_list[i].resize(lane_cipher_size[1]);
+                        for (int j = 0; j < lane_cipher_size[1]; j++) {
+                            lane_list[i][j].resize(lane_cipher_size[2]);
+                            for (int k = 0; k < lane_cipher_size[2]; k++) {
+                                lane_list[i][j][k] = ctx.new_ciphertext(0);
+                            }
+                        }
+                    }
+
+                    string project_path = gpu_base_path + "/BFV_power_dag_and_power_mul_coeff/" + task_power_str + "/" +
+                                          to_string(lane_cipher_size[0]) + "_" + to_string(lane_cipher_size[1]) + "_" +
+                                          to_string(lane_cipher_size[2]);
+                    FheTaskGpu project(project_path);
+
+                    vector<CxxVectorArgument> cxx_args = {
+                        CxxVectorArgument{"in_x_list", &c_source_power_list},
+                        CxxVectorArgument{"in_p0_list", &p0_list},
+                        CxxVectorArgument{"in_p_list", &p_list},
+                        CxxVectorArgument{"out_z_list", &lane_list},
+                    };
+                    project.run(&ctx, cxx_args);
+
+                    for (int i = 0; i < lane_cipher_size[0]; i++) {
+                        for (int j = 0; j < lane_cipher_size[1]; j++) {
+                            for (int k = 0; k < lane_cipher_size[2]; k++) {
+                                auto z_pt = ctx.decrypt(lane_list[i][j][k]);
+                                auto z_mg = ctx.decode(z_pt);
+
+                                print_message(z_mg.data(), "z_mg", 10);
+                                print_message(z_expected[i][j][k].data(), "z_expected", 10);
+                                REQUIRE(z_mg == z_expected[i][j][k]);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+TEST_CASE_METHOD(BfvGpuFixture, "BFV custom_compute_at_start", "") {
+    n_op = 1;
+
+    vector<vector<uint64_t>> x(7);
+    vector<vector<uint64_t>> y(8);
+    vector<uint64_t> z_true(n);
+
+    for (int i = 0; i < 7; i++) {
+        x[i].resize(n);
+        y[i].resize(n);
+        for (int j = 0; j < n; j++) {
+            x[i][j] = 10 + j;
+            y[i][j] = 11 + j;
+        }
+    }
+
+    y[7].resize(n);
+    for (int j = 0; j < n; j++) {
+        y[7][j] = 20 + j;
+        z_true[j] = 0;
+        for (int i = 0; i < 7; i++) {
+            z_true[j] += (x[i][j] * y[i][j]) % t;
+        }
+        z_true[j] += y[7][j];
+        z_true[j] %= t;
+    }
+
+    vector<BfvCiphertext> x_list;
+    vector<CustomData> y_list;
+    vector<BfvCiphertext> z_list;
+
+    for (int level = min_level; level <= max_level; level++) {
+        SECTION("n=" + to_string(n_op) + ", lv=" + to_string(level)) {
+            for (int i = 0; i < 7; i++) {
+                auto x_pt = ctx.encode(x[i], level);
+                auto x_ct = ctx.encrypt_asymmetric(x_pt);
+                x_list.push_back(std::move(x_ct));
+                y_list.push_back(CustomData(y[i]));
+            }
+
+            y_list.push_back(CustomData(y[7]));
+            z_list.push_back(ctx.new_ciphertext(level));
+
+            string project_path =
+                gpu_base_path + "/BFV_" + to_string(n_op) + "_custom_compute_at_start/level_" + to_string(level);
+            FheTaskGpu gpu_project(project_path);
+
+            std::unordered_map<std::string, ExecutorFunc> custom_executors;
+            custom_executors["encode_ringt"] = [this](ExecutionContext& exec_ctx,
+                                                      const std::unordered_map<NodeIndex, std::any>& inputs,
+                                                      std::any& output, const ComputeNode& self) -> void {
+                // exec_ctx.context is now automatically set by bind_custom_executors
+                auto* bfv_ctx = exec_ctx.get_arithmetic_context<BfvContext>();
+
+                auto input_node_idx = self.input_nodes[0]->index;
+                auto input_handle_ptr = std::any_cast<std::shared_ptr<CustomData>>(inputs.at(input_node_idx));
+                CustomData* custom_data_ptr = input_handle_ptr.get();
+
+                // Get the typed data (vector<uint64_t>)
+                auto* msg_vec = custom_data_ptr->get_typed_data<std::vector<uint64_t>>();
+
+                auto encoded_pt = bfv_ctx->encode_ringt(*msg_vec);
+
+                output = std::make_shared<BfvPlaintextRingt>(std::move(encoded_pt));
+            };
+
+            custom_executors["encode"] = [this](ExecutionContext& exec_ctx,
+                                                const std::unordered_map<NodeIndex, std::any>& inputs, std::any& output,
+                                                const ComputeNode& self) -> void {
+                // exec_ctx.context is now automatically set by bind_custom_executors
+                auto* bfv_ctx = exec_ctx.get_arithmetic_context<BfvContext>();
+
+                if (!self.custom_prop.has_value()) {
+                    throw std::runtime_error("Custom property not found for encode operation");
+                }
+
+                int encode_level = self.custom_prop->attributes["level"].get<int>();
+
+                auto input_node_idx = self.input_nodes[0]->index;
+                auto input_handle_ptr = std::any_cast<std::shared_ptr<CustomData>>(inputs.at(input_node_idx));
+                CustomData* custom_data_ptr = input_handle_ptr.get();
+
+                // Get the typed data (vector<uint64_t>)
+                auto* msg_vec = custom_data_ptr->get_typed_data<std::vector<uint64_t>>();
+
+                auto encoded_pt = bfv_ctx->encode(*msg_vec, encode_level);
+
+                output = std::make_shared<BfvPlaintext>(std::move(encoded_pt));
+            };
+
+            gpu_project.bind_custom_executors(custom_executors);
+
+            vector<CxxVectorArgument> cxx_args = {
+                CxxVectorArgument{"in_x_list", &x_list},
+                CxxVectorArgument{"in_y_list", &y_list},
+                CxxVectorArgument{"out_z_list", &z_list},
+            };
+            gpu_project.run(&ctx, cxx_args);
+
+            uint64_t epsilon = 1.0;
+            for (int i = 0; i < n_op; i++) {
+                auto z_pt = ctx.decrypt(z_list[i]);
+                vector<uint64_t> z_mg = ctx.decode(z_pt);
+                print_message(z_mg.data(), "z_mg", 10);
+                print_message(z_true.data(), "z_true", 10);
+                REQUIRE(z_mg == z_true);
+            }
+        }
+    }
+};
+
+TEST_CASE_METHOD(BfvGpuFixture, "BFV custom_compute_at_end", "") {
+    vector<BfvCiphertext> x_list;
+    vector<BfvCiphertext> y_list;
+    vector<BfvCiphertext> z_list;
+
+    vector<vector<uint64_t>> x(n_op);
+    vector<vector<uint64_t>> y(n_op);
+
+    vector<vector<uint64_t>> z_true(n_op);
+
+    for (int i = 0; i < n_op; i++) {
+        for (int j = 0; j < n; j++) {
+            x[i].push_back(i + j + 2);
+            y[i].push_back(i + j + 3);
+            z_true[i].push_back((2 * x[i][j] * y[i][j]) % t);
+        }
+    }
+
+    for (int level = min_level; level <= max_level; level++) {
+        SECTION("n=" + to_string(n_op) + ", lv=" + to_string(level)) {
+            for (int i = 0; i < n_op; i++) {
+                vector<uint64_t> x_mg;
+                vector<uint64_t> y_mg;
+                for (int j = 0; j < n; j++) {
+                    x_mg.push_back(x[i][j]);
+                    y_mg.push_back(y[i][j]);
+                }
+                print_message(x_mg.data(), "x_mg", 10);
+                print_message(y_mg.data(), "y_mg", 10);
+
+                auto x_pt = ctx.encode(x_mg, level);
+                auto y_pt = ctx.encode(y_mg, level);
+                auto x_ct = ctx.encrypt_asymmetric(x_pt);
+                auto y_ct = ctx.encrypt_asymmetric(y_pt);
+                x_list.push_back(std::move(x_ct));
+                y_list.push_back(std::move(y_ct));
+                z_list.push_back(ctx.new_ciphertext(level));
+            }
+
+            string project_path =
+                gpu_base_path + "/BFV_" + to_string(n_op) + "_custom_compute_at_end/level_" + to_string(level);
+            FheTaskGpu project(project_path);
+
+            std::unordered_map<std::string, ExecutorFunc> custom_executors;
+            custom_executors["custom_add"] = [this](ExecutionContext& exec_ctx,
+                                                    const std::unordered_map<NodeIndex, std::any>& inputs,
+                                                    std::any& output, const ComputeNode& self) -> void {
+                auto* bfv_ctx = exec_ctx.get_arithmetic_context<BfvContext>();
+
+                auto input_node_idx = self.input_nodes[0]->index;
+                auto input_ptr = std::any_cast<std::shared_ptr<BfvCiphertext>>(inputs.at(input_node_idx));
+
+                auto added_ct = bfv_ctx->add(*input_ptr, *input_ptr);
+
+                output = std::make_shared<BfvCiphertext>(std::move(added_ct));
+            };
+
+            project.bind_custom_executors(custom_executors);
+
+            vector<CxxVectorArgument> cxx_args = {
+                CxxVectorArgument{"in_x_list", &x_list},
+                CxxVectorArgument{"in_y_list", &y_list},
+                CxxVectorArgument{"out_z_list", &z_list},
+            };
+            project.run(&ctx, cxx_args);
+
+            for (int i = 0; i < n_op; i++) {
+                auto z_pt = ctx.decrypt(z_list[i]);
+                auto z_mg = ctx.decode(z_pt);
+                print_message(z_mg.data(), "z_mg", 10);
+
+                REQUIRE(z_mg == z_true[i]);
+            }
+        }
+    }
+};
+
+TEST_CASE_METHOD(BfvGpuFixture, "BFV custom_compute_in_middle", "") {
+    vector<BfvCiphertext> x_list;
+    vector<BfvCiphertext> y_list;
+    vector<BfvCiphertext> z_list;
+
+    vector<vector<uint64_t>> x(n_op);
+    vector<vector<uint64_t>> y(n_op);
+
+    ctx.gen_rotation_keys();
+    int n_col = n / 2;
+
+    int step = -990;
+
+    vector<uint64_t> z_true(n_col, 0);
+
+    for (int i = 0; i < n_op; i++) {
+        for (int j = 0; j < n_col; j++) {
+            x[i].push_back(i + j + 2);
+            y[i].push_back(i + j + 3);
+        }
+
+        vector<uint64_t> zi(n_col);
+        for (int j = 0; j < n_col; j++) {
+            zi[j] = (2 * x[i][j] * y[i][j]) % t;
+        }
+
+        vector<uint64_t> zi_after_rotate(n_col);
+        for (int j = 0; j < n_col; j++) {
+            zi_after_rotate[j] = zi[(j + step + n_col) % n_col];
+            z_true[j] = (z_true[j] + zi_after_rotate[j]) % t;
+        }
+    }
+
+    for (int level = min_level; level <= max_level; level++) {
+        SECTION("n=" + to_string(n_op) + ", lv=" + to_string(level)) {
+            for (int i = 0; i < n_op; i++) {
+                vector<uint64_t> x_mg;
+                vector<uint64_t> y_mg;
+                for (int j = 0; j < n; j++) {
+                    x_mg.push_back(x[i][j]);
+                    y_mg.push_back(y[i][j]);
+                }
+                print_message(x_mg.data(), "x_mg", 10);
+                print_message(y_mg.data(), "y_mg", 10);
+
+                auto x_pt = ctx.encode(x_mg, level);
+                auto y_pt = ctx.encode(y_mg, level);
+                auto x_ct = ctx.encrypt_asymmetric(x_pt);
+                auto y_ct = ctx.encrypt_asymmetric(y_pt);
+                x_list.push_back(std::move(x_ct));
+                y_list.push_back(std::move(y_ct));
+            }
+
+            z_list.push_back(ctx.new_ciphertext(level));
+
+            string project_path =
+                gpu_base_path + "/BFV_" + to_string(n_op) + "_custom_compute_in_middle/level_" + to_string(level);
+            FheTaskGpu project(project_path);
+
+            std::unordered_map<std::string, ExecutorFunc> custom_executors;
+            custom_executors["custom_add"] = [this](ExecutionContext& exec_ctx,
+                                                    const std::unordered_map<NodeIndex, std::any>& inputs,
+                                                    std::any& output, const ComputeNode& self) -> void {
+                auto* bfv_ctx = exec_ctx.get_arithmetic_context<BfvContext>();
+
+                auto input_node_idx = self.input_nodes[0]->index;
+                auto input_ptr = std::any_cast<std::shared_ptr<BfvCiphertext>>(inputs.at(input_node_idx));
+
+                auto added_ct = bfv_ctx->add(*input_ptr, *input_ptr);
+
+                output = std::make_shared<BfvCiphertext>(std::move(added_ct));
+            };
+
+            project.bind_custom_executors(custom_executors);
+
+            vector<CxxVectorArgument> cxx_args = {
+                CxxVectorArgument{"in_x_list", &x_list},
+                CxxVectorArgument{"in_y_list", &y_list},
+                CxxVectorArgument{"out_z_list", &z_list},
+            };
+            project.run(&ctx, cxx_args);
+
+            auto z_pt = ctx.decrypt(z_list[0]);
+            auto z_mg = ctx.decode(z_pt);
+            print_message(z_mg.data(), "z_mg", 10);
+            print_message(z_true.data(), "z_true", 10);
+
+            vector<uint64_t> z;
+            for (int k = 0; k < n_col; k++) {
+                z.push_back(z_mg[k]);
+            }
+
+            REQUIRE(z == z_true);
+        }
+    }
+};

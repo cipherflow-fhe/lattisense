@@ -22,7 +22,6 @@
 #include <stdexcept>
 #include <unordered_map>
 #include <tuple>
-#include <typeindex>
 #include <HEonGPU-1.1/heongpu.hpp>
 #include "../mega_ag_executors.h"
 
@@ -40,25 +39,12 @@ static DatumNode* find_plaintext_node(const ComputeNode& node) {
         if (!datum_node->fhe_prop.has_value()) {
             throw std::runtime_error("FHE property not found for compute node");
         }
-        if (datum_node->fhe_prop->datum_type == DataType::TYPE_PLAINTEXT) {
+        if (datum_node->datum_type == DataType::TYPE_PLAINTEXT) {
             return datum_node;  // 2nd input node is plaintext
         }
     }
     return nullptr;
 }
-
-std::unordered_map<std::type_index, DataType> _type_map = {
-    {std::type_index(typeid(Ct<heongpu::Scheme::BFV>)), DataType::TYPE_CIPHERTEXT},
-    {std::type_index(typeid(Ct<heongpu::Scheme::CKKS>)), DataType::TYPE_CIPHERTEXT},
-    {std::type_index(typeid(Pt<heongpu::Scheme::BFV>)), DataType::TYPE_PLAINTEXT},
-    {std::type_index(typeid(Pt<heongpu::Scheme::CKKS>)), DataType::TYPE_PLAINTEXT},
-    {std::type_index(typeid(Rlk<heongpu::Scheme::BFV>)), DataType::TYPE_RELIN_KEY},
-    {std::type_index(typeid(Rlk<heongpu::Scheme::CKKS>)), DataType::TYPE_RELIN_KEY},
-    {std::type_index(typeid(Glk<heongpu::Scheme::BFV>)), DataType::TYPE_GALOIS_KEY},
-    {std::type_index(typeid(Glk<heongpu::Scheme::CKKS>)), DataType::TYPE_GALOIS_KEY},
-    {std::type_index(typeid(Swk<heongpu::Scheme::BFV>)), DataType::TYPE_SWITCH_KEY},
-    {std::type_index(typeid(Swk<heongpu::Scheme::CKKS>)), DataType::TYPE_SWITCH_KEY},
-};
 
 template <heongpu::Scheme S>
 std::tuple<heongpu::HEArithmeticOperator<S>&, heongpu::ExecutionOptions&>
@@ -78,7 +64,6 @@ template <typename T> T& _get_input_data(const std::unordered_map<NodeIndex, std
     if (!node.fhe_prop.has_value()) {
         throw std::runtime_error("FHE property not found for input node " + std::to_string(node.index));
     }
-    assert(node.fhe_prop->datum_type == _type_map[std::type_index(typeid(T))]);
     T& data = *std::any_cast<std::shared_ptr<T>>(inputs.at(node.index));
     return data;
 }

@@ -13,6 +13,7 @@ import (
 )
 
 var (
+	fpga_base_path = "/acc_test/integrate/fpga_tests/noc_config_16c_3"
 	gpu_base_path  = "/acc_test/integrate/gpu_tests"
 )
 

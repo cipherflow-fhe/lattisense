@@ -18,13 +18,11 @@
 
 #include <algorithm>
 #include <random>
-#include <dirent.h>
-#include <math.h>
 #define CATCH_CONFIG_MAIN
 #include "catch.hpp"
 #include "fixture.hpp"
-#include "fixture.hpp"
-#include "cxx_fhe_task.h"
+#include <dirent.h>
+#include <math.h>
 
 uint64_t mod_exp(uint64_t x, int power, uint64_t mod) {
     if (power == 0)
@@ -35,7 +33,7 @@ uint64_t mod_exp(uint64_t x, int power, uint64_t mod) {
         return mod_exp(x * x % mod, power / 2, mod) % mod;
 };
 
-TEST_CASE_METHOD(BfvCpuFixture, "BFV cac level error", "") {
+TEST_CASE_METHOD(BfvFpgaFixture, "BFV cac level error", "") {
     vector<BfvCiphertext> x_list;
     vector<BfvCiphertext> y_list;
     vector<BfvCiphertext> z_list;
@@ -65,20 +63,20 @@ TEST_CASE_METHOD(BfvCpuFixture, "BFV cac level error", "") {
                 z_list.push_back(ctx.new_ciphertext(level - 1));
             }
 
-            string project_path = cpu_base_path + "/BFV_" + to_string(n_op) + "_cac/level_" + to_string(level);
-            FheTaskCpu cpu_project(project_path);
+            string project_path = fpga_base_path + "/BFV_" + to_string(n_op) + "_cac/level_" + to_string(level);
+            FheTaskFpga fpga_project(project_path, true);
             vector<CxxVectorArgument> cxx_args = {
                 CxxVectorArgument{"in_x_list", &x_list},
                 CxxVectorArgument{"in_y_list", &y_list},
                 CxxVectorArgument{"out_z_list", &z_list},
             };
-            REQUIRE_THROWS_WITH(cpu_project.run(&ctx, cxx_args),
+            REQUIRE_THROWS_WITH(fpga_project.run(&ctx, cxx_args),
                                 "For argument in_x_list, expected level is 3, but input level is 2.");
         }
     }
 };
 
-TEST_CASE_METHOD(BfvCpuFixture, "BFV cap", "") {
+TEST_CASE_METHOD(BfvFpgaFixture, "BFV cap", "") {
     vector<BfvCiphertext> x_list;
     vector<BfvPlaintext> y_list;
     vector<BfvCiphertext> z_list;
@@ -92,7 +90,7 @@ TEST_CASE_METHOD(BfvCpuFixture, "BFV cap", "") {
         z_true[i] = (x[i] + y[i]) % t;
     }
 
-    for (int level = min_level; level <= max_level; level++) {
+    for (int level = 0; level <= max_level; level++) {
         SECTION("n=" + to_string(n_op) + ", lv=" + to_string(level)) {
             for (int i = 0; i < n_op; i++) {
                 vector<uint64_t> x_mg{x[i]};
@@ -108,14 +106,14 @@ TEST_CASE_METHOD(BfvCpuFixture, "BFV cap", "") {
                 z_list.push_back(ctx.new_ciphertext(level));
             }
 
-            string project_path = cpu_base_path + "/BFV_" + to_string(n_op) + "_cap/level_" + to_string(level);
-            FheTaskCpu cpu_project(project_path);
+            string project_path = fpga_base_path + "/BFV_" + to_string(n_op) + "_cap/level_" + to_string(level);
+            FheTaskFpga fpga_project(project_path, true);
             vector<CxxVectorArgument> cxx_args = {
                 CxxVectorArgument{"in_x_list", &x_list},
                 CxxVectorArgument{"in_y_list", &y_list},
                 CxxVectorArgument{"out_z_list", &z_list},
             };
-            cpu_project.run(&ctx, cxx_args);
+            fpga_project.run(&ctx, cxx_args);
 
             vector<uint64_t> z;
             for (int i = 0; i < n_op; i++) {
@@ -130,59 +128,7 @@ TEST_CASE_METHOD(BfvCpuFixture, "BFV cap", "") {
     }
 };
 
-TEST_CASE_METHOD(BfvCpuFixture, "BFV ct_add_pt_ringt", "") {
-    vector<BfvCiphertext> x_list;
-    vector<BfvPlaintextRingt> y_list;
-    vector<BfvCiphertext> z_list;
-    vector<uint64_t> x;
-    vector<uint64_t> y;
-
-    vector<uint64_t> z_true(n_op);
-    for (int i = 0; i < n_op; i++) {
-        x.push_back(i);
-        y.push_back(i);
-        z_true[i] = (x[i] + y[i]) % t;
-    }
-
-    for (int level = min_level; level <= max_level; level++) {
-        SECTION("n=" + to_string(n_op) + ", lv=" + to_string(level)) {
-            for (int i = 0; i < n_op; i++) {
-                vector<uint64_t> x_mg{x[i]};
-                vector<uint64_t> y_mg{y[i]};
-                print_message(x_mg.data(), "x_mg", 1);
-                print_message(y_mg.data(), "y_mg", 1);
-
-                auto x_pt = ctx.encode(x_mg, level);
-                auto y_pt = ctx.encode_ringt(y_mg);
-                auto x_ct = ctx.encrypt_asymmetric(x_pt);
-                x_list.push_back(std::move(x_ct));
-                y_list.push_back(std::move(y_pt));
-                z_list.push_back(ctx.new_ciphertext(level));
-            }
-
-            string project_path = cpu_base_path + "/BFV_" + to_string(n_op) + "_cap_ringt/level_" + to_string(level);
-            FheTaskCpu cpu_project(project_path);
-            vector<CxxVectorArgument> cxx_args = {
-                CxxVectorArgument{"in_x_list", &x_list},
-                CxxVectorArgument{"in_y_list", &y_list},
-                CxxVectorArgument{"out_z_list", &z_list},
-            };
-            cpu_project.run(&ctx, cxx_args);
-
-            vector<uint64_t> z;
-            for (int i = 0; i < n_op; i++) {
-                auto z_pt = ctx.decrypt(z_list[i]);
-                auto z_mg = ctx.decode(z_pt);
-                print_message(z_mg.data(), "z_mg", 1);
-                z.push_back(z_mg[0]);
-            }
-
-            REQUIRE(z == z_true);
-        }
-    }
-};
-
-TEST_CASE_METHOD(BfvCpuFixture, "BFV cac", "") {
+TEST_CASE_METHOD(BfvFpgaFixture, "BFV cac", "") {
     vector<BfvCiphertext> x_list;
     vector<BfvCiphertext> y_list;
     vector<BfvCiphertext> z_list;
@@ -197,7 +143,7 @@ TEST_CASE_METHOD(BfvCpuFixture, "BFV cac", "") {
         z_true[i] = (x[i] + y[i]) % t;
     }
 
-    for (int level = min_level; level <= max_level; level++) {
+    for (int level = 0; level <= max_level; level++) {
         SECTION("n=" + to_string(n_op) + ", lv=" + to_string(level)) {
             for (int i = 0; i < n_op; i++) {
                 vector<uint64_t> x_mg{x[i]};
@@ -214,14 +160,14 @@ TEST_CASE_METHOD(BfvCpuFixture, "BFV cac", "") {
                 z_list.push_back(ctx.new_ciphertext(level));
             }
 
-            string project_path = cpu_base_path + "/BFV_" + to_string(n_op) + "_cac/level_" + to_string(level);
-            FheTaskCpu cpu_project(project_path);
+            string project_path = fpga_base_path + "/BFV_" + to_string(n_op) + "_cac/level_" + to_string(level);
+            FheTaskFpga fpga_project(project_path, true);
             vector<CxxVectorArgument> cxx_args = {
                 CxxVectorArgument{"in_x_list", &x_list},
                 CxxVectorArgument{"in_y_list", &y_list},
                 CxxVectorArgument{"out_z_list", &z_list},
             };
-            cpu_project.run(&ctx, cxx_args);
+            fpga_project.run(&ctx, cxx_args);
 
             vector<uint64_t> z;
             for (int i = 0; i < n_op; i++) {
@@ -236,7 +182,7 @@ TEST_CASE_METHOD(BfvCpuFixture, "BFV cac", "") {
     }
 };
 
-TEST_CASE_METHOD(BfvCpuFixture, "BFV casc", "") {
+TEST_CASE_METHOD(BfvFpgaFixture, "BFV casc", "") {
     vector<BfvCiphertext> x_list;
     vector<BfvCiphertext> z_list;
 
@@ -248,7 +194,7 @@ TEST_CASE_METHOD(BfvCpuFixture, "BFV casc", "") {
         z_true[i] = (x[i] + x[i]) % t;
     }
 
-    for (int level = min_level; level <= max_level; level++) {
+    for (int level = 0; level <= max_level; level++) {
         SECTION("n=" + to_string(n_op) + ", lv=" + to_string(level)) {
             for (int i = 0; i < n_op; i++) {
                 vector<uint64_t> x_mg{x[i]};
@@ -260,13 +206,13 @@ TEST_CASE_METHOD(BfvCpuFixture, "BFV casc", "") {
                 z_list.push_back(ctx.new_ciphertext(level));
             }
 
-            string project_path = cpu_base_path + "/BFV_" + to_string(n_op) + "_casc/level_" + to_string(level);
-            FheTaskCpu cpu_project(project_path);
+            string project_path = fpga_base_path + "/BFV_" + to_string(n_op) + "_casc/level_" + to_string(level);
+            FheTaskFpga fpga_project(project_path, true);
             vector<CxxVectorArgument> cxx_args = {
                 CxxVectorArgument{"in_x_list", &x_list},
                 CxxVectorArgument{"out_z_list", &z_list},
             };
-            cpu_project.run(&ctx, cxx_args);
+            fpga_project.run(&ctx, cxx_args);
 
             vector<uint64_t> z;
             for (int i = 0; i < n_op; i++) {
@@ -281,7 +227,7 @@ TEST_CASE_METHOD(BfvCpuFixture, "BFV casc", "") {
     }
 };
 
-TEST_CASE_METHOD(BfvCpuFixture, "BFV csp", "") {
+TEST_CASE_METHOD(BfvFpgaFixture, "BFV csp", "") {
     vector<BfvCiphertext> x_list;
     vector<BfvPlaintext> y_list;
     vector<BfvCiphertext> z_list;
@@ -295,7 +241,7 @@ TEST_CASE_METHOD(BfvCpuFixture, "BFV csp", "") {
         z_true[i] = (x[i] - y[i]) % t;
     }
 
-    for (int level = min_level; level <= max_level; level++) {
+    for (int level = 0; level <= max_level; level++) {
         SECTION("n=" + to_string(n_op) + ", lv=" + to_string(level)) {
             for (int i = 0; i < n_op; i++) {
                 vector<uint64_t> x_mg{x[i]};
@@ -311,14 +257,14 @@ TEST_CASE_METHOD(BfvCpuFixture, "BFV csp", "") {
                 z_list.push_back(ctx.new_ciphertext(level));
             }
 
-            string project_path = cpu_base_path + "/BFV_" + to_string(n_op) + "_csp/level_" + to_string(level);
-            FheTaskCpu cpu_project(project_path);
+            string project_path = fpga_base_path + "/BFV_" + to_string(n_op) + "_csp/level_" + to_string(level);
+            FheTaskFpga fpga_project(project_path, true);
             vector<CxxVectorArgument> cxx_args = {
                 CxxVectorArgument{"in_x_list", &x_list},
                 CxxVectorArgument{"in_y_list", &y_list},
                 CxxVectorArgument{"out_z_list", &z_list},
             };
-            cpu_project.run(&ctx, cxx_args);
+            fpga_project.run(&ctx, cxx_args);
 
             vector<uint64_t> z;
             for (int i = 0; i < n_op; i++) {
@@ -333,59 +279,7 @@ TEST_CASE_METHOD(BfvCpuFixture, "BFV csp", "") {
     }
 };
 
-TEST_CASE_METHOD(BfvCpuFixture, "BFV ct_sub_pt_ringt", "") {
-    vector<BfvCiphertext> x_list;
-    vector<BfvPlaintextRingt> y_list;
-    vector<BfvCiphertext> z_list;
-    vector<uint64_t> x;
-    vector<uint64_t> y;
-
-    vector<uint64_t> z_true(n_op);
-    for (int i = 0; i < n_op; i++) {
-        x.push_back(i + i);
-        y.push_back(i);
-        z_true[i] = (x[i] - y[i]) % t;
-    }
-
-    for (int level = min_level; level <= max_level; level++) {
-        SECTION("n=" + to_string(n_op) + ", lv=" + to_string(level)) {
-            for (int i = 0; i < n_op; i++) {
-                vector<uint64_t> x_mg{x[i]};
-                vector<uint64_t> y_mg{y[i]};
-                print_message(x_mg.data(), "x_mg", 1);
-                print_message(y_mg.data(), "y_mg", 1);
-
-                auto x_pt = ctx.encode(x_mg, level);
-                auto y_pt = ctx.encode_ringt(y_mg);
-                auto x_ct = ctx.encrypt_asymmetric(x_pt);
-                x_list.push_back(std::move(x_ct));
-                y_list.push_back(std::move(y_pt));
-                z_list.push_back(ctx.new_ciphertext(level));
-            }
-
-            string project_path = cpu_base_path + "/BFV_" + to_string(n_op) + "_csp_ringt/level_" + to_string(level);
-            FheTaskCpu cpu_project(project_path);
-            vector<CxxVectorArgument> cxx_args = {
-                CxxVectorArgument{"in_x_list", &x_list},
-                CxxVectorArgument{"in_y_list", &y_list},
-                CxxVectorArgument{"out_z_list", &z_list},
-            };
-            cpu_project.run(&ctx, cxx_args);
-
-            vector<uint64_t> z;
-            for (int i = 0; i < n_op; i++) {
-                auto z_pt = ctx.decrypt(z_list[i]);
-                auto z_mg = ctx.decode(z_pt);
-                print_message(z_mg.data(), "z_mg", 1);
-                z.push_back(z_mg[0]);
-            }
-
-            REQUIRE(z == z_true);
-        }
-    }
-};
-
-TEST_CASE_METHOD(BfvCpuFixture, "BFV csc", "") {
+TEST_CASE_METHOD(BfvFpgaFixture, "BFV csc", "") {
     vector<BfvCiphertext> x_list;
     vector<BfvCiphertext> y_list;
     vector<BfvCiphertext> z_list;
@@ -400,7 +294,7 @@ TEST_CASE_METHOD(BfvCpuFixture, "BFV csc", "") {
         z_true[i] = (x[i] - y[i]) % t;
     }
 
-    for (int level = min_level; level <= max_level; level++) {
+    for (int level = 0; level <= max_level; level++) {
         SECTION("n=" + to_string(n_op) + ", lv=" + to_string(level)) {
             for (int i = 0; i < n_op; i++) {
                 vector<uint64_t> x_mg{x[i]};
@@ -417,14 +311,14 @@ TEST_CASE_METHOD(BfvCpuFixture, "BFV csc", "") {
                 z_list.push_back(ctx.new_ciphertext(level));
             }
 
-            string project_path = cpu_base_path + "/BFV_" + to_string(n_op) + "_csc/level_" + to_string(level);
-            FheTaskCpu cpu_project(project_path);
+            string project_path = fpga_base_path + "/BFV_" + to_string(n_op) + "_csc/level_" + to_string(level);
+            FheTaskFpga fpga_project(project_path, true);
             vector<CxxVectorArgument> cxx_args = {
                 CxxVectorArgument{"in_x_list", &x_list},
                 CxxVectorArgument{"in_y_list", &y_list},
                 CxxVectorArgument{"out_z_list", &z_list},
             };
-            cpu_project.run(&ctx, cxx_args);
+            fpga_project.run(&ctx, cxx_args);
 
             vector<uint64_t> z;
             for (int i = 0; i < n_op; i++) {
@@ -439,52 +333,7 @@ TEST_CASE_METHOD(BfvCpuFixture, "BFV csc", "") {
     }
 };
 
-TEST_CASE_METHOD(BfvCpuFixture, "BFV cssc", "") {
-    vector<BfvCiphertext> x_list;
-    vector<BfvCiphertext> z_list;
-
-    vector<uint64_t> x;
-
-    vector<uint64_t> z_true(n_op);
-    for (int i = 0; i < n_op; i++) {
-        x.push_back(3 * i);
-        z_true[i] = (x[i] - x[i]) % t;
-    }
-
-    for (int level = min_level; level <= max_level; level++) {
-        SECTION("n=" + to_string(n_op) + ", lv=" + to_string(level)) {
-            for (int i = 0; i < n_op; i++) {
-                vector<uint64_t> x_mg{x[i]};
-                print_message(x_mg.data(), "x_mg", 1);
-
-                auto x_pt = ctx.encode(x_mg, level);
-                auto x_ct = ctx.encrypt_asymmetric(x_pt);
-                x_list.push_back(std::move(x_ct));
-                z_list.push_back(ctx.new_ciphertext(level));
-            }
-
-            string project_path = cpu_base_path + "/BFV_" + to_string(n_op) + "_cssc/level_" + to_string(level);
-            FheTaskCpu cpu_project(project_path);
-            vector<CxxVectorArgument> cxx_args = {
-                CxxVectorArgument{"in_x_list", &x_list},
-                CxxVectorArgument{"out_z_list", &z_list},
-            };
-            cpu_project.run(&ctx, cxx_args);
-
-            vector<uint64_t> z;
-            for (int i = 0; i < n_op; i++) {
-                auto z_pt = ctx.decrypt(z_list[i]);
-                auto z_mg = ctx.decode(z_pt);
-                print_message(z_mg.data(), "z_mg", 1);
-                z.push_back(z_mg[0]);
-            }
-
-            REQUIRE(z == z_true);
-        }
-    }
-};
-
-TEST_CASE_METHOD(BfvCpuFixture, "BFV cneg", "") {
+TEST_CASE_METHOD(BfvFpgaFixture, "BFV cneg", "") {
     vector<BfvCiphertext> x_list;
     vector<BfvCiphertext> z_list;
 
@@ -496,7 +345,7 @@ TEST_CASE_METHOD(BfvCpuFixture, "BFV cneg", "") {
         z_true[i] = (t - x[i]) % t;
     }
 
-    for (int level = min_level; level <= max_level; level++) {
+    for (int level = 0; level <= max_level; level++) {
         SECTION("n=" + to_string(n_op) + ", lv=" + to_string(level)) {
             for (int i = 0; i < n_op; i++) {
                 vector<uint64_t> x_mg{x[i]};
@@ -510,13 +359,13 @@ TEST_CASE_METHOD(BfvCpuFixture, "BFV cneg", "") {
                 z_list.push_back(ctx.new_ciphertext(level));
             }
 
-            string project_path = cpu_base_path + "/BFV_" + to_string(n_op) + "_cneg/level_" + to_string(level);
-            FheTaskCpu cpu_project(project_path);
+            string project_path = fpga_base_path + "/BFV_" + to_string(n_op) + "_cneg/level_" + to_string(level);
+            FheTaskFpga fpga_project(project_path, true);
             vector<CxxVectorArgument> cxx_args = {
                 CxxVectorArgument{"in_x_list", &x_list},
                 CxxVectorArgument{"out_z_list", &z_list},
             };
-            cpu_project.run(&ctx, cxx_args);
+            fpga_project.run(&ctx, cxx_args);
 
             vector<uint64_t> z;
             for (int i = 0; i < n_op; i++) {
@@ -531,7 +380,7 @@ TEST_CASE_METHOD(BfvCpuFixture, "BFV cneg", "") {
     }
 };
 
-TEST_CASE_METHOD(BfvCpuFixture, "BFV ct_mult_pt_ringt", "") {
+TEST_CASE_METHOD(BfvFpgaFixture, "BFV ct_mult_pt_ringt", "") {
     vector<BfvCiphertext> x_list;
     vector<BfvPlaintextRingt> y_list;
     vector<BfvCiphertext> z_list;
@@ -562,14 +411,14 @@ TEST_CASE_METHOD(BfvCpuFixture, "BFV ct_mult_pt_ringt", "") {
                 z_list.push_back(ctx.new_ciphertext(level));
             }
 
-            string project_path = cpu_base_path + "/BFV_" + to_string(n_op) + "_cmp_ringt/level_" + to_string(level);
-            FheTaskCpu cpu_project(project_path);
+            string project_path = fpga_base_path + "/BFV_" + to_string(n_op) + "_cmp_ringt/level_" + to_string(level);
+            FheTaskFpga fpga_project(project_path, true);
             vector<CxxVectorArgument> cxx_args = {
                 CxxVectorArgument{"in_x_list", &x_list},
                 CxxVectorArgument{"in_y_list", &y_list},
                 CxxVectorArgument{"out_z_list", &z_list},
             };
-            cpu_project.run(&ctx, cxx_args);
+            fpga_project.run(&ctx, cxx_args);
 
             vector<uint64_t> z;
             for (int i = 0; i < n_op; i++) {
@@ -584,7 +433,7 @@ TEST_CASE_METHOD(BfvCpuFixture, "BFV ct_mult_pt_ringt", "") {
     }
 };
 
-TEST_CASE_METHOD(BfvCpuFixture, "BFV ct_mult_pt", "") {
+TEST_CASE_METHOD(BfvFpgaFixture, "BFV ct_mult_pt", "") {
     vector<BfvCiphertext> x_list;
     vector<BfvPlaintext> y_list;
     vector<BfvCiphertext> z_list;
@@ -615,14 +464,14 @@ TEST_CASE_METHOD(BfvCpuFixture, "BFV ct_mult_pt", "") {
                 z_list.push_back(ctx.new_ciphertext(level));
             }
 
-            string project_path = cpu_base_path + "/BFV_" + to_string(n_op) + "_cmp/level_" + to_string(level);
-            FheTaskCpu cpu_project(project_path);
+            string project_path = fpga_base_path + "/BFV_" + to_string(n_op) + "_cmp/level_" + to_string(level);
+            FheTaskFpga fpga_project(project_path, true);
             vector<CxxVectorArgument> cxx_args = {
                 CxxVectorArgument{"in_x_list", &x_list},
                 CxxVectorArgument{"in_y_list", &y_list},
                 CxxVectorArgument{"out_z_list", &z_list},
             };
-            cpu_project.run(&ctx, cxx_args);
+            fpga_project.run(&ctx, cxx_args);
 
             vector<uint64_t> z;
             for (int i = 0; i < n_op; i++) {
@@ -637,7 +486,7 @@ TEST_CASE_METHOD(BfvCpuFixture, "BFV ct_mult_pt", "") {
     }
 };
 
-TEST_CASE_METHOD(BfvCpuFixture, "BFV ct_mult_pt_mul", "") {
+TEST_CASE_METHOD(BfvFpgaFixture, "BFV ct_mult_pt_mul", "") {
     vector<BfvCiphertext> x_list;
     vector<BfvPlaintextMul> y_list;
     vector<BfvCiphertext> z_list;
@@ -668,14 +517,14 @@ TEST_CASE_METHOD(BfvCpuFixture, "BFV ct_mult_pt_mul", "") {
                 z_list.push_back(ctx.new_ciphertext(level));
             }
 
-            string project_path = cpu_base_path + "/BFV_" + to_string(n_op) + "_cmp_mul/level_" + to_string(level);
-            FheTaskCpu cpu_project(project_path);
+            string project_path = fpga_base_path + "/BFV_" + to_string(n_op) + "_cmp_mul/level_" + to_string(level);
+            FheTaskFpga fpga_project(project_path, true);
             vector<CxxVectorArgument> cxx_args = {
                 CxxVectorArgument{"in_x_list", &x_list},
                 CxxVectorArgument{"in_y_list", &y_list},
                 CxxVectorArgument{"out_z_list", &z_list},
             };
-            cpu_project.run(&ctx, cxx_args);
+            fpga_project.run(&ctx, cxx_args);
 
             vector<uint64_t> z;
             for (int i = 0; i < n_op; i++) {
@@ -690,7 +539,295 @@ TEST_CASE_METHOD(BfvCpuFixture, "BFV ct_mult_pt_mul", "") {
     }
 };
 
-TEST_CASE_METHOD(BfvCpuFixture, "BFV cmc", "") {
+TEST_CASE_METHOD(BfvFpgaFixture, "BFV ct_mult_pt_coeffs_ringt", "") {
+    vector<BfvCiphertext> x_list;
+    vector<BfvPlaintextRingt> y_list;
+    vector<BfvCiphertext> z_list;
+
+    vector<vector<uint64_t>> x(n_op, vector<uint64_t>(n, 0));
+    vector<vector<uint64_t>> y(n_op, vector<uint64_t>(n, 0));
+
+    vector<vector<uint64_t>> z_true(n_op);
+    for (int op_idx = 0; op_idx < n_op; op_idx++) {
+        for (int i = 0; i < n; i++) {
+            x[op_idx][i] = (i + 1) % t;
+            y[op_idx][i] = (i + 10) % t;
+        }
+        z_true[op_idx] = polynomial_multiplication(n, t, x[op_idx], y[op_idx]);
+    }
+
+    for (int level = min_level; level <= max_level; level++) {
+        SECTION("n=" + to_string(n_op) + ", lv=" + to_string(level)) {
+            for (int i = 0; i < n_op; i++) {
+                vector<uint64_t> x_mg(x[i]);
+                vector<uint64_t> y_mg(y[i]);
+                print_message(x_mg.data(), "x_mg", 10);
+                print_message(y_mg.data(), "y_mg", 10);
+
+                auto x_pt = ctx.encode_coeffs(x_mg, level);
+                auto y_pt = ctx.encode_coeffs_ringt(y_mg);
+                auto x_ct = ctx.encrypt_asymmetric(x_pt);
+                x_list.push_back(move(x_ct));
+                y_list.push_back(move(y_pt));
+                z_list.push_back(ctx.new_ciphertext(level));
+            }
+
+            string project_path = fpga_base_path + "/BFV_" + to_string(n_op) + "_cmp_ringt/level_" + to_string(level);
+            FheTaskFpga fpga_project(project_path, true);
+            vector<CxxVectorArgument> cxx_args = {
+                CxxVectorArgument{"in_x_list", &x_list},
+                CxxVectorArgument{"in_y_list", &y_list},
+                CxxVectorArgument{"out_z_list", &z_list},
+            };
+            fpga_project.run(&ctx, cxx_args);
+
+            for (int op_idx = 0; op_idx < n_op; op_idx++) {
+                auto z_pt = ctx.decrypt(z_list[op_idx]);
+                auto z_mg = ctx.decode_coeffs(z_pt);
+                print_message(z_mg.data(), "z_mg", 20);
+                REQUIRE(z_mg == z_true[op_idx]);
+            }
+        }
+    }
+};
+
+TEST_CASE("BFV power-of-2-t ct_mult_pt_coeffs_ringt") {
+    FpgaDevice::init();
+
+    uint64_t n = 8192;
+    uint64_t t = 1 << 10;
+    BfvParameter param = BfvParameter::create_fpga_parameter(t);
+    BfvContext ctx = BfvContext::create_random_context(param);
+
+    int n_op = 4;
+    int min_level = 1;
+    int max_level = param.get_max_level();
+
+    vector<BfvCiphertext> x_list;
+    vector<BfvPlaintextRingt> y_list;
+    vector<BfvCiphertext> z_list;
+
+    vector<vector<uint64_t>> x(n_op, vector<uint64_t>(n, 0));
+    vector<vector<uint64_t>> y(n_op, vector<uint64_t>(n, 0));
+
+    vector<vector<uint64_t>> z_true(n_op);
+    for (int op_idx = 0; op_idx < n_op; op_idx++) {
+        for (int i = 0; i < n; i++) {
+            x[op_idx][i] = (i + 1) % t;
+            y[op_idx][i] = (i + 10) % t;
+        }
+        z_true[op_idx] = polynomial_multiplication(n, t, x[op_idx], y[op_idx]);
+    }
+
+    for (int level = min_level; level <= max_level; level++) {
+        SECTION("n=" + to_string(n_op) + ", lv=" + to_string(level)) {
+            for (int i = 0; i < n_op; i++) {
+                vector<uint64_t> x_mg(x[i]);
+                vector<uint64_t> y_mg(y[i]);
+                print_message(x_mg.data(), "x_mg", 10);
+                print_message(y_mg.data(), "y_mg", 10);
+
+                auto x_pt = ctx.encode_coeffs(x_mg, level);
+                auto y_pt = ctx.encode_coeffs_ringt(y_mg);
+                auto x_ct = ctx.encrypt_asymmetric(x_pt);
+                x_list.push_back(move(x_ct));
+                y_list.push_back(move(y_pt));
+                z_list.push_back(ctx.new_ciphertext(level));
+            }
+
+            string project_path = fpga_base_path + "/BFV_" + to_string(n_op) + "_cmp_ringt/level_" + to_string(level);
+            FheTaskFpga fpga_project(project_path, true);
+            vector<CxxVectorArgument> cxx_args = {
+                CxxVectorArgument{"in_x_list", &x_list},
+                CxxVectorArgument{"in_y_list", &y_list},
+                CxxVectorArgument{"out_z_list", &z_list},
+            };
+            fpga_project.run(&ctx, cxx_args);
+
+            for (int op_idx = 0; op_idx < n_op; op_idx++) {
+                auto z_pt = ctx.decrypt(z_list[op_idx]);
+                auto z_mg = ctx.decode_coeffs(z_pt);
+                print_message(z_mg.data(), "z_mg", 20);
+                REQUIRE(z_mg == z_true[op_idx]);
+            }
+        }
+    }
+}
+
+TEST_CASE_METHOD(BfvFpgaFixture, "BFV ct_mult_pt_coeffs_mul", "") {
+    vector<BfvCiphertext> x_list;
+    vector<BfvPlaintextMul> y_list;
+    vector<BfvCiphertext> z_list;
+
+    vector<vector<uint64_t>> x(n_op);
+    vector<vector<uint64_t>> y(n_op);
+
+    vector<vector<uint64_t>> z_true(n_op);
+    for (int i = 0; i < n_op; i++) {
+        for (int j = 0; j < 10; j++) {
+            x[i].push_back(j + 1);
+            y[i].push_back(j + 10);
+        }
+
+        for (int j = 0; j < (x[i].size() - 1) * (y[i].size() - 1) + 1; j++) {
+            z_true[i].push_back((uint64_t)0);
+            int m = j < x[i].size() - 1 ? j : x[i].size() - 1;
+            for (int k = 0; k <= m; k++) {
+                if (j - k < y[i].size()) {
+                    z_true[i][j] += (x[i][k] * y[i][j - k]) % t;
+                }
+            }
+        }
+
+        for (int j = (x[i].size() - 1) * (y[i].size() - 1) + 1; j < n; j++) {
+            z_true[i].push_back((uint64_t)0);
+        }
+    }
+
+    for (int level = min_level; level <= max_level; level++) {
+        SECTION("n=" + to_string(n_op) + ", lv=" + to_string(level)) {
+            for (int i = 0; i < n_op; i++) {
+                vector<uint64_t> x_mg(x[i]);
+                vector<uint64_t> y_mg(y[i]);
+                print_message(x_mg.data(), "x_mg", 10);
+                print_message(y_mg.data(), "y_mg", 10);
+
+                auto x_pt = ctx.encode_coeffs(x_mg, level);
+                auto y_pt_mul = ctx.encode_coeffs_mul(y_mg, level);
+                auto x_ct = ctx.encrypt_asymmetric(x_pt);
+                x_list.push_back(std::move(x_ct));
+                y_list.push_back(std::move(y_pt_mul));
+                z_list.push_back(ctx.new_ciphertext(level));
+            }
+
+            string project_path = fpga_base_path + "/BFV_" + to_string(n_op) + "_cmp_mul/level_" + to_string(level);
+            FheTaskFpga fpga_project(project_path, true);
+            vector<CxxVectorArgument> cxx_args = {
+                CxxVectorArgument{"in_x_list", &x_list},
+                CxxVectorArgument{"in_y_list", &y_list},
+                CxxVectorArgument{"out_z_list", &z_list},
+            };
+            fpga_project.run(&ctx, cxx_args);
+
+            for (int i = 0; i < n_op; i++) {
+                auto z_pt = ctx.decrypt(z_list[i]);
+                auto z_mg = ctx.decode_coeffs(z_pt);
+                print_message(z_mg.data(), "z_mg", 10);
+                REQUIRE(z_mg == z_true[i]);
+            }
+        }
+    }
+};
+
+TEST_CASE_METHOD(BfvFpgaFixture, "BFV ct_mul_mult_pt_ringt", "") {
+    vector<BfvCiphertext> x_list;
+    vector<BfvPlaintextRingt> y_list;
+    vector<BfvCiphertext> z_list;
+
+    vector<uint64_t> x;
+    vector<uint64_t> y;
+
+    vector<uint64_t> z_true(n_op);
+    for (int i = 0; i < n_op; i++) {
+        x.push_back(i + 1);
+        y.push_back(i + 10);
+        z_true[i] = x[i] * y[i] % t;
+    }
+
+    for (int level = min_level; level <= max_level; level++) {
+        SECTION("n=" + to_string(n_op) + ", lv=" + to_string(level)) {
+            for (int i = 0; i < n_op; i++) {
+                vector<uint64_t> x_mg{x[i]};
+                vector<uint64_t> y_mg{y[i]};
+                print_message(x_mg.data(), "x_mg", 1);
+                print_message(y_mg.data(), "y_mg", 1);
+
+                auto x_pt = ctx.encode(x_mg, level);
+                auto y_pt = ctx.encode_ringt(y_mg);
+                auto x_ct = ctx.encrypt_asymmetric(x_pt);
+                x_list.push_back(move(x_ct));
+                y_list.push_back(move(y_pt));
+                z_list.push_back(ctx.new_ciphertext(level));
+            }
+
+            string project_path =
+                fpga_base_path + "/BFV_" + to_string(n_op) + "_cmp_ct-mul_pt-ringt/level_" + to_string(level);
+            FheTaskFpga fpga_project(project_path, true);
+            vector<CxxVectorArgument> cxx_args = {
+                CxxVectorArgument{"in_x_list", &x_list},
+                CxxVectorArgument{"in_y_list", &y_list},
+                CxxVectorArgument{"out_z_list", &z_list},
+            };
+            fpga_project.run(&ctx, cxx_args);
+
+            vector<uint64_t> z;
+            for (int i = 0; i < n_op; i++) {
+                auto z_pt = ctx.decrypt(z_list[i]);
+                auto z_mg = ctx.decode(z_pt);
+                print_message(z_mg.data(), "z_mg", 1);
+                z.push_back(z_mg[0]);
+            }
+
+            REQUIRE(z == z_true);
+        }
+    }
+};
+
+TEST_CASE_METHOD(BfvFpgaFixture, "BFV ct_ntt_mult_pt_ringt", "") {
+    vector<BfvCiphertext> x_list;
+    vector<BfvPlaintextRingt> y_list;
+    vector<BfvCiphertext> z_list;
+
+    vector<uint64_t> x;
+    vector<uint64_t> y;
+
+    vector<uint64_t> z_true(n_op);
+    for (int i = 0; i < n_op; i++) {
+        x.push_back(i + 1);
+        y.push_back(i + 10);
+        z_true[i] = x[i] * y[i] % t;
+    }
+
+    for (int level = min_level; level <= max_level; level++) {
+        SECTION("n=" + to_string(n_op) + ", lv=" + to_string(level)) {
+            for (int i = 0; i < n_op; i++) {
+                vector<uint64_t> x_mg{x[i]};
+                vector<uint64_t> y_mg{y[i]};
+                print_message(x_mg.data(), "x_mg", 1);
+                print_message(y_mg.data(), "y_mg", 1);
+
+                auto x_pt = ctx.encode(x_mg, level);
+                auto y_pt = ctx.encode_ringt(y_mg);
+                auto x_ct = ctx.encrypt_asymmetric(x_pt);
+                x_list.push_back(move(x_ct));
+                y_list.push_back(move(y_pt));
+                z_list.push_back(ctx.new_ciphertext(level));
+            }
+
+            string project_path =
+                fpga_base_path + "/BFV_" + to_string(n_op) + "_cmp_ct-ntt_pt-ringt/level_" + to_string(level);
+            FheTaskFpga fpga_project(project_path, true);
+            vector<CxxVectorArgument> cxx_args = {
+                CxxVectorArgument{"in_x_list", &x_list},
+                CxxVectorArgument{"in_y_list", &y_list},
+                CxxVectorArgument{"out_z_list", &z_list},
+            };
+            fpga_project.run(&ctx, cxx_args);
+
+            vector<uint64_t> z;
+            for (int i = 0; i < n_op; i++) {
+                auto z_pt = ctx.decrypt(z_list[i]);
+                auto z_mg = ctx.decode(z_pt);
+                print_message(z_mg.data(), "z_mg", 1);
+                z.push_back(z_mg[0]);
+            }
+
+            REQUIRE(z == z_true);
+        }
+    }
+};
+
+TEST_CASE_METHOD(BfvFpgaFixture, "BFV cmc", "") {
     std::random_device rd;   // a seed source for the random number engine
     std::mt19937 gen(rd());  // mersenne_twister_engine seeded with rd()
     std::uniform_int_distribution<uint64_t> distrib(0, t - 1);
@@ -726,14 +863,14 @@ TEST_CASE_METHOD(BfvCpuFixture, "BFV cmc", "") {
                 z_list.push_back(ctx.new_ciphertext3(level));
             }
 
-            string project_path = cpu_base_path + "/BFV_" + to_string(n_op) + "_cmc/level_" + to_string(level);
-            FheTaskCpu cpu_project(project_path);
+            string project_path = fpga_base_path + "/BFV_" + to_string(n_op) + "_cmc/level_" + to_string(level);
+            FheTaskFpga fpga_project(project_path, true);
             vector<CxxVectorArgument> cxx_args = {
                 CxxVectorArgument{"in_x_list", &x_list},
                 CxxVectorArgument{"in_y_list", &y_list},
                 CxxVectorArgument{"out_z_list", &z_list},
             };
-            cpu_project.run(&ctx, cxx_args);
+            fpga_project.run(&ctx, cxx_args);
 
             vector<uint64_t> z;
             for (int i = 0; i < n_op; i++) {
@@ -748,7 +885,7 @@ TEST_CASE_METHOD(BfvCpuFixture, "BFV cmc", "") {
     }
 };
 
-TEST_CASE_METHOD(BfvCpuFixture, "BFV cmc_relin", "") {
+TEST_CASE_METHOD(BfvFpgaFixture, "BFV cmc_relin", "") {
     std::random_device rd;   // a seed source for the random number engine
     std::mt19937 gen(rd());  // mersenne_twister_engine seeded with rd()
     std::uniform_int_distribution<uint64_t> distrib(0, t - 1);
@@ -784,14 +921,14 @@ TEST_CASE_METHOD(BfvCpuFixture, "BFV cmc_relin", "") {
                 z_list.push_back(ctx.new_ciphertext(level));
             }
 
-            string project_path = cpu_base_path + "/BFV_" + to_string(n_op) + "_cmc_relin/level_" + to_string(level);
-            FheTaskCpu cpu_project(project_path);
+            string project_path = fpga_base_path + "/BFV_" + to_string(n_op) + "_cmc_relin/level_" + to_string(level);
+            FheTaskFpga fpga_project(project_path, true);
             vector<CxxVectorArgument> cxx_args = {
                 CxxVectorArgument{"in_x_list", &x_list},
                 CxxVectorArgument{"in_y_list", &y_list},
                 CxxVectorArgument{"out_z_list", &z_list},
             };
-            cpu_project.run(&ctx, cxx_args);
+            fpga_project.run(&ctx, cxx_args);
 
             vector<uint64_t> z;
             for (int i = 0; i < n_op; i++) {
@@ -806,7 +943,7 @@ TEST_CASE_METHOD(BfvCpuFixture, "BFV cmc_relin", "") {
     }
 };
 
-TEST_CASE_METHOD(BfvCpuFixture, "BFV cmc_relin_rescale", "") {
+TEST_CASE_METHOD(BfvFpgaFixture, "BFV cmc_relin_rescale", "") {
     std::random_device rd;   // a seed source for the random number engine
     std::mt19937 gen(rd());  // mersenne_twister_engine seeded with rd()
     std::uniform_int_distribution<uint64_t> distrib(0, t - 1);
@@ -843,14 +980,14 @@ TEST_CASE_METHOD(BfvCpuFixture, "BFV cmc_relin_rescale", "") {
             }
 
             string project_path =
-                cpu_base_path + "/BFV_" + to_string(n_op) + "_cmc_relin_rescale/level_" + to_string(level);
-            FheTaskCpu cpu_project(project_path);
+                fpga_base_path + "/BFV_" + to_string(n_op) + "_cmc_relin_rescale/level_" + to_string(level);
+            FheTaskFpga fpga_project(project_path, true);
             vector<CxxVectorArgument> cxx_args = {
                 CxxVectorArgument{"in_x_list", &x_list},
                 CxxVectorArgument{"in_y_list", &y_list},
                 CxxVectorArgument{"out_z_list", &z_list},
             };
-            cpu_project.run(&ctx, cxx_args);
+            fpga_project.run(&ctx, cxx_args);
 
             vector<uint64_t> z;
             for (int i = 0; i < n_op; i++) {
@@ -865,7 +1002,7 @@ TEST_CASE_METHOD(BfvCpuFixture, "BFV cmc_relin_rescale", "") {
     }
 };
 
-TEST_CASE_METHOD(BfvCpuFixture, "BFV csqr", "") {
+TEST_CASE_METHOD(BfvFpgaFixture, "BFV csqr", "") {
     vector<BfvCiphertext> x_list;
     vector<BfvCiphertext3> z_list;
     vector<uint64_t> x;
@@ -888,13 +1025,13 @@ TEST_CASE_METHOD(BfvCpuFixture, "BFV csqr", "") {
                 z_list.push_back(ctx.new_ciphertext3(level));
             }
 
-            string project_path = cpu_base_path + "/BFV_" + to_string(n_op) + "_csqr/level_" + to_string(level);
-            FheTaskCpu cpu_project(project_path);
+            string project_path = fpga_base_path + "/BFV_" + to_string(n_op) + "_csqr/level_" + to_string(level);
+            FheTaskFpga fpga_project(project_path, true);
             vector<CxxVectorArgument> cxx_args = {
                 CxxVectorArgument{"in_x_list", &x_list},
                 CxxVectorArgument{"out_z_list", &z_list},
             };
-            cpu_project.run(&ctx, cxx_args);
+            fpga_project.run(&ctx, cxx_args);
 
             vector<uint64_t> z;
             for (int i = 0; i < n_op; i++) {
@@ -909,7 +1046,7 @@ TEST_CASE_METHOD(BfvCpuFixture, "BFV csqr", "") {
     }
 }
 
-TEST_CASE_METHOD(BfvCpuFixture, "BFV csqr_relin", "") {
+TEST_CASE_METHOD(BfvFpgaFixture, "BFV csqr_relin", "") {
     vector<BfvCiphertext> x_list;
     vector<BfvCiphertext> z_list;
     vector<uint64_t> x;
@@ -932,13 +1069,13 @@ TEST_CASE_METHOD(BfvCpuFixture, "BFV csqr_relin", "") {
                 z_list.push_back(ctx.new_ciphertext(level));
             }
 
-            string project_path = cpu_base_path + "/BFV_" + to_string(n_op) + "_csqr_relin/level_" + to_string(level);
-            FheTaskCpu cpu_project(project_path);
+            string project_path = fpga_base_path + "/BFV_" + to_string(n_op) + "_csqr_relin/level_" + to_string(level);
+            FheTaskFpga fpga_project(project_path, true);
             vector<CxxVectorArgument> cxx_args = {
                 CxxVectorArgument{"in_x_list", &x_list},
                 CxxVectorArgument{"out_z_list", &z_list},
             };
-            cpu_project.run(&ctx, cxx_args);
+            fpga_project.run(&ctx, cxx_args);
 
             vector<uint64_t> z;
             for (int i = 0; i < n_op; i++) {
@@ -953,7 +1090,7 @@ TEST_CASE_METHOD(BfvCpuFixture, "BFV csqr_relin", "") {
     }
 }
 
-TEST_CASE_METHOD(BfvCpuFixture, "BFV csqr_relin_rescale", "") {
+TEST_CASE_METHOD(BfvFpgaFixture, "BFV csqr_relin_rescale", "") {
     vector<BfvCiphertext> x_list;
     vector<BfvCiphertext> z_list;
     vector<uint64_t> x;
@@ -977,13 +1114,13 @@ TEST_CASE_METHOD(BfvCpuFixture, "BFV csqr_relin_rescale", "") {
             }
 
             string project_path =
-                cpu_base_path + "/BFV_" + to_string(n_op) + "_csqr_relin_rescale/level_" + to_string(level);
-            FheTaskCpu cpu_project(project_path);
+                fpga_base_path + "/BFV_" + to_string(n_op) + "_csqr_relin_rescale/level_" + to_string(level);
+            FheTaskFpga fpga_project(project_path, true);
             vector<CxxVectorArgument> cxx_args = {
                 CxxVectorArgument{"in_x_list", &x_list},
                 CxxVectorArgument{"out_z_list", &z_list},
             };
-            cpu_project.run(&ctx, cxx_args);
+            fpga_project.run(&ctx, cxx_args);
 
             vector<uint64_t> z;
             for (int i = 0; i < n_op; i++) {
@@ -998,16 +1135,16 @@ TEST_CASE_METHOD(BfvCpuFixture, "BFV csqr_relin_rescale", "") {
     }
 }
 
-TEST_CASE_METHOD(BfvCpuFixture, "BFV rotate_col", "") {
+TEST_CASE_METHOD(BfvFpgaFixture, "BFV rotate_col", "") {
     vector<BfvCiphertext> x_list;
     vector<vector<BfvCiphertext>> y_list(n_op);
     vector<vector<uint64_t>> x_mgs;
     vector<int32_t> steps;
-    for (int i = 1; i <= 8; i++) {
+    for (int i = 1; i <= 128; i++) {
         steps.push_back(i);
     }
     ctx.gen_rotation_keys();
-    int n_col = n / 2;
+    int n_col = 4096;
 
     for (int i = 0; i < n_op; i++) {
         vector<uint64_t> x;
@@ -1018,7 +1155,7 @@ TEST_CASE_METHOD(BfvCpuFixture, "BFV rotate_col", "") {
     }
 
     for (int level = min_level; level <= max_level; level++) {
-        SECTION("n=" + to_string(n_op) + ", lv=" + to_string(level) + ", steps_1_to_8") {
+        SECTION("n=" + to_string(n_op) + ", lv=" + to_string(level) + ", steps_1_to_128") {
             for (int i = 0; i < n_op; i++) {
                 print_message(x_mgs[i].data(), "x_mg", 5);
                 auto x_pt = ctx.encode(x_mgs[i], level);
@@ -1029,14 +1166,14 @@ TEST_CASE_METHOD(BfvCpuFixture, "BFV rotate_col", "") {
                 }
             }
 
-            string project_path =
-                cpu_base_path + "/BFV_" + to_string(n_op) + "_rotate_col/level_" + to_string(level) + "/steps_1_to_8";
-            FheTaskCpu cpu_project(project_path);
+            string project_path = fpga_base_path + "/BFV_" + to_string(n_op) + "_rotate_col/level_" + to_string(level) +
+                                  "/steps_1_to_128";
+            FheTaskFpga fpga_project(project_path, true);
             vector<CxxVectorArgument> cxx_args = {
                 CxxVectorArgument{"arg_x", &x_list},
                 CxxVectorArgument{"arg_y", &y_list},
             };
-            cpu_project.run(&ctx, cxx_args);
+            fpga_project.run(&ctx, cxx_args);
 
             for (int i = 0; i < n_op; i++) {
                 for (int j = 0; j < steps.size(); j++) {
@@ -1054,12 +1191,12 @@ TEST_CASE_METHOD(BfvCpuFixture, "BFV rotate_col", "") {
     }
 };
 
-TEST_CASE_METHOD(BfvCpuFixture, "BFV advanced_rotate_col", "") {
+TEST_CASE_METHOD(BfvFpgaFixture, "BFV advanced_rotate_col", "") {
     vector<BfvCiphertext> x_list;
     vector<vector<BfvCiphertext>> y_list(n_op);
     vector<vector<uint64_t>> x_mgs;
     vector<int32_t> steps = {-900, 20, 400, 2000, 3009};
-    int n_col = n / 2;
+    int n_col = 4096;
     ctx.gen_rotation_keys_for_rotations(steps);
 
     for (int i = 0; i < n_op; i++) {
@@ -1091,14 +1228,14 @@ TEST_CASE_METHOD(BfvCpuFixture, "BFV advanced_rotate_col", "") {
                 }
             }
 
-            string project_path = cpu_base_path + "/BFV_" + to_string(n_op) + "_advanced_rotate_col/level_" +
+            string project_path = fpga_base_path + "/BFV_" + to_string(n_op) + "_advanced_rotate_col/level_" +
                                   to_string(level) + "/steps_" + steps_str;
-            FheTaskCpu cpu_project(project_path);
+            FheTaskFpga fpga_project(project_path, true);
             vector<CxxVectorArgument> cxx_args = {
                 CxxVectorArgument{"arg_x", &x_list},
                 CxxVectorArgument{"arg_y", &y_list},
             };
-            cpu_project.run(&ctx, cxx_args);
+            fpga_project.run(&ctx, cxx_args);
 
             for (int i = 0; i < n_op; i++) {
                 for (int j = 0; j < steps.size(); j++) {
@@ -1118,13 +1255,205 @@ TEST_CASE_METHOD(BfvCpuFixture, "BFV advanced_rotate_col", "") {
     }
 };
 
-TEST_CASE_METHOD(BfvCpuFixture, "BFV rotate_row", "") {
+TEST_CASE_METHOD(BfvFpgaFixture, "BFV advanced_rotate_col_imul", "") {
+    vector<BfvCiphertext> x_list;
+    vector<vector<BfvCiphertext>> y_list(n_op);
+    vector<vector<uint64_t>> x_mgs;
+    vector<int32_t> steps = {-900, 20, 400, 2000, 3009};
+    int n_col = 4096;
+    ctx.gen_rotation_keys_for_rotations(steps);
+
+    for (int i = 0; i < n_op; i++) {
+        vector<uint64_t> x;
+        for (int j = 0; j < n_col; j++) {
+            x.push_back(i * 2 + j);
+        }
+        x_mgs.push_back(x);
+    }
+
+    string steps_str = "";
+    for (int i = 0; i < steps.size(); i++) {
+        steps_str += to_string(steps[i]);
+        if (i < steps.size() - 1) {
+            steps_str += "_";
+        }
+    }
+    steps_str += "";
+
+    for (int level = min_level; level <= max_level; level++) {
+        SECTION("n=" + to_string(n_op) + ", lv=" + to_string(level) + ", steps=" + steps_str) {
+            for (int i = 0; i < n_op; i++) {
+                print_message(x_mgs[i].data(), "x_mg", 5);
+                auto x_pt = ctx.encode(x_mgs[i], level);
+                auto x_ct = ctx.encrypt_asymmetric(x_pt);
+                x_list.push_back(std::move(x_ct));
+                for (int j = 0; j < steps.size(); j++) {
+                    y_list[i].push_back(ctx.new_ciphertext(level));
+                }
+            }
+
+            string project_path = fpga_base_path + "/BFV_" + to_string(n_op) + "_advanced_rotate_col_imul/level_" +
+                                  to_string(level) + "/steps_" + steps_str;
+            FheTaskFpga fpga_project(project_path, true);
+            vector<CxxVectorArgument> cxx_args = {
+                CxxVectorArgument{"arg_x", &x_list},
+                CxxVectorArgument{"arg_y", &y_list},
+            };
+            fpga_project.run(&ctx, cxx_args);
+
+            for (int i = 0; i < n_op; i++) {
+                for (int j = 0; j < steps.size(); j++) {
+                    auto y_pt = ctx.decrypt(y_list[i][j]);
+                    auto y_mg = ctx.decode(y_pt);
+                    print_message(y_mg.data(), "y_mg", 5);
+                    vector<uint64_t> y;
+                    for (int k = 0; k < n_col; k++) {
+                        y.push_back(y_mg[(k - steps[j] + n_col) % n_col]);
+                    }
+                    print_message(y.data(), "y", 5);
+                    print_message(x_mgs[i].data(), "x_mgs[i]", 5);
+                    REQUIRE(y == x_mgs[i]);
+                }
+            }
+        }
+    }
+};
+
+TEST_CASE_METHOD(BfvFpgaFixture, "BFV advanced_rotate_col_imul_ontt", "") {
+    vector<BfvCiphertext> x_list;
+    vector<vector<BfvCiphertext>> y_list(n_op);
+    vector<vector<uint64_t>> x_mgs;
+    vector<int32_t> steps = {-900, 20, 400, 2000, 3009};
+    int n_col = 4096;
+    ctx.gen_rotation_keys_for_rotations(steps);
+
+    for (int i = 0; i < n_op; i++) {
+        vector<uint64_t> x;
+        for (int j = 0; j < n_col; j++) {
+            x.push_back(i * 2 + j);
+        }
+        x_mgs.push_back(x);
+    }
+
+    string steps_str = "";
+    for (int i = 0; i < steps.size(); i++) {
+        steps_str += to_string(steps[i]);
+        if (i < steps.size() - 1) {
+            steps_str += "_";
+        }
+    }
+    steps_str += "";
+
+    for (int level = min_level; level <= max_level; level++) {
+        SECTION("n=" + to_string(n_op) + ", lv=" + to_string(level) + ", steps=" + steps_str) {
+            for (int i = 0; i < n_op; i++) {
+                print_message(x_mgs[i].data(), "x_mg", 5);
+                auto x_pt = ctx.encode(x_mgs[i], level);
+                auto x_ct = ctx.encrypt_asymmetric(x_pt);
+                x_list.push_back(std::move(x_ct));
+                for (int j = 0; j < steps.size(); j++) {
+                    y_list[i].push_back(ctx.new_ciphertext(level));
+                }
+            }
+
+            string project_path = fpga_base_path + "/BFV_" + to_string(n_op) + "_advanced_rotate_col_imul_ontt/level_" +
+                                  to_string(level) + "/steps_" + steps_str;
+            FheTaskFpga fpga_project(project_path, true);
+            vector<CxxVectorArgument> cxx_args = {
+                CxxVectorArgument{"arg_x", &x_list},
+                CxxVectorArgument{"arg_y", &y_list},
+            };
+            fpga_project.run(&ctx, cxx_args);
+
+            for (int i = 0; i < n_op; i++) {
+                for (int j = 0; j < steps.size(); j++) {
+                    auto y_pt = ctx.decrypt(y_list[i][j]);
+                    auto y_mg = ctx.decode(y_pt);
+                    print_message(y_mg.data(), "y_mg", 5);
+                    vector<uint64_t> y;
+                    for (int k = 0; k < n_col; k++) {
+                        y.push_back(y_mg[(k - steps[j] + n_col) % n_col]);
+                    }
+                    print_message(y.data(), "y", 5);
+                    print_message(x_mgs[i].data(), "x_mgs[i]", 5);
+                    REQUIRE(y == x_mgs[i]);
+                }
+            }
+        }
+    }
+};
+
+TEST_CASE_METHOD(BfvFpgaFixture, "BFV advanced_rotate_col_intt_ontt", "") {
+    vector<BfvCiphertext> x_list;
+    vector<vector<BfvCiphertext>> y_list(n_op);
+    vector<vector<uint64_t>> x_mgs;
+    vector<int32_t> steps = {-900, 20, 400, 2000, 3009};
+    int n_col = 4096;
+    ctx.gen_rotation_keys_for_rotations(steps);
+
+    for (int i = 0; i < n_op; i++) {
+        vector<uint64_t> x;
+        for (int j = 0; j < n_col; j++) {
+            x.push_back(i * 2 + j);
+        }
+        x_mgs.push_back(x);
+    }
+
+    string steps_str = "";
+    for (int i = 0; i < steps.size(); i++) {
+        steps_str += to_string(steps[i]);
+        if (i < steps.size() - 1) {
+            steps_str += "_";
+        }
+    }
+    steps_str += "";
+
+    for (int level = min_level; level <= max_level; level++) {
+        SECTION("n=" + to_string(n_op) + ", lv=" + to_string(level) + ", steps=" + steps_str) {
+            for (int i = 0; i < n_op; i++) {
+                print_message(x_mgs[i].data(), "x_mg", 5);
+                auto x_pt = ctx.encode(x_mgs[i], level);
+                auto x_ct = ctx.encrypt_asymmetric(x_pt);
+                x_list.push_back(std::move(x_ct));
+                for (int j = 0; j < steps.size(); j++) {
+                    y_list[i].push_back(ctx.new_ciphertext(level));
+                }
+            }
+
+            string project_path = fpga_base_path + "/BFV_" + to_string(n_op) + "_advanced_rotate_col_intt_ontt/level_" +
+                                  to_string(level) + "/steps_" + steps_str;
+            FheTaskFpga fpga_project(project_path, true);
+            vector<CxxVectorArgument> cxx_args = {
+                CxxVectorArgument{"arg_x", &x_list},
+                CxxVectorArgument{"arg_y", &y_list},
+            };
+            fpga_project.run(&ctx, cxx_args);
+
+            for (int i = 0; i < n_op; i++) {
+                for (int j = 0; j < steps.size(); j++) {
+                    auto y_pt = ctx.decrypt(y_list[i][j]);
+                    auto y_mg = ctx.decode(y_pt);
+                    print_message(y_mg.data(), "y_mg", 5);
+                    vector<uint64_t> y;
+                    for (int k = 0; k < n_col; k++) {
+                        y.push_back(y_mg[(k - steps[j] + n_col) % n_col]);
+                    }
+                    print_message(y.data(), "y", 5);
+                    print_message(x_mgs[i].data(), "x_mgs[i]", 5);
+                    REQUIRE(y == x_mgs[i]);
+                }
+            }
+        }
+    }
+};
+
+TEST_CASE_METHOD(BfvFpgaFixture, "BFV rotate_row", "") {
     vector<BfvCiphertext> x_list;
     vector<BfvCiphertext> y_list;
     vector<vector<uint64_t>> x_mgs;
 
-    int n_col = n / 2;
-    ctx.gen_rotation_keys();
+    int n_col = 4096;
+    ctx.gen_rotation_keys_for_rotations(vector<int32_t>{}, true);
 
     for (int i = 0; i < n_op; i++) {
         vector<uint64_t> x;
@@ -1144,13 +1473,13 @@ TEST_CASE_METHOD(BfvCpuFixture, "BFV rotate_row", "") {
                 y_list.push_back(ctx.new_ciphertext(level));
             }
 
-            string project_path = cpu_base_path + "/BFV_" + to_string(n_op) + "_rotate_row/level_" + to_string(level);
-            FheTaskCpu cpu_project(project_path);
+            string project_path = fpga_base_path + "/BFV_" + to_string(n_op) + "_rotate_row/level_" + to_string(level);
+            FheTaskFpga fpga_project(project_path, true);
             vector<CxxVectorArgument> cxx_args = {
                 CxxVectorArgument{"arg_x", &x_list},
                 CxxVectorArgument{"arg_y", &y_list},
             };
-            cpu_project.run(&ctx, cxx_args);
+            fpga_project.run(&ctx, cxx_args);
 
             for (int i = 0; i < n_op; i++) {
                 auto y_pt = ctx.decrypt(y_list[i]);
@@ -1171,7 +1500,7 @@ TEST_CASE_METHOD(BfvCpuFixture, "BFV rotate_row", "") {
     }
 };
 
-TEST_CASE_METHOD(BfvCpuFixture, "BFV rescale", "") {
+TEST_CASE_METHOD(BfvFpgaFixture, "BFV rescale", "") {
     vector<BfvCiphertext> x_list;
     vector<BfvCiphertext> y_list;
 
@@ -1200,13 +1529,13 @@ TEST_CASE_METHOD(BfvCpuFixture, "BFV rescale", "") {
                 y_list.push_back(ctx.new_ciphertext(level - 1));
             }
 
-            string project_path = cpu_base_path + "/BFV_" + to_string(n_op) + "_rescale/level_" + to_string(level);
-            FheTaskCpu cpu_project(project_path);
+            string project_path = fpga_base_path + "/BFV_" + to_string(n_op) + "_rescale/level_" + to_string(level);
+            FheTaskFpga fpga_project(project_path, true);
             vector<CxxVectorArgument> cxx_args = {
                 CxxVectorArgument{"in_x_list", &x_list},
                 CxxVectorArgument{"out_y_list", &y_list},
             };
-            cpu_project.run(&ctx, cxx_args);
+            fpga_project.run(&ctx, cxx_args);
 
             for (int i = 0; i < n_op; i++) {
                 auto z_pt = ctx.decrypt(y_list[i]);
@@ -1218,7 +1547,7 @@ TEST_CASE_METHOD(BfvCpuFixture, "BFV rescale", "") {
     }
 };
 
-TEST_CASE_METHOD(BfvCpuFixture, "BFV ctc_ctc_0", "") {
+TEST_CASE_METHOD(BfvFpgaFixture, "BFV ctc_ctc_0", "") {
     vector<BfvCiphertext> x_list;
     vector<BfvCiphertext> y_list;
     vector<BfvCiphertext> z_list;
@@ -1252,14 +1581,14 @@ TEST_CASE_METHOD(BfvCpuFixture, "BFV ctc_ctc_0", "") {
                 z_list.push_back(ctx.new_ciphertext(level));
             }
 
-            string project_path = cpu_base_path + "/BFV_ctc_ctc_0/level_" + to_string(level);
-            FheTaskCpu cpu_project(project_path);
+            string project_path = fpga_base_path + "/BFV_ctc_ctc_0/level_" + to_string(level);
+            FheTaskFpga fpga_project(project_path, true);
             vector<CxxVectorArgument> cxx_args = {
                 CxxVectorArgument{"in_x_list", &x_list},
                 CxxVectorArgument{"in_y_list", &y_list},
                 CxxVectorArgument{"out_z_list", &z_list},
             };
-            cpu_project.run(&ctx, cxx_args);
+            fpga_project.run(&ctx, cxx_args);
 
             vector<uint64_t> z;
             for (int i = 0; i < 5; i++) {
@@ -1274,7 +1603,7 @@ TEST_CASE_METHOD(BfvCpuFixture, "BFV ctc_ctc_0", "") {
     }
 };
 
-TEST_CASE_METHOD(BfvCpuFixture, "BFV ctc_ctc_1", "") {
+TEST_CASE_METHOD(BfvFpgaFixture, "BFV ctc_ctc_1", "") {
     vector<BfvCiphertext> x_list;
     vector<BfvCiphertext> y_list;
     vector<BfvCiphertext> z_list;
@@ -1307,14 +1636,14 @@ TEST_CASE_METHOD(BfvCpuFixture, "BFV ctc_ctc_1", "") {
                 z_list.push_back(ctx.new_ciphertext(level));
             }
 
-            string project_path = cpu_base_path + "/BFV_ctc_ctc_1/level_" + to_string(level);
-            FheTaskCpu cpu_project(project_path);
+            string project_path = fpga_base_path + "/BFV_ctc_ctc_1/level_" + to_string(level);
+            FheTaskFpga fpga_project(project_path, true);
             vector<CxxVectorArgument> cxx_args = {
                 CxxVectorArgument{"in_x_list", &x_list},
                 CxxVectorArgument{"in_y_list", &y_list},
                 CxxVectorArgument{"out_z_list", &z_list},
             };
-            cpu_project.run(&ctx, cxx_args);
+            fpga_project.run(&ctx, cxx_args);
 
             vector<uint64_t> z;
             for (int i = 0; i < 4; i++) {
@@ -1329,7 +1658,7 @@ TEST_CASE_METHOD(BfvCpuFixture, "BFV ctc_ctc_1", "") {
     }
 };
 
-TEST_CASE_METHOD(BfvCpuFixture, "BFV 1_square_square", "") {
+TEST_CASE_METHOD(BfvFpgaFixture, "BFV 1_square_square", "") {
     vector<BfvCiphertext> x_list;
     vector<BfvCiphertext> y_list;
     vector<BfvCiphertext> z_list;
@@ -1354,13 +1683,13 @@ TEST_CASE_METHOD(BfvCpuFixture, "BFV 1_square_square", "") {
                 z_list.push_back(ctx.new_ciphertext(level));
             }
 
-            string project_path = cpu_base_path + "/BFV_1_square_square/level_" + to_string(level);
-            FheTaskCpu cpu_project(project_path);
+            string project_path = fpga_base_path + "/BFV_1_square_square/level_" + to_string(level);
+            FheTaskFpga fpga_project(project_path, true);
             vector<CxxVectorArgument> cxx_args = {
                 CxxVectorArgument{"in_x_list", &x_list},
                 CxxVectorArgument{"out_z_list", &z_list},
             };
-            cpu_project.run(&ctx, cxx_args);
+            fpga_project.run(&ctx, cxx_args);
 
             vector<uint64_t> z;
             for (int i = 0; i < 1; i++) {
@@ -1375,15 +1704,15 @@ TEST_CASE_METHOD(BfvCpuFixture, "BFV 1_square_square", "") {
     }
 };
 
-TEST_CASE_METHOD(BfvCpuFixture, "BFV 1_ctc_rotate_cac", "") {
+TEST_CASE_METHOD(BfvFpgaFixture, "BFV 1_ctc_rotate_cac", "") {
     vector<BfvCiphertext> x_list;
     vector<BfvCiphertext> y_list;
     vector<BfvCiphertext> z_list;
     ctx.gen_rotation_keys();
 
     int step = 1;
-    int n_slot = n;
-    int n_col = n / 2;
+    int n_slot = 8192;
+    int n_col = 4096;
 
     vector<uint64_t> z_true(n_slot);
 
@@ -1425,14 +1754,14 @@ TEST_CASE_METHOD(BfvCpuFixture, "BFV 1_ctc_rotate_cac", "") {
                 z_list.push_back(ctx.new_ciphertext(level));
             }
 
-            string project_path = cpu_base_path + "/BFV_1_ctc_rotate_cac/level_" + to_string(level);
-            FheTaskCpu cpu_project(project_path);
+            string project_path = fpga_base_path + "/BFV_1_ctc_rotate_cac/level_" + to_string(level);
+            FheTaskFpga fpga_project(project_path, true);
             vector<CxxVectorArgument> cxx_args = {
                 CxxVectorArgument{"in_x_list", &x_list},
                 CxxVectorArgument{"in_y_list", &y_list},
                 CxxVectorArgument{"out_z_list", &z_list},
             };
-            cpu_project.run(&ctx, cxx_args);
+            fpga_project.run(&ctx, cxx_args);
 
             vector<vector<uint64_t>> z;
             for (int i = 0; i < 1; i++) {
@@ -1452,7 +1781,7 @@ TEST_CASE_METHOD(BfvCpuFixture, "BFV 1_ctc_rotate_cac", "") {
     }
 }
 
-TEST_CASE_METHOD(BfvCpuFixture, "BFV double", "") {
+TEST_CASE_METHOD(BfvFpgaFixture, "BFV double", "") {
     vector<BfvCiphertext> x_list;
     vector<BfvCiphertext> y_list;
     vector<BfvCiphertext> z_list;
@@ -1478,13 +1807,13 @@ TEST_CASE_METHOD(BfvCpuFixture, "BFV double", "") {
                 z_list.push_back(ctx.new_ciphertext(level));
             }
 
-            string project_path = cpu_base_path + "/BFV_1_double";
-            FheTaskCpu cpu_project(project_path);
+            string project_path = fpga_base_path + "/BFV_1_double";
+            FheTaskFpga fpga_project(project_path, true);
             vector<CxxVectorArgument> cxx_args = {
                 CxxVectorArgument{"in_x_list", &x_list},
                 CxxVectorArgument{"out_z_list", &z_list},
             };
-            cpu_project.run(&ctx, cxx_args);
+            fpga_project.run(&ctx, cxx_args);
 
             vector<uint64_t> z;
             for (int i = 0; i < 2; i++) {
@@ -1499,7 +1828,7 @@ TEST_CASE_METHOD(BfvCpuFixture, "BFV double", "") {
     }
 };
 
-TEST_CASE_METHOD(BfvCpuFixture, "BFV braid", "") {
+TEST_CASE_METHOD(BfvFpgaFixture, "BFV braid", "") {
     vector<BfvCiphertext> x_list;
     vector<BfvCiphertext> y_list;
     vector<BfvCiphertext> z_list;
@@ -1529,13 +1858,13 @@ TEST_CASE_METHOD(BfvCpuFixture, "BFV braid", "") {
                 z_list.push_back(ctx.new_ciphertext(level));
             }
 
-            string project_path = cpu_base_path + "/BFV_braid";
-            FheTaskCpu cpu_project(project_path);
+            string project_path = fpga_base_path + "/BFV_braid";
+            FheTaskFpga fpga_project(project_path, true);
             vector<CxxVectorArgument> cxx_args = {
                 CxxVectorArgument{"in_list", &x_list},
                 CxxVectorArgument{"out_list", &z_list},
             };
-            cpu_project.run(&ctx, cxx_args);
+            fpga_project.run(&ctx, cxx_args);
 
             vector<uint64_t> z;
             for (int i = 0; i < 4; i++) {
@@ -1550,7 +1879,7 @@ TEST_CASE_METHOD(BfvCpuFixture, "BFV braid", "") {
     }
 };
 
-TEST_CASE_METHOD(BfvCpuFixture, "BFV poly", "") {
+TEST_CASE_METHOD(BfvFpgaFixture, "BFV poly", "") {
     vector<BfvCiphertext> x_list;
     vector<BfvCiphertext> a_list;
     vector<BfvCiphertext> z_list;
@@ -1586,14 +1915,14 @@ TEST_CASE_METHOD(BfvCpuFixture, "BFV poly", "") {
                 z_list.push_back(ctx.new_ciphertext(level));
             }
 
-            string project_path = cpu_base_path + "/BFV_n_poly/level_" + to_string(level);
-            FheTaskCpu cpu_project(project_path);
+            string project_path = fpga_base_path + "/BFV_n_poly/level_" + to_string(level);
+            FheTaskFpga fpga_project(project_path, true);
             vector<CxxVectorArgument> cxx_args = {
                 CxxVectorArgument{"in_x_list", &x_list},
                 CxxVectorArgument{"in_a_list", &a_list},
                 CxxVectorArgument{"out_z_list", &z_list},
             };
-            cpu_project.run(&ctx, cxx_args);
+            fpga_project.run(&ctx, cxx_args);
 
             vector<uint64_t> z;
             for (int i = 0; i < n_op; i++) {
@@ -1608,7 +1937,7 @@ TEST_CASE_METHOD(BfvCpuFixture, "BFV poly", "") {
     }
 };
 
-TEST_CASE_METHOD(BfvCpuFixture, "BFV poly_2", "") {
+TEST_CASE_METHOD(BfvFpgaFixture, "BFV poly_2", "") {
     vector<BfvCiphertext> x_list;
     vector<BfvPlaintextMul> coeffs_list;
     vector<BfvCiphertext> z_list;
@@ -1641,14 +1970,14 @@ TEST_CASE_METHOD(BfvCpuFixture, "BFV poly_2", "") {
 
             cout << "------- a0 * x + a1 * x^2 -------" << endl;
 
-            string project_path = cpu_base_path + "/BFV_poly_2/level_" + to_string(level);
-            FheTaskCpu cpu_project(project_path);
+            string project_path = fpga_base_path + "/BFV_poly_2/level_" + to_string(level);
+            FheTaskFpga fpga_project(project_path, true);
             vector<CxxVectorArgument> cxx_args = {
                 CxxVectorArgument{"in_x", &x_list},
                 CxxVectorArgument{"in_coeffs", &coeffs_list},
                 CxxVectorArgument{"out_y", &z_list},
             };
-            cpu_project.run(&ctx, cxx_args);
+            fpga_project.run(&ctx, cxx_args);
 
             vector<uint64_t> z;
             for (int i = 0; i < 1; i++) {
@@ -1663,9 +1992,9 @@ TEST_CASE_METHOD(BfvCpuFixture, "BFV poly_2", "") {
     }
 };
 
-TEST_CASE_METHOD(BfvCpuFixture, "BFV ct_pt_ringt_mac", "") {
+TEST_CASE_METHOD(BfvFpgaFixture, "BFV ct_pt_ringt_mac", "") {
     for (int level = 1; level <= 1; level++) {
-        for (int m = 44; m <= 50; m++) {
+        for (int m = 2; m <= 20; m++) {
             SECTION("m=" + to_string(m) + ", lv=" + to_string(level)) {
                 vector<BfvCiphertext> c_list;
                 vector<BfvPlaintextRingt> p_list;
@@ -1693,262 +2022,322 @@ TEST_CASE_METHOD(BfvCpuFixture, "BFV ct_pt_ringt_mac", "") {
                 }
                 z_list.push_back(ctx.new_ciphertext(level));
 
-                string project_path = cpu_base_path + "/BFV_cmpac/level_" + to_string(level) + "_m_" + to_string(m);
-                FheTaskCpu cpu_project(project_path);
+                string project_path = fpga_base_path + "/BFV_cmpac/level_" + to_string(level) + "_m_" + to_string(m);
+                FheTaskFpga fpga_project(project_path, true);
                 vector<CxxVectorArgument> cxx_args = {
                     CxxVectorArgument{"in_c_list", &c_list},
                     CxxVectorArgument{"in_p_list", &p_list},
                     CxxVectorArgument{"out_z_list", &z_list},
                 };
-                cpu_project.run(&ctx, cxx_args);
+                fpga_project.run(&ctx, cxx_args);
 
                 double epsilon = 1;
                 auto z_pt = ctx.decrypt(z_list[0]);
                 auto z_mg = ctx.decode(z_pt);
+                cout << "z_mg = " << z_mg[0] << endl;
+                cout << "z_true = " << z_true[0] << endl;
                 REQUIRE(vector<uint64_t>{z_mg[0]} == z_true);
             }
         }
     }
 };
 
-TEST_CASE_METHOD(BfvCustomCpuFixture, "BFV custom parameter cap", "") {
-    vector<uint64_t> x;
-    vector<uint64_t> y;
+TEST_CASE_METHOD(BfvFpgaFixture, "BFV ct_pt_ringt_mac 1", "") {
+    for (int level = 1; level <= 1; level++) {
+        for (int m = 2; m <= 20; m++) {
+            SECTION("m=" + to_string(m) + ", lv=" + to_string(level)) {
+                vector<BfvCiphertext> c_list;
+                vector<BfvPlaintextRingt> p_list;
+                vector<BfvCiphertext> z_list;
 
-    vector<uint64_t> z_true(n_op);
-    for (int i = 0; i < n_op; i++) {
-        x.push_back(i);
-        y.push_back(i);
-        z_true[i] = (x[i] + y[i]) % t;
-    }
+                vector<uint64_t> c;
+                vector<uint64_t> p;
+                uint64_t tmp = 0;
+                vector<uint64_t> z_true;
+                for (int i = 0; i < m; i++) {
+                    c.push_back(11);
+                    p.push_back(10);
+                    tmp += c[i] * p[i];
+                }
+                z_true.push_back(tmp);
 
-    for (int level = min_level; level <= max_level; level++) {
-        SECTION("n=" + to_string(n_op) + ", lv=" + to_string(level)) {
-            vector<BfvCiphertext> x_list;
-            vector<BfvPlaintext> y_list;
-            vector<BfvCiphertext> z_list;
-
-            for (int i = 0; i < n_op; i++) {
-                vector<uint64_t> x_mg{x[i]};
-                vector<uint64_t> y_mg{y[i]};
-
-                auto x_pt = ctx.encode(x_mg, level);
-                auto y_pt = ctx.encode(y_mg, level);
-                auto x_ct = ctx.encrypt_asymmetric(x_pt);
-                x_list.push_back(std::move(x_ct));
-                y_list.push_back(std::move(y_pt));
+                for (int i = 0; i < m; i++) {
+                    vector<uint64_t> c_mg{c[i]};
+                    vector<uint64_t> p_mg{p[i]};
+                    auto c_pt = ctx.encode(c_mg, level);
+                    auto p_pt = ctx.encode_ringt(p_mg);
+                    auto c_ct = ctx.encrypt_asymmetric(c_pt);
+                    c_list.push_back(std::move(c_ct));
+                    p_list.push_back(std::move(p_pt));
+                }
                 z_list.push_back(ctx.new_ciphertext(level));
+
+                string project_path = fpga_base_path + "/BFV_cmpac_1/level_" + to_string(level) + "_m_" + to_string(m);
+                FheTaskFpga fpga_project(project_path, true);
+                vector<CxxVectorArgument> cxx_args = {
+                    CxxVectorArgument{"in_c_list", &c_list},
+                    CxxVectorArgument{"in_p_list", &p_list},
+                    CxxVectorArgument{"out_z_list", &z_list},
+                };
+                fpga_project.run(&ctx, cxx_args);
+
+                double epsilon = 1;
+                auto z_pt = ctx.decrypt(z_list[0]);
+                auto z_mg = ctx.decode(z_pt);
+                cout << "z_mg = " << z_mg[0] << endl;
+                cout << "z_true = " << z_true[0] << endl;
+                REQUIRE(vector<uint64_t>{z_mg[0]} == z_true);
+            }
+        }
+    }
+};
+
+TEST_CASE_METHOD(BfvFpgaFixture, "BFV ct_mul_pt_mac", "") {
+    for (int level = 1; level <= 1; level++) {
+        for (int m = 2; m <= 20; m++) {
+            SECTION("m=" + to_string(m) + ", lv=" + to_string(level)) {
+                vector<BfvCiphertext> c_list;
+                vector<BfvPlaintextRingt> p_list;
+                vector<BfvCiphertext> z_list;
+
+                vector<uint64_t> c;
+                vector<uint64_t> p;
+                uint64_t tmp = 0;
+                vector<uint64_t> z_true;
+                for (int i = 0; i < m; i++) {
+                    c.push_back(11);
+                    p.push_back(10);
+                    tmp += c[i] * p[i];
+                }
+                z_true.push_back(tmp);
+
+                for (int i = 0; i < m; i++) {
+                    vector<uint64_t> c_mg{c[i]};
+                    vector<uint64_t> p_mg{p[i]};
+                    auto c_pt = ctx.encode(c_mg, level);
+                    auto p_pt = ctx.encode_ringt(p_mg);
+                    auto c_ct = ctx.encrypt_asymmetric(c_pt);
+                    c_list.push_back(std::move(c_ct));
+                    p_list.push_back(std::move(p_pt));
+                }
+                z_list.push_back(ctx.new_ciphertext(level));
+
+                string project_path =
+                    fpga_base_path + "/BFV_cmpac_mul/level_" + to_string(level) + "_m_" + to_string(m);
+                FheTaskFpga fpga_project(project_path, true);  // 明确指定使用两参数构造函数
+                vector<CxxVectorArgument> cxx_args = {
+                    CxxVectorArgument{"in_c_list", &c_list},
+                    CxxVectorArgument{"in_p_list", &p_list},
+                    CxxVectorArgument{"out_z_list", &z_list},
+                };
+                fpga_project.run(&ctx, cxx_args);
+
+                double epsilon = 1;
+                auto z_pt = ctx.decrypt(z_list[0]);
+                auto z_mg = ctx.decode(z_pt);
+                cout << "z_mg = " << z_mg[0] << endl;
+                cout << "z_true = " << z_true[0] << endl;
+                REQUIRE(vector<uint64_t>{z_mg[0]} == z_true);
+            }
+        }
+    }
+};
+
+TEST_CASE_METHOD(BfvFpgaFixture, "BFV ct_ntt_pt_mac", "") {
+    for (int level = 1; level <= 1; level++) {
+        for (int m = 2; m <= 20; m++) {
+            SECTION("m=" + to_string(m) + ", lv=" + to_string(level)) {
+                vector<BfvCiphertext> c_list;
+                vector<BfvPlaintextRingt> p_list;
+                vector<BfvCiphertext> z_list;
+
+                vector<uint64_t> c;
+                vector<uint64_t> p;
+                uint64_t tmp = 0;
+                vector<uint64_t> z_true;
+                for (int i = 0; i < m; i++) {
+                    c.push_back(11);
+                    p.push_back(10);
+                    tmp += c[i] * p[i];
+                }
+                z_true.push_back(tmp);
+
+                for (int i = 0; i < m; i++) {
+                    vector<uint64_t> c_mg{c[i]};
+                    vector<uint64_t> p_mg{p[i]};
+                    auto c_pt = ctx.encode(c_mg, level);
+                    auto p_pt = ctx.encode_ringt(p_mg);
+                    auto c_ct = ctx.encrypt_asymmetric(c_pt);
+                    c_list.push_back(std::move(c_ct));
+                    p_list.push_back(std::move(p_pt));
+                }
+                z_list.push_back(ctx.new_ciphertext(level));
+
+                string project_path =
+                    fpga_base_path + "/BFV_cmpac_ntt/level_" + to_string(level) + "_m_" + to_string(m);
+                FheTaskFpga fpga_project(project_path, true);
+                vector<CxxVectorArgument> cxx_args = {
+                    CxxVectorArgument{"in_c_list", &c_list},
+                    CxxVectorArgument{"in_p_list", &p_list},
+                    CxxVectorArgument{"out_z_list", &z_list},
+                };
+                fpga_project.run(&ctx, cxx_args);
+
+                double epsilon = 1;
+                auto z_pt = ctx.decrypt(z_list[0]);
+                auto z_mg = ctx.decode(z_pt);
+                cout << "z_mg = " << z_mg[0] << endl;
+                cout << "z_true = " << z_true[0] << endl;
+                REQUIRE(vector<uint64_t>{z_mg[0]} == z_true);
+            }
+        }
+    }
+};
+
+// #if 0
+TEST_CASE_METHOD(BfvFpgaFixture, "BFV power_dag", "") {
+    for (int power_dag_idx = 0; power_dag_idx < 1; power_dag_idx++) {
+        // vector<int> source_power = all_source_powers[power_dag_idx];
+        // int max_power = all_max_powers[power_dag_idx];
+
+        // vector<int> source_power{1, 7, 12};
+        // int max_power = 52;
+
+        // vector<int> source_power{1,9,15,78,115};
+        // int max_power = 512;
+
+        vector<int> source_power{1, 7, 18, 62, 104, 244, 259};
+        int max_power = 1137;
+
+        string source_power_str = "";
+        for (int j = 0; j < source_power.size(); j++) {
+            source_power_str += to_string(source_power[j]);
+            if (j != source_power.size() - 1) {
+                source_power_str += "-";
+            }
+        }
+        string task_power_str = "PD-" + to_string(max_power) + "#" + source_power_str;
+
+        SECTION("power_dag " + task_power_str) {
+            vector<BfvCiphertext> x_source_power_list;
+            vector<BfvCiphertext> x_max_power_list;
+
+            vector<vector<uint64_t>> x_source_power;
+            vector<vector<uint64_t>> x_max_power;
+
+            vector<uint64_t> x_mg(n);
+            for (int j = 0; j < n; j++) {
+                x_mg[j] = uint64_t(j);
+            }
+            for (int j = 0; j < source_power.size(); j++) {
+                vector<uint64_t> x_power;
+                for (int k = 0; k < n; k++) {
+                    x_power.push_back(mod_exp(x_mg[k], source_power[j], t));
+                }
+                // print_message(x_power.data(), ("x_source_power_" + to_string(source_power[i][j])).c_str(), 10);
+                x_source_power.push_back(x_power);
             }
 
-            string project_path =
-                cpu_base_path + "/BFV_custom_param_" + to_string(n_op) + "_cap/level_" + to_string(level);
-            FheTaskCpu cpu_project(project_path);
-            vector<CxxVectorArgument> cxx_args = {
-                CxxVectorArgument{"in_x_list", &x_list},
-                CxxVectorArgument{"in_y_list", &y_list},
-                CxxVectorArgument{"out_z_list", &z_list},
-            };
-            cpu_project.run(&ctx, cxx_args);
+            for (int j = 1; j <= max_power; j++) {
+                vector<uint64_t> x_power;
+                for (int k = 0; k < n; k++) {
+                    x_power.push_back(mod_exp(x_mg[k], j, t));
+                }
+                x_max_power.push_back(x_power);
+            }
 
-            for (int i = 0; i < n_op; i++) {
-                auto z_pt = ctx.decrypt(z_list[i]);
-                auto z_mg = ctx.decode(z_pt);
-                REQUIRE(z_mg[0] == z_true[i]);
+            for (int level = 5; level <= 5; level++) {
+                SECTION("level " + to_string(level)) {
+                    for (int j = 0; j < source_power.size(); j++) {
+                        auto x_pt = ctx.encode(x_source_power[j], level);
+                        auto x_ct = ctx.encrypt_asymmetric(x_pt);
+                        x_source_power_list.push_back(std::move(x_ct));
+                    }
+                    for (int j = 0; j < max_power; j++) {
+                        x_max_power_list.push_back(ctx.new_ciphertext(1));
+                    }
+
+                    string project_path =
+                        fpga_base_path + "/BFV_power_dag/" + task_power_str + "/level_" + to_string(level);
+                    FheTaskFpga fpga_project(project_path, true);
+
+                    vector<CxxVectorArgument> cxx_args = {
+                        CxxVectorArgument{"in_x_list", &x_source_power_list},
+                        CxxVectorArgument{"out_z_list", &x_max_power_list},
+                    };
+                    fpga_project.run(&ctx, cxx_args);
+
+                    for (int j = 0; j < max_power; j++) {
+                        auto z_pt = ctx.decrypt(x_max_power_list[j]);
+                        auto z_mg = ctx.decode(z_pt);
+
+                        REQUIRE(z_mg == x_max_power[j]);
+                    }
+                }
             }
         }
     }
 }
+// #endif
 
-TEST_CASE_METHOD(BfvCustomCpuFixture, "BFV custom parameter cac", "") {
-    vector<uint64_t> x;
-    vector<uint64_t> y;
-
-    vector<uint64_t> z_true(n_op);
-    for (int i = 0; i < n_op; i++) {
-        x.push_back(i);
-        y.push_back(i);
-        z_true[i] = (x[i] + y[i]) % t;
-    }
-
-    for (int level = min_level; level <= max_level; level++) {
-        SECTION("n=" + to_string(n_op) + ", lv=" + to_string(level)) {
-            vector<BfvCiphertext> x_list;
-            vector<BfvCiphertext> y_list;
-            vector<BfvCiphertext> z_list;
-
-            for (int i = 0; i < n_op; i++) {
-                vector<uint64_t> x_mg{x[i]};
-                vector<uint64_t> y_mg{y[i]};
-
-                auto x_pt = ctx.encode(x_mg, level);
-                auto y_pt = ctx.encode(y_mg, level);
-                auto x_ct = ctx.encrypt_asymmetric(x_pt);
-                auto y_ct = ctx.encrypt_asymmetric(y_pt);
-                x_list.push_back(std::move(x_ct));
-                y_list.push_back(std::move(y_ct));
-                z_list.push_back(ctx.new_ciphertext(level));
-            }
-
-            string project_path =
-                cpu_base_path + "/BFV_custom_param_" + to_string(n_op) + "_cac/level_" + to_string(level);
-            FheTaskCpu cpu_project(project_path);
-            vector<CxxVectorArgument> cxx_args = {
-                CxxVectorArgument{"in_x_list", &x_list},
-                CxxVectorArgument{"in_y_list", &y_list},
-                CxxVectorArgument{"out_z_list", &z_list},
-            };
-            cpu_project.run(&ctx, cxx_args);
-
-            for (int i = 0; i < n_op; i++) {
-                auto z_pt = ctx.decrypt(z_list[i]);
-                auto z_mg = ctx.decode(z_pt);
-                REQUIRE(z_mg[0] == z_true[i]);
-            }
-        }
-    }
-}
-
-TEST_CASE_METHOD(BfvCustomCpuFixture, "BFV custom parameter cmc", "") {
-    vector<uint64_t> x;
-    vector<uint64_t> y;
-
-    vector<uint64_t> z_true(n_op);
-    for (int i = 0; i < n_op; i++) {
-        x.push_back(i + 1);
-        y.push_back(i + 10);
-        z_true[i] = (x[i] * y[i]) % t;
-    }
-
-    for (int level = min_level; level <= max_level; level++) {
-        SECTION("n=" + to_string(n_op) + ", lv=" + to_string(level)) {
-            vector<BfvCiphertext> x_list;
-            vector<BfvCiphertext> y_list;
-            vector<BfvCiphertext> z_list;
-
-            for (int i = 0; i < n_op; i++) {
-                vector<uint64_t> x_mg{x[i]};
-                vector<uint64_t> y_mg{y[i]};
-
-                auto x_pt = ctx.encode(x_mg, level);
-                auto y_pt = ctx.encode(y_mg, level);
-                auto x_ct = ctx.encrypt_asymmetric(x_pt);
-                auto y_ct = ctx.encrypt_asymmetric(y_pt);
-                x_list.push_back(std::move(x_ct));
-                y_list.push_back(std::move(y_ct));
-                z_list.push_back(ctx.new_ciphertext(level));
-            }
-
-            string project_path =
-                cpu_base_path + "/BFV_custom_param_" + to_string(n_op) + "_cmc_relin/level_" + to_string(level);
-            FheTaskCpu cpu_project(project_path);
-            vector<CxxVectorArgument> cxx_args = {
-                CxxVectorArgument{"in_x_list", &x_list},
-                CxxVectorArgument{"in_y_list", &y_list},
-                CxxVectorArgument{"out_z_list", &z_list},
-            };
-            cpu_project.run(&ctx, cxx_args);
-
-            for (int i = 0; i < n_op; i++) {
-                auto z_pt = ctx.decrypt(z_list[i]);
-                auto z_mg = ctx.decode(z_pt);
-                REQUIRE(z_mg[0] == z_true[i]);
-            }
-        }
-    }
-}
-
-TEST_CASE_METHOD(BfvCpuFixture, "BFV custom cmpac", "") {
-    n_op = 1;
-
-    vector<uint64_t> x(7);
-    vector<uint64_t> y(8);
-    uint64_t z_true = 0;
-    for (int i = 0; i < 7; i++) {
-        x[i] = 10;
-        y[i] = 11;
-        z_true += (x[i] * y[i]) % t;
-    }
-    y[7] = 20;
-    z_true += y[7];
+TEST_CASE_METHOD(BfvFpgaFixture, "BFV cmc_relin offline", "[.][offline]") {
+    std::random_device rd;   // a seed source for the random number engine
+    std::mt19937 gen(rd());  // mersenne_twister_engine seeded with rd()
+    std::uniform_int_distribution<uint64_t> distrib(0, t - 1);
 
     vector<BfvCiphertext> x_list;
-    vector<CustomData> y_list;
+    vector<BfvCiphertext> y_list;
     vector<BfvCiphertext> z_list;
+
+    vector<uint64_t> x;
+    vector<uint64_t> y;
+
+    vector<uint64_t> z_true(n_op);
+    for (int i = 0; i < n_op; i++) {
+        x.push_back(distrib(gen));
+        y.push_back(distrib(gen));
+        z_true[i] = x[i] * y[i] % t;
+    }
 
     for (int level = min_level; level <= max_level; level++) {
         SECTION("n=" + to_string(n_op) + ", lv=" + to_string(level)) {
-            for (int i = 0; i < 7; i++) {
+            for (int i = 0; i < n_op; i++) {
                 vector<uint64_t> x_mg{x[i]};
                 vector<uint64_t> y_mg{y[i]};
 
                 auto x_pt = ctx.encode(x_mg, level);
+                auto y_pt = ctx.encode(y_mg, level);
                 auto x_ct = ctx.encrypt_asymmetric(x_pt);
+                auto y_ct = ctx.encrypt_asymmetric(y_pt);
                 x_list.push_back(std::move(x_ct));
-                y_list.push_back(CustomData(y_mg));
+                y_list.push_back(std::move(y_ct));
+                z_list.push_back(ctx.new_ciphertext(level));
             }
 
-            vector<uint64_t> y_mg{y[7]};
-            y_list.push_back(CustomData(y_mg));
-            z_list.push_back(ctx.new_ciphertext(level));
+            string project_path = fpga_base_path + "/BFV_" + to_string(n_op) + "_cmc_relin/level_" + to_string(level);
 
-            string project_path = cpu_base_path + "/BFV_" + to_string(n_op) + "_custom_cmpac/level_" + to_string(level);
-            FheTaskCpu cpu_project(project_path);
-
-            std::unordered_map<std::string, ExecutorFunc> custom_executors;
-            custom_executors["encode_ringt"] = [this](ExecutionContext& exec_ctx,
-                                                      const std::unordered_map<NodeIndex, std::any>& inputs,
-                                                      std::any& output, const ComputeNode& self) -> void {
-                auto* bfv_ctx = exec_ctx.get_arithmetic_context<BfvContext>();
-
-                auto input_node_idx = self.input_nodes[0]->index;
-                auto input_handle_ptr = std::any_cast<std::shared_ptr<CustomData>>(inputs.at(input_node_idx));
-                CustomData* custom_data_ptr = input_handle_ptr.get();
-
-                // Get the typed data (vector<uint64_t>)
-                auto* msg_vec = custom_data_ptr->get_typed_data<std::vector<uint64_t>>();
-
-                auto encoded_pt = bfv_ctx->encode_ringt(*msg_vec);
-
-                output = std::make_shared<BfvPlaintextRingt>(std::move(encoded_pt));
+            FheTaskFpga fpga_offline_project(project_path, false);
+            vector<CxxVectorArgument> offline_cxx_args = {
+                CxxVectorArgument{"in_y_list", &y_list},
             };
+            fpga_offline_project.run(&ctx, offline_cxx_args);
 
-            custom_executors["encode"] = [this](ExecutionContext& exec_ctx,
-                                                const std::unordered_map<NodeIndex, std::any>& inputs, std::any& output,
-                                                const ComputeNode& self) -> void {
-                auto* bfv_ctx = exec_ctx.get_arithmetic_context<BfvContext>();
-                if (!self.custom_prop.has_value()) {
-                    throw std::runtime_error("Custom property not found for encode operation");
-                }
-
-                int encode_level = self.custom_prop->attributes["level"].get<int>();
-
-                auto input_node_idx = self.input_nodes[0]->index;
-                auto input_handle_ptr = std::any_cast<std::shared_ptr<CustomData>>(inputs.at(input_node_idx));
-                CustomData* custom_data_ptr = input_handle_ptr.get();
-
-                // Get the typed data (vector<uint64_t>)
-                auto* msg_vec = custom_data_ptr->get_typed_data<std::vector<uint64_t>>();
-
-                auto encoded_pt = bfv_ctx->encode(*msg_vec, encode_level);
-
-                output = std::make_shared<BfvPlaintext>(std::move(encoded_pt));
-            };
-
-            cpu_project.bind_custom_executors(custom_executors);
-
+            FheTaskFpga fpga_project(project_path, true);
             vector<CxxVectorArgument> cxx_args = {
                 CxxVectorArgument{"in_x_list", &x_list},
-                CxxVectorArgument{"in_y_list", &y_list},
                 CxxVectorArgument{"out_z_list", &z_list},
             };
-            cpu_project.run(&ctx, cxx_args);
+            fpga_project.run(&ctx, cxx_args);
 
-            uint64_t epsilon = 1.0;
+            vector<uint64_t> z;
             for (int i = 0; i < n_op; i++) {
                 auto z_pt = ctx.decrypt(z_list[i]);
-                vector<uint64_t> z_mg = ctx.decode(z_pt);
-                REQUIRE(z_mg[0] == z_true);
+                auto z_mg = ctx.decode(z_pt);
+                // print_message(z_mg.data(), "z_mg", 1);
+                z.push_back(z_mg[0]);
             }
+
+            REQUIRE(z == z_true);
         }
     }
-}
+};
