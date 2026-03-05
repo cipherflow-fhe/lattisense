@@ -987,7 +987,7 @@ TEST_CASE_METHOD(CkksGpuFixture, "CKKS drop level", "") {
 
     int drop_level = 2;
 
-    min_level = 3;
+    min_level = 2;
 
     for (int level = min_level; level <= max_level; level++) {
         SECTION("n=" + to_string(n_op) + ", lv=" + to_string(level)) {

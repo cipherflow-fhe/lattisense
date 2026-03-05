@@ -26,6 +26,6 @@
 #ifndef MEGA_AG_FPGA_OPS_WRAPPER_H
 #define MEGA_AG_FPGA_OPS_WRAPPER_H
 
-#include "../../fpga_backend/fpga_ops/fpga_ops_v2.h"
+#include "../../backends/lattisense-fpga/lattisense-fpga-runtime/fpga_ops/fpga_ops_v2.h"
 
 #endif  // MEGA_AG_FPGA_OPS_WRAPPER_H

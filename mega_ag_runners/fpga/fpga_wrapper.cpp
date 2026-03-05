@@ -30,11 +30,11 @@
 extern "C" {
 #include "../wrapper.h"
 #include "../fhe_ops_lib/fhe_types_v2.h"
-#include "../../fpga_backend/libbfv2/include/poly.h"
+#include "../../backends/lattisense-fpga/lattisense-fpga-runtime/libbfv2/include/poly.h"
 // #include "structs_v2.h"
-#include "../../fpga_backend/fpga_ops/utils.h"
-#include "../../fpga_backend/libbfv2/include/project.h"
-#include "../../fpga_backend/fpga_ops/fpga_ops_v2.h"
+#include "../../backends/lattisense-fpga/lattisense-fpga-runtime/fpga_ops/utils.h"
+#include "../../backends/lattisense-fpga/lattisense-fpga-runtime/libbfv2/include/project.h"
+#include "../../backends/lattisense-fpga/lattisense-fpga-runtime/fpga_ops/fpga_ops_v2.h"
 }
 #include "../mega_ag.h"
 #include "../cpu_task_utils.h"

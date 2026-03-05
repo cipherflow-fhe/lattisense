@@ -591,7 +591,7 @@ TEST_CASE_METHOD(BfvFpgaFixture, "BFV ct_mult_pt_coeffs_ringt", "") {
     }
 };
 
-TEST_CASE("BFV power-of-2-t ct_mult_pt_coeffs_ringt") {
+TEST_CASE("BFV power-of-2-t ct_mult_pt_coeffs_ringt", "[.]") {
     FpgaDevice::init();
 
     uint64_t n = 8192;
@@ -719,7 +719,7 @@ TEST_CASE_METHOD(BfvFpgaFixture, "BFV ct_mult_pt_coeffs_mul", "") {
     }
 };
 
-TEST_CASE_METHOD(BfvFpgaFixture, "BFV ct_mul_mult_pt_ringt", "") {
+TEST_CASE_METHOD(BfvFpgaFixture, "BFV ct_mul_mult_pt_ringt", "[.]") {
     vector<BfvCiphertext> x_list;
     vector<BfvPlaintextRingt> y_list;
     vector<BfvCiphertext> z_list;
@@ -773,7 +773,7 @@ TEST_CASE_METHOD(BfvFpgaFixture, "BFV ct_mul_mult_pt_ringt", "") {
     }
 };
 
-TEST_CASE_METHOD(BfvFpgaFixture, "BFV ct_ntt_mult_pt_ringt", "") {
+TEST_CASE_METHOD(BfvFpgaFixture, "BFV ct_ntt_mult_pt_ringt", "[.]") {
     vector<BfvCiphertext> x_list;
     vector<BfvPlaintextRingt> y_list;
     vector<BfvCiphertext> z_list;
@@ -1255,7 +1255,7 @@ TEST_CASE_METHOD(BfvFpgaFixture, "BFV advanced_rotate_col", "") {
     }
 };
 
-TEST_CASE_METHOD(BfvFpgaFixture, "BFV advanced_rotate_col_imul", "") {
+TEST_CASE_METHOD(BfvFpgaFixture, "BFV advanced_rotate_col_imul", "[.]") {
     vector<BfvCiphertext> x_list;
     vector<vector<BfvCiphertext>> y_list(n_op);
     vector<vector<uint64_t>> x_mgs;
@@ -1319,7 +1319,7 @@ TEST_CASE_METHOD(BfvFpgaFixture, "BFV advanced_rotate_col_imul", "") {
     }
 };
 
-TEST_CASE_METHOD(BfvFpgaFixture, "BFV advanced_rotate_col_imul_ontt", "") {
+TEST_CASE_METHOD(BfvFpgaFixture, "BFV advanced_rotate_col_imul_ontt", "[.]") {
     vector<BfvCiphertext> x_list;
     vector<vector<BfvCiphertext>> y_list(n_op);
     vector<vector<uint64_t>> x_mgs;
@@ -1383,7 +1383,7 @@ TEST_CASE_METHOD(BfvFpgaFixture, "BFV advanced_rotate_col_imul_ontt", "") {
     }
 };
 
-TEST_CASE_METHOD(BfvFpgaFixture, "BFV advanced_rotate_col_intt_ontt", "") {
+TEST_CASE_METHOD(BfvFpgaFixture, "BFV advanced_rotate_col_intt_ontt", "[.]") {
     vector<BfvCiphertext> x_list;
     vector<vector<BfvCiphertext>> y_list(n_op);
     vector<vector<uint64_t>> x_mgs;
@@ -2092,7 +2092,7 @@ TEST_CASE_METHOD(BfvFpgaFixture, "BFV ct_pt_ringt_mac 1", "") {
     }
 };
 
-TEST_CASE_METHOD(BfvFpgaFixture, "BFV ct_mul_pt_mac", "") {
+TEST_CASE_METHOD(BfvFpgaFixture, "BFV ct_mul_pt_mac", "[.]") {
     for (int level = 1; level <= 1; level++) {
         for (int m = 2; m <= 20; m++) {
             SECTION("m=" + to_string(m) + ", lv=" + to_string(level)) {
@@ -2143,7 +2143,7 @@ TEST_CASE_METHOD(BfvFpgaFixture, "BFV ct_mul_pt_mac", "") {
     }
 };
 
-TEST_CASE_METHOD(BfvFpgaFixture, "BFV ct_ntt_pt_mac", "") {
+TEST_CASE_METHOD(BfvFpgaFixture, "BFV ct_ntt_pt_mac", "[.]") {
     for (int level = 1; level <= 1; level++) {
         for (int m = 2; m <= 20; m++) {
             SECTION("m=" + to_string(m) + ", lv=" + to_string(level)) {

@@ -102,8 +102,8 @@ if(LATTISENSE_ENABLE_GPU)
     )
 
     # Check if HEonGPU is installed
-    set(HEONGPU_INSTALL_DIR "${LATTISENSE_ROOT_DIR}/HEonGPU/install")
-    set(HEONGPU_BUILD_DIR "${LATTISENSE_ROOT_DIR}/HEonGPU/build")
+    set(HEONGPU_INSTALL_DIR "${LATTISENSE_ROOT_DIR}/backends/HEonGPU/install")
+    set(HEONGPU_BUILD_DIR "${LATTISENSE_ROOT_DIR}/backends/HEonGPU/build")
 
     if(NOT EXISTS "${HEONGPU_INSTALL_DIR}/lib")
         message(FATAL_ERROR
@@ -111,7 +111,7 @@ if(LATTISENSE_ENABLE_GPU)
             "\n"
             "GPU support requires HEonGPU to be built first. Please run:\n"
             "\n"
-            "  cd ${LATTISENSE_ROOT_DIR}/HEonGPU\n"
+            "  cd ${LATTISENSE_ROOT_DIR}/backends/HEonGPU\n"
             "  cmake -S . -B build \\\n"
             "    -DCMAKE_CUDA_ARCHITECTURES=${LATTISENSE_CUDA_ARCH} \\\n"
             "    -DCMAKE_CUDA_COMPILER=/usr/local/cuda/bin/nvcc \\\n"
@@ -180,7 +180,7 @@ if(LATTISENSE_ENABLE_FPGA)
     add_definitions(-DLATTISENSE_ENABLE_FPGA)
 endif()
 
-set(LATTISENSE_FPGA_RESOURCE_DIR "${CMAKE_BINARY_DIR}/fpga_backend/resource/fpga_tasks"
+set(LATTISENSE_FPGA_RESOURCE_DIR "${CMAKE_BINARY_DIR}/backends/lattisense-fpga/lattisense-fpga-runtime/resource/fpga_tasks"
     CACHE PATH "Path to FPGA resource files (load_roots etc.)")
 message(STATUS "LATTISENSE_FPGA_RESOURCE_DIR: ${LATTISENSE_FPGA_RESOURCE_DIR}")
 
@@ -210,7 +210,7 @@ add_subdirectory(cxx_sdk_v2)
 add_subdirectory(mega_ag_runners)
 
 if(LATTISENSE_ENABLE_FPGA)
-    add_subdirectory(fpga_backend)
+    add_subdirectory(backends/lattisense-fpga/lattisense-fpga-runtime)
 endif()
 
 if(LATTISENSE_BUILD_TESTS)

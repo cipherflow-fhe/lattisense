@@ -2,11 +2,12 @@
 
 #include <string>
 #include "runner.h"
+#include "test_config.hpp"
 
 using namespace std;
 
-string fpga_base_path = "/acc_test/integrate/fpga_tests/noc_config_16c_3";
-string gpu_base_path = "/acc_test/integrate/gpu_tests/seal";
+string fpga_base_path = test_config::fpga_base_path;
+string gpu_base_path = test_config::gpu_base_path;
 
 class FpgaFixture {
 public:

@@ -72,6 +72,7 @@ class TestTask(unittest.TestCase):
                     offline_input_args=[],
                     output_args=[arg_z],
                     output_instruction_path=task_dir,
+                    fpga_acc=False,
                 )
 
     def test_cap_ringt(self, n_op=4, levels=[i for i in range(0, param.max_level + 1)]):
@@ -103,6 +104,7 @@ class TestTask(unittest.TestCase):
                     offline_input_args=[],
                     output_args=[arg_z],
                     output_instruction_path=task_dir,
+                    fpga_acc=False,
                 )
 
     def test_cac(self, n_op=4, levels=[i for i in range(0, param.max_level + 1)]):
@@ -134,6 +136,7 @@ class TestTask(unittest.TestCase):
                     offline_input_args=[],
                     output_args=[arg_z],
                     output_instruction_path=task_dir,
+                    fpga_acc=False,
                 )
 
     def test_casc(self, n_op=4, levels=[i for i in range(0, param.max_level + 1)]):
@@ -162,6 +165,7 @@ class TestTask(unittest.TestCase):
                     offline_input_args=[],
                     output_args=[arg_z],
                     output_instruction_path=task_dir,
+                    fpga_acc=False,
                 )
 
     def test_csp(self, n_op=4, levels=[i for i in range(0, param.max_level + 1)]):
@@ -193,6 +197,7 @@ class TestTask(unittest.TestCase):
                     offline_input_args=[],
                     output_args=[arg_z],
                     output_instruction_path=task_dir,
+                    fpga_acc=False,
                 )
 
     def test_csp_ringt(self, n_op=4, levels=[i for i in range(0, param.max_level + 1)]):
@@ -224,6 +229,7 @@ class TestTask(unittest.TestCase):
                     offline_input_args=[],
                     output_args=[arg_z],
                     output_instruction_path=task_dir,
+                    fpga_acc=False,
                 )
 
     def test_csc(self, n_op=4, levels=[i for i in range(0, param.max_level + 1)]):
@@ -255,6 +261,7 @@ class TestTask(unittest.TestCase):
                     offline_input_args=[],
                     output_args=[arg_z],
                     output_instruction_path=task_dir,
+                    fpga_acc=False,
                 )
 
     def test_cneg(self, n_op=4, levels=[i for i in range(0, param.max_level + 1)]):
@@ -283,6 +290,7 @@ class TestTask(unittest.TestCase):
                     offline_input_args=[],
                     output_args=[arg_z],
                     output_instruction_path=task_dir,
+                    fpga_acc=False,
                 )
 
     def test_cmp_ringt(self, n_op=4, levels=[i for i in range(1, param.max_level + 1)]):
@@ -314,6 +322,7 @@ class TestTask(unittest.TestCase):
                     offline_input_args=[],
                     output_args=[arg_z],
                     output_instruction_path=task_dir,
+                    fpga_acc=False,
                 )
 
     def test_cmp(self, n_op=4, levels=[i for i in range(1, param.max_level + 1)]):
@@ -345,6 +354,7 @@ class TestTask(unittest.TestCase):
                     offline_input_args=[],
                     output_args=[arg_z],
                     output_instruction_path=task_dir,
+                    fpga_acc=False,
                 )
 
     def test_cmp_mul(self, n_op=4, levels=[i for i in range(1, param.max_level + 1)]):
@@ -376,6 +386,7 @@ class TestTask(unittest.TestCase):
                     offline_input_args=[],
                     output_args=[arg_z],
                     output_instruction_path=task_dir,
+                    fpga_acc=False,
                 )
 
     def test_ct_pt_mac(self, levels=[i for i in range(1, param.max_level + 1)]):
@@ -402,6 +413,7 @@ class TestTask(unittest.TestCase):
                         offline_input_args=[],
                         output_args=[arg_z],
                         output_instruction_path=task_dir,
+                        fpga_acc=False,
                     )
 
     def test_ct_pt_ringt_mac(self, levels=[i for i in range(1, param.max_level + 1)]):
@@ -428,6 +440,7 @@ class TestTask(unittest.TestCase):
                         offline_input_args=[],
                         output_args=[arg_z],
                         output_instruction_path=task_dir,
+                        fpga_acc=False,
                     )
 
     def test_cmc(self, n_op=4, levels=[i for i in range(1, param.max_level + 1)]):
@@ -459,6 +472,7 @@ class TestTask(unittest.TestCase):
                     offline_input_args=[],
                     output_args=[arg_z],
                     output_instruction_path=task_dir,
+                    fpga_acc=False,
                 )
 
     def test_cmc_relin(self, n_op=4, levels=[i for i in range(1, param.max_level + 1)]):
@@ -490,6 +504,7 @@ class TestTask(unittest.TestCase):
                     offline_input_args=[],
                     output_args=[arg_z],
                     output_instruction_path=task_dir,
+                    fpga_acc=False,
                 )
 
     def test_cmc_relin_rescale(self, n_op=4, levels=[i for i in range(1, param.max_level + 1)]):
@@ -521,6 +536,7 @@ class TestTask(unittest.TestCase):
                     offline_input_args=[],
                     output_args=[arg_z],
                     output_instruction_path=task_dir,
+                    fpga_acc=False,
                 )
 
     def test_csqr(self, n_op=4, levels=[i for i in range(1, param.max_level + 1)]):
@@ -549,6 +565,7 @@ class TestTask(unittest.TestCase):
                     offline_input_args=[],
                     output_args=[arg_z],
                     output_instruction_path=task_dir,
+                    fpga_acc=False,
                 )
 
     def test_csqr_relin(self, n_op=4, levels=[i for i in range(1, param.max_level + 1)]):
@@ -577,6 +594,7 @@ class TestTask(unittest.TestCase):
                     offline_input_args=[],
                     output_args=[arg_z],
                     output_instruction_path=task_dir,
+                    fpga_acc=False,
                 )
 
     def test_csqr_relin_rescale(self, n_op=4, levels=[i for i in range(1, param.max_level + 1)]):
@@ -605,6 +623,7 @@ class TestTask(unittest.TestCase):
                     offline_input_args=[],
                     output_args=[arg_z],
                     output_instruction_path=task_dir,
+                    fpga_acc=False,
                 )
 
     def test_rescale(self, n_op=4, levels=[i for i in range(1, param.max_level + 1)]):
@@ -633,6 +652,7 @@ class TestTask(unittest.TestCase):
                     offline_input_args=[],
                     output_args=[arg_y],
                     output_instruction_path=task_dir,
+                    fpga_acc=False,
                 )
 
     def test_drop_level(self, n_op=4, levels=[i for i in range(3, param.max_level + 1)], drop_lv=2):
@@ -661,6 +681,7 @@ class TestTask(unittest.TestCase):
                     offline_input_args=[],
                     output_args=[arg_y],
                     output_instruction_path=task_dir,
+                    fpga_acc=False,
                 )
 
     def test_rotate_col(
@@ -693,6 +714,7 @@ class TestTask(unittest.TestCase):
                     offline_input_args=[],
                     output_args=[arg_y],
                     output_instruction_path=task_dir,
+                    fpga_acc=False,
                 )
 
     def test_advanced_rotate_col(
@@ -724,6 +746,7 @@ class TestTask(unittest.TestCase):
                     offline_input_args=[],
                     output_args=[arg_y],
                     output_instruction_path=task_dir,
+                    fpga_acc=False,
                 )
 
     def test_rotate_row(self, n_op=4, levels=[i for i in range(1, param.max_level + 1)]):
@@ -752,6 +775,181 @@ class TestTask(unittest.TestCase):
                     offline_input_args=[],
                     output_args=[arg_y],
                     output_instruction_path=task_dir,
+                    fpga_acc=False,
+                )
+
+    def test_custom_encode_and_cap(self, n_op=4, levels=[i for i in range(1, param.max_level + 1)]):
+        def cap(x: list[DataNode], y: list[DataNode]) -> DataNode:
+            z_list = []
+            for i in range(len(x)):
+                encoded_y = CkksPlaintextNode(f'encoded_y_{i}', level=x[i].level)
+                custom_compute(
+                    inputs=[y[i]],
+                    output=encoded_y,
+                    type='encode',
+                    attributes={'level': x[i].level, 'scale': pow(2.0, 34)},
+                )
+                z = add(x[i], encoded_y, f'z_{i}')
+                z_list.append(z)
+            return z_list
+
+        for lv in levels:
+            with self.subTest(n=n_op, lv=lv):
+                task = f'CKKS_{n_op}_custom_encode_and_cap/level_{lv}'
+                task_dir = os.path.join(CPU_OUTPUT_BASE_DIR, task)
+
+                x_list = []
+                y_list = []
+                for i in range(n_op):
+                    x_list.append(CkksCiphertextNode(f'x_{i}', level=lv))
+                    y_list.append(CustomDataNode(type='msg', id=f'y_{i}'))
+
+                z_list = cap(x_list, y_list)
+
+                arg_x = Argument('in_x_list', x_list)
+                arg_y = Argument('in_y_list', y_list)
+                arg_z = Argument('out_z_list', z_list)
+
+                process_custom_task(
+                    input_args=[arg_x, arg_y],
+                    offline_input_args=[],
+                    output_args=[arg_z],
+                    output_instruction_path=task_dir,
+                    fpga_acc=False,
+                )
+
+    @unittest.skip('')
+    def test_seal_rotate_row(self, n_op=4, levels=[5]):
+        def rotate(x: list[DataNode]) -> DataNode:
+            y_list = []
+            for i in range(len(x_list)):
+                y_list.append(seal_rotate_rows(x[i], f'rotated_x_{i}'))
+            return y_list
+
+        for lv in levels:
+            with self.subTest(n=n_op, lv=lv):
+                task = f'CKKS_{n_op}_seal_rotate_row/level_{lv}'
+                task_dir = os.path.join(CPU_OUTPUT_BASE_DIR, task)
+
+                x_list = []
+                for i in range(n_op):
+                    x_list.append(CkksCiphertextNode(f'x_{i}', level=lv))
+
+                y_list = rotate(x_list)
+
+                arg_x = Argument('arg_x', x_list)
+                arg_y = Argument('arg_y', y_list)
+
+                process_custom_task(
+                    input_args=[arg_x],
+                    offline_input_args=[],
+                    output_args=[arg_y],
+                    output_instruction_path=task_dir,
+                    fpga_acc=False,
+                )
+
+    @unittest.skip('')
+    def test_seal_rotate_col(self, n_op=4, levels=[5], steps=[-500, 20, 200, 2000, 4000]):
+        def rotate_steps(x: list[DataNode]) -> DataNode:
+            y_list = []
+            for i in range(len(x_list)):
+                y_list.append(seal_rotate_cols(x[i], steps, f'rotated_x_{i}'))
+            return y_list
+
+        for lv in levels:
+            with self.subTest(n=n_op, lv=lv):
+                steps_str = '_'.join(map(str, steps))
+                task = f'CKKS_{n_op}_seal_rotate_col/level_{lv}/steps_{steps_str}'
+                task_dir = os.path.join(CPU_OUTPUT_BASE_DIR, task)
+
+                x_list = []
+                for i in range(n_op):
+                    x_list.append(CkksCiphertextNode(f'x_{i}', level=lv))
+
+                y_list = rotate_steps(x_list)
+
+                arg_x = Argument('arg_x', x_list)
+                arg_y = Argument('arg_y', y_list)
+
+                process_custom_task(
+                    input_args=[arg_x],
+                    offline_input_args=[],
+                    output_args=[arg_y],
+                    output_instruction_path=task_dir,
+                    fpga_acc=False,
+                )
+
+    @unittest.skip('')
+    def test_seal_advanced_rotate_col(self, n_op=4, levels=[5], steps=[-500, 20, 200, 2000, 4000]):
+        def rotate_steps(x: list[DataNode]) -> DataNode:
+            y_list = []
+            for i in range(len(x_list)):
+                y_list.append(seal_advanced_rotate_cols(x[i], steps, f'rotated_x_{i}'))
+            return y_list
+
+        for lv in levels:
+            with self.subTest(n=n_op, lv=lv):
+                steps_str = '_'.join(map(str, steps))
+                task = f'CKKS_{n_op}_seal_advanced_rotate_col/level_{lv}/steps_{steps_str}'
+                task_dir = os.path.join(CPU_OUTPUT_BASE_DIR, task)
+
+                x_list = []
+                for i in range(n_op):
+                    x_list.append(CkksCiphertextNode(f'x_{i}', level=lv))
+
+                y_list = rotate_steps(x_list)
+
+                arg_x = Argument('arg_x', x_list)
+                arg_y = Argument('arg_y', y_list)
+
+                process_custom_task(
+                    input_args=[arg_x],
+                    offline_input_args=[],
+                    output_args=[arg_y],
+                    output_instruction_path=task_dir,
+                    fpga_acc=False,
+                )
+
+    @unittest.skip('')
+    def test_n_poly(self, n_op=4, levels=[3]):
+        def compute_poly(
+            x: CkksCiphertextNode, coeff0: CkksPlaintextNode, coeffs: list[CkksPlaintextRingtNode]
+        ) -> CkksCiphertextNode:
+            x1_lv4 = x
+            x2_lv3 = rescale(mult_relin(x1_lv4, x1_lv4))
+            x2_lv2 = drop_level(x2_lv3, drop_level=1)
+            x1_lv3 = drop_level(x1_lv4, drop_level=1)
+            x1_lv2 = drop_level(x1_lv3, drop_level=1)
+            x3_lv2 = rescale(mult_relin(x1_lv3, x2_lv3))
+            # x4_lv2 = rescale(mult_relin(x2_lv3, x2_lv3))
+            x_powers = [x1_lv2, x2_lv2, x3_lv2]
+            y = coeff0
+            for i in range(3):
+                y = add(y, mult(x_powers[i], coeffs[i]))
+            return y
+
+        for lv in levels:
+            with self.subTest(n=n_op, lv=lv):
+                task = f'CKKS_n_poly/level_{lv}'
+                task_dir = os.path.join(CPU_OUTPUT_BASE_DIR, task)
+
+                x = CkksCiphertextNode('x', 4)
+                coeff0 = CkksPlaintextNode('a_0', 2)
+                coeffs = [CkksPlaintextRingtNode(f'a_{i}') for i in range(1, 4)]
+
+                y = compute_poly(x, coeff0, coeffs)
+
+                arg_x = Argument('x', x)
+                arg_coeff0 = Argument('coeff0', coeff0)
+                arg_coeffs = Argument('coeffs', coeffs)
+                arg_y = Argument('y', y)
+
+                process_custom_task(
+                    input_args=[arg_x, arg_coeff0, arg_coeffs],
+                    offline_input_args=[],
+                    output_args=[arg_y],
+                    output_instruction_path=task_dir,
+                    fpga_acc=False,
                 )
 
     def test_toy_bootstrap(self, n_op=4, levels=[0]):
@@ -783,6 +981,7 @@ class TestTask(unittest.TestCase):
                     offline_input_args=[],
                     output_args=[arg_y],
                     output_instruction_path=task_dir,
+                    fpga_acc=False,
                 )
         default_param = Param.create_ckks_default_param(n=16384)
         set_fhe_param(default_param)
@@ -816,6 +1015,7 @@ class TestTask(unittest.TestCase):
                     offline_input_args=[],
                     output_args=[arg_y],
                     output_instruction_path=task_dir,
+                    fpga_acc=False,
                 )
         default_param = Param.create_ckks_default_param(n=16384)
         set_fhe_param(default_param)
@@ -855,6 +1055,7 @@ class TestTask(unittest.TestCase):
                     offline_input_args=[],
                     output_args=[arg_result],
                     output_instruction_path=task_dir,
+                    fpga_acc=False,
                 )
         default_param = Param.create_ckks_default_param(n=16384)
         set_fhe_param(default_param)
@@ -896,6 +1097,7 @@ class TestTask(unittest.TestCase):
                     offline_input_args=[],
                     output_args=[arg_z],
                     output_instruction_path=task_dir,
+                    fpga_acc=False,
                 )
 
     def test_cap_3d(self, dim0=1, dim1=1, dim2=1, levels=[3, 4, 5]):
@@ -943,6 +1145,7 @@ class TestTask(unittest.TestCase):
                     offline_input_args=[],
                     output_args=[arg_z],
                     output_instruction_path=task_dir,
+                    fpga_acc=False,
                 )
 
     def test_cmc_relin_4d(self, dim0=1, dim1=1, dim2=1, dim3=1, levels=[3, 4, 5]):
@@ -997,6 +1200,7 @@ class TestTask(unittest.TestCase):
                     offline_input_args=[],
                     output_args=[arg_z],
                     output_instruction_path=task_dir,
+                    fpga_acc=False,
                 )
 
     def test_cmp_3d(self, dim0=1, dim1=1, dim2=1, levels=[3, 4, 5]):
@@ -1044,6 +1248,7 @@ class TestTask(unittest.TestCase):
                     offline_input_args=[],
                     output_args=[arg_z],
                     output_instruction_path=task_dir,
+                    fpga_acc=False,
                 )
 
     def test_cmp_4d(self, dim0=1, dim1=1, dim2=1, dim3=1, levels=[3, 4, 5]):
@@ -1098,6 +1303,7 @@ class TestTask(unittest.TestCase):
                     offline_input_args=[],
                     output_args=[arg_z],
                     output_instruction_path=task_dir,
+                    fpga_acc=False,
                 )
 
     def test_custom_param_cmc_relin_rescale(self, n_op=4, levels=[1, 2, 3, 4, 5]):
@@ -1138,6 +1344,7 @@ class TestTask(unittest.TestCase):
                     offline_input_args=[],
                     output_args=[arg_z_rescale],
                     output_instruction_path=task_dir,
+                    fpga_acc=False,
                 )
 
         # 重置为默认参数，避免影响其他测试
@@ -1182,6 +1389,7 @@ class TestTask(unittest.TestCase):
                     offline_input_args=[],
                     output_args=[arg_z_rescale],
                     output_instruction_path=task_dir,
+                    fpga_acc=False,
                 )
 
         # 重置为默认参数，避免影响其他测试
@@ -1226,6 +1434,7 @@ class TestTask(unittest.TestCase):
                     offline_input_args=[],
                     output_args=[arg_z_rescale],
                     output_instruction_path=task_dir,
+                    fpga_acc=False,
                 )
 
         # 重置为默认参数，避免影响其他测试

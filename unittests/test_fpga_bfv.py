@@ -849,7 +849,7 @@ class TestTask(unittest.TestCase):
                     output_instruction_path=task_dir,
                 )
 
-    def test_rescale(self, n_op=4, levels=[i for i in range(2, param.max_level + 1)]):
+    def test_rescale(self, n_op=4, levels=[i for i in range(1, param.max_level + 1)]):
         def rescale_l(x: list[DataNode]) -> DataNode:
             res_list = []
             for i in range(len(x_list)):
@@ -1677,7 +1677,7 @@ class TestTask(unittest.TestCase):
 
             print(f'{task} end --')
 
-    @unittest.skip('')
+    # @unittest.skip('')
     def test_power_mul_coeff(self, levels=[1], index_per_fpga_func=[2, 1, 5]):
         def power_mul_coeff(lane_cipher_size):
             all_power_dags = []
@@ -1816,6 +1816,4 @@ class TestTask(unittest.TestCase):
 
 
 if __name__ == '__main__':
-    # unittest.main()
-    obj = TestTask()
-    obj.test_rotate_col()
+    unittest.main()

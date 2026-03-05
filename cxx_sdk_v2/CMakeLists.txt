@@ -40,11 +40,11 @@ set_target_properties(cxx_sdk_v2 PROPERTIES
     INSTALL_RPATH_USE_LINK_PATH FALSE
 )
 
-file(GLOB_RECURSE DAT_FILES RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}/../fpga_backend/resource/fpga_tasks/ ${CMAKE_CURRENT_SOURCE_DIR}/../fpga_backend/resource/fpga_tasks/**/*.dat ${CMAKE_CURRENT_SOURCE_DIR}/../fpga_backend/resource/fpga_tasks/*.dat)
+file(GLOB_RECURSE DAT_FILES RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}/../backends/lattisense-fpga/lattisense-fpga-runtime/resource/fpga_tasks/ ${CMAKE_CURRENT_SOURCE_DIR}/../backends/lattisense-fpga/lattisense-fpga-runtime/resource/fpga_tasks/**/*.dat ${CMAKE_CURRENT_SOURCE_DIR}/../backends/lattisense-fpga/lattisense-fpga-runtime/resource/fpga_tasks/*.dat)
 foreach(DAT_FILE ${DAT_FILES})
     get_filename_component(DAT_FILE_DIR ${DAT_FILE} DIRECTORY)
-    file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/fpga_backend/resource/fpga_tasks/${DAT_FILE_DIR})
+    file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/backends/lattisense-fpga/lattisense-fpga-runtime/resource/fpga_tasks/${DAT_FILE_DIR})
     add_custom_command(TARGET cxx_sdk_v2 PRE_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        ${CMAKE_CURRENT_SOURCE_DIR}/../fpga_backend/resource/fpga_tasks/${DAT_FILE} ${CMAKE_BINARY_DIR}/fpga_backend/resource/fpga_tasks/${DAT_FILE})
+        ${CMAKE_CURRENT_SOURCE_DIR}/../backends/lattisense-fpga/lattisense-fpga-runtime/resource/fpga_tasks/${DAT_FILE} ${CMAKE_BINARY_DIR}/backends/lattisense-fpga/lattisense-fpga-runtime/resource/fpga_tasks/${DAT_FILE})
 endforeach()

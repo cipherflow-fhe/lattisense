@@ -38,8 +38,8 @@
 extern "C" {
 #include "../../fhe_ops_lib/fhe_types_v2.h"
 #include "../../fhe_ops_lib/structs_v2.h"
-#include "../../fpga_backend/libbfv2/include/poly.h"
-#include "../../fpga_backend/fpga_ops/utils.h"
+#include "../../backends/lattisense-fpga/lattisense-fpga-runtime/libbfv2/include/poly.h"
+#include "../../backends/lattisense-fpga/lattisense-fpga-runtime/fpga_ops/utils.h"
 #include "log/log.h"
 }
 

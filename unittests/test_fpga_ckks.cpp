@@ -998,7 +998,7 @@ TEST_CASE_METHOD(CkksFpgaFixture, "CKKS drop level", "") {
 
     int drop_level = 2;
 
-    for (int level = 3; level <= max_level; level++) {
+    for (int level = 2; level <= max_level; level++) {
         SECTION("n=" + to_string(n_op) + ", lv=" + to_string(level)) {
             for (int i = 0; i < n_op; i++) {
                 vector<double> x_mg{x[i]};

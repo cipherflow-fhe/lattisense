@@ -4,8 +4,8 @@ set(FPGA_MEGA_AG_RUNNER_SRCS
 add_library(fpga_mega_ag_runner_obj OBJECT ${FPGA_MEGA_AG_RUNNER_SRCS})
 target_include_directories(fpga_mega_ag_runner_obj PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/../../cxx_sdk_v2/
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../fpga_backend/libbfv2/include/
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../fpga_backend/fpga_ops/
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../backends/lattisense-fpga/lattisense-fpga-runtime/libbfv2/include/
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../backends/lattisense-fpga/lattisense-fpga-runtime/fpga_ops/
     ${CMAKE_CURRENT_SOURCE_DIR}/../../lib/wolfssl/include
 )
 

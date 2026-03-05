@@ -531,7 +531,7 @@ class TestTask(unittest.TestCase):
                     output_instruction_path=task_dir,
                 )
 
-    def test_drop_level(self, n_op=4, levels=[i for i in range(3, param.max_level + 1)], drop_lv=2):
+    def test_drop_level(self, n_op=4, levels=[i for i in range(2, param.max_level + 1)], drop_lv=2):
         def drop_level_l(x: list[DataNode]) -> DataNode:
             res_list = []
             for i in range(len(x)):
@@ -1029,5 +1029,4 @@ class TestTask(unittest.TestCase):
 
 
 if __name__ == '__main__':
-    task = TestTask()
-    task.test_cmc_relin()
+    unittest.main()

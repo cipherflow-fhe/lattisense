@@ -83,6 +83,8 @@ extern "C" void* create_lattigo_abi_export_executor(int algo, int mf_nbits, int 
         }
 
         DataType data_type = input_node->datum_type;
+        bool is_external_node = input_node->is_input || input_node->is_output;
+
         int level = input_node->fhe_prop->level;
         bool is_ringt = input_node->fhe_prop->p.has_value() && input_node->fhe_prop->p->is_ringt;
         bool is_mul = input_node->fhe_prop->is_ntt && input_node->fhe_prop->is_mform;
@@ -104,10 +106,14 @@ extern "C" void* create_lattigo_abi_export_executor(int algo, int mf_nbits, int 
                 else
                     ExportLattigoCkksCiphertext(input_handle, c_ct);
 
-                output = std::shared_ptr<CCiphertext>(c_ct, [input_sptr](CCiphertext* p) {
-                    free_ciphertext(p, false);
-                    free(p);
-                });
+                if (is_external_node) {
+                    output = std::shared_ptr<CCiphertext>(c_ct, [input_sptr](CCiphertext*) {});
+                } else {
+                    output = std::shared_ptr<CCiphertext>(c_ct, [input_sptr](CCiphertext* p) {
+                        free_ciphertext(p, false);
+                        free(p);
+                    });
+                }
                 break;
             }
             case TYPE_PLAINTEXT: {
@@ -121,10 +127,14 @@ extern "C" void* create_lattigo_abi_export_executor(int algo, int mf_nbits, int 
                 else
                     ExportLattigoCkksPlaintext(input_handle, c_pt);
 
-                output = std::shared_ptr<CPlaintext>(c_pt, [input_sptr](CPlaintext* p) {
-                    free_plaintext(p, false);
-                    free(p);
-                });
+                if (is_external_node) {
+                    output = std::shared_ptr<CPlaintext>(c_pt, [input_sptr](CPlaintext*) {});
+                } else {
+                    output = std::shared_ptr<CPlaintext>(c_pt, [input_sptr](CPlaintext* p) {
+                        free_plaintext(p, false);
+                        free(p);
+                    });
+                }
                 break;
             }
             case TYPE_RELIN_KEY: {

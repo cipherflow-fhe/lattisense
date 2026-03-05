@@ -1,25 +1,8 @@
-# Copyright (c) 2025-2026 CipherFlow (Shenzhen) Co., Ltd.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-#
-# SPDX-License-Identifier: Apache-2.0
-
 import json
 import math
 import os
 import random
 import string
-import sys
 from typing import List, Optional
 
 import networkx as nx
@@ -286,11 +269,28 @@ class Param:
         return instance
 
     @classmethod
+    def create_bfv_fpga_param(cls, t: int = 0x1B4001):
+        instance = cls(Algo.BFV, n=8192)
+        instance.q = [0x7F4E0001, 0x7FB40001, 0x7FD20001, 0x7FEA0001, 0x7FF80001, 0x7FFE0001]
+        instance.p = [0xFF5A0001]
+        instance.t = t
+        instance.max_level = len(instance.q) - 1
+        return instance
+
+    @classmethod
     def create_ckks_custom_param(cls, n: int, q: List[int], p: List[int]):
         instance = cls(Algo.CKKS, n)
         instance.q = q
         instance.p = p
         instance.max_level = len(q) - 1
+        return instance
+
+    @classmethod
+    def create_ckks_fpga_param(cls):
+        instance = cls(Algo.CKKS, n=8192)
+        instance.q = [0x7F4E0001, 0x7FB40001, 0x7FD20001, 0x7FEA0001, 0x7FF80001, 0x7FFE0001]
+        instance.p = [0xFF5A0001]
+        instance.max_level = len(instance.q) - 1
         return instance
 
     def get_max_sp_level(self):
@@ -315,9 +315,9 @@ class Param:
 class CkksBtpParam(Param):
     """
     @class CkksBtpParam
-    @brief CKKS bootstrap parameter class
+    @brief CKKS Bootstrap参数类
 
-    Contains additional parameters required for CKKS bootstrapping.
+    包含CKKS Bootstrap所需的额外参数
     """
 
     def __init__(self, n: int = 1 << 16):
@@ -329,7 +329,7 @@ class CkksBtpParam(Param):
 
     @classmethod
     def create_toy_param(cls):
-        """Create CKKS toy bootstrap parameters (N16QP1546H192H32 with n=8192)"""
+        """创建CKKS Toy Bootstrap参数 (N16QP1546H192H32 with n=8192)"""
         instance = cls(n=8192)
 
         instance.q = [
@@ -378,7 +378,7 @@ class CkksBtpParam(Param):
 
     @classmethod
     def create_default_param(cls):
-        """Create CKKS bootstrap parameters (N16QP1546H192H32 with n=65536)"""
+        """创建CKKS Bootstrap参数 (N16QP1546H192H32 with n=65536)"""
         instance = cls(n=1 << 16)
 
         instance.q = [
@@ -427,12 +427,12 @@ class CkksBtpParam(Param):
 
 
 def set_fhe_param(param: 'Param') -> None:
-    """Set global FHE parameters
+    """设置全局FHE参数
 
-    This function must be called before invoking any FHE operations.
-    It sets the global parameter object used by all subsequent FHE operations.
+    必须在调用任何FHE操作之前调用此函数。
+    此函数会设置全局参数对象,用于后续所有FHE操作。
 
-    @param param: FHE parameter object containing algorithm type, polynomial degree n, moduli, etc.
+    @param param: FHE参数对象,包含算法类型、多项式度数n、模数等信息
 
     Example:
         param = Param.create_default_param(algo='BFV', n=16384)
@@ -445,14 +445,14 @@ def set_fhe_param(param: 'Param') -> None:
 class Argument:
     """
     @class Argument
-    @brief Class describing task input data parameters, output data parameters, and offline input data parameters.
+    @brief 描述任务输入数据参数、输出数据参数、离线输入数据参数的类。
     """
 
     def __init__(self, arg_id: str, data: 'DataNode | list') -> None:
         """
-        @brief Constructor
-        @param arg_id: Custom argument ID
-        @param data: Data. Can be a single data node, a list of data nodes, a tuple of data nodes, or nested lists/tuples of data nodes.
+        @brief 构造函数
+        @param arg_id: 自定义参数id
+        @param data: 数据。可以是单个数据节点、数据节点list、数据节点tuple、或多级的数据节点list或tuple。
         """
 
         if not isinstance(arg_id, str):
@@ -470,16 +470,16 @@ class Argument:
 class DataNode:
     """
     @class DataNode
-    @brief Base class for data nodes
+    @brief 数据节点基类
 
-    Base class for all data nodes, containing only the most basic attributes: type, id, index
+    所有数据节点的基类, 只包含最基础的属性: type, id, index
     """
 
     def __init__(self, type, id='') -> None:
         """
-        @brief Constructor
-        @param type: Node type
-        @param id: Node ID
+        @brief 构造函数
+        @param type: 节点类型
+        @param id: 节点id
         """
         self.type = type
         self.id: str = id
@@ -494,10 +494,10 @@ class DataNode:
 class FheDataNode(DataNode):
     """
     @class FheDataNode
-    @brief FHE data node type; subclasses should be used for concrete usage
+    @brief FHE数据节点类型, 具体使用时应当使用其子类
 
-    Contains data types used in FHE computation, such as plaintext, ciphertext, keys, etc.
-    Has FHE-related attributes including level, degree, is_ntt, etc.
+    包含FHE计算中的数据类型, 如明文、密文、密钥等。
+    具有level、degree、is_ntt等FHE相关属性。
     """
 
     def __init__(
@@ -508,11 +508,11 @@ class FheDataNode(DataNode):
         level=DEFAULT_LEVEL,
     ) -> None:
         """
-        @brief Constructor
-        @param type: DataType enumeration type
-        @param id: Custom node ID
-        @param degree: Polynomial degree
-        @param level: Data level
+        @brief 构造函数
+        @param type: DataType枚举类型
+        @param id: 自定义节点id
+        @param degree: 多项式度数
+        @param level: 数据level
         """
         super().__init__(type=type, id=id)
         self.level: int = level
@@ -522,10 +522,32 @@ class FheDataNode(DataNode):
         self.sp_level: int = None
 
 
+class CustomDataNode(DataNode):
+    """
+    @class CustomDataNode
+    @brief 自定义数据节点类型
+
+    允许用户创建带有自定义类型和属性的数据节点。
+    """
+
+    def __init__(self, type: str, id='', attributes: dict = None) -> None:
+        """
+        @brief 构造函数
+        @param type: 自定义数据类型的字符串标识
+        @param id: 节点id
+        @param attributes: 自定义属性字典, 可以包含任意键值对
+        """
+        super().__init__(type=type, id=id)
+        self.attributes = attributes if attributes is not None else {}
+
+    def __repr__(self) -> str:
+        return f'(custom_{self.type}, {self.id})'
+
+
 class PlaintextNode(FheDataNode):
     """
     @class PlaintextNode
-    @brief Plaintext type
+    @brief 明文类型
     """
 
     def __init__(self, type, id='', level=DEFAULT_LEVEL) -> None:
@@ -534,8 +556,8 @@ class PlaintextNode(FheDataNode):
 
 class BfvPlaintextNode(PlaintextNode):
     """
-    @class BfvPlaintextNode
-    @brief BFV plaintext type
+    @class PlaintextNode
+    @brief 明文类型
     """
 
     def __init__(self, id='', level=DEFAULT_LEVEL) -> None:
@@ -544,8 +566,8 @@ class BfvPlaintextNode(PlaintextNode):
 
 class BfvPlaintextRingtNode(PlaintextNode):
     """
-    @class BfvPlaintextRingtNode
-    @brief Plaintext type in ring-t, used for ciphertext-plaintext multiplication
+    @class PlaintextRingtNode
+    @brief 环t上的明文类型, 用于密文乘明文
     """
 
     def __init__(self, id='') -> None:
@@ -554,8 +576,8 @@ class BfvPlaintextRingtNode(PlaintextNode):
 
 class BfvCompressedPlaintextRingtNode(BfvPlaintextRingtNode):
     """
-    @class BfvCompressedPlaintextRingtNode
-    @brief Compressed plaintext type in ring-t, used for ciphertext-plaintext multiplication
+    @class PlaintextRingtNode
+    @brief 环t上的明文类型, 用于密文乘明文
     """
 
     def __init__(self, id='', compressed_block_info: list = None) -> None:
@@ -567,8 +589,8 @@ class BfvCompressedPlaintextRingtNode(BfvPlaintextRingtNode):
 
 class BfvPlaintextMulNode(PlaintextNode):
     """
-    @class BfvPlaintextMulNode
-    @brief Plaintext type for ciphertext-plaintext multiplication
+    @class PlaintextMulNode
+    @brief 明文类型, 用于密文乘明文
     """
 
     def __init__(self, id='', level=DEFAULT_LEVEL) -> None:
@@ -579,8 +601,8 @@ class BfvPlaintextMulNode(PlaintextNode):
 
 class CkksPlaintextNode(PlaintextNode):
     """
-    @class CkksPlaintextNode
-    @brief CKKS plaintext type
+    @class PlaintextNode
+    @brief 明文类型
     """
 
     def __init__(self, id='', level=DEFAULT_LEVEL) -> None:
@@ -590,8 +612,8 @@ class CkksPlaintextNode(PlaintextNode):
 
 class CkksPlaintextRingtNode(PlaintextNode):
     """
-    @class CkksPlaintextRingtNode
-    @brief CKKS plaintext type in ring-t, used for ciphertext-plaintext multiplication
+    @class PlaintextRingtNode
+    @brief 环t上的明文类型, 用于密文乘明文
     """
 
     def __init__(self, id='') -> None:
@@ -601,8 +623,8 @@ class CkksPlaintextRingtNode(PlaintextNode):
 
 class CkksPlaintextMulNode(PlaintextNode):
     """
-    @class CkksPlaintextMulNode
-    @brief CKKS plaintext type for ciphertext-plaintext multiplication
+    @class PlaintextMulNode
+    @brief 明文类型, 用于密文乘明文
     """
 
     def __init__(self, id='', level=DEFAULT_LEVEL) -> None:
@@ -613,8 +635,8 @@ class CkksPlaintextMulNode(PlaintextNode):
 
 class CiphertextNode(FheDataNode):
     """
-    @class CiphertextNode
-    @brief Ciphertext type
+    @class PlaintextNode
+    @brief 明文类型
     """
 
     def __init__(self, type=DataType.Ciphertext, id='', degree=1, level=DEFAULT_LEVEL) -> None:
@@ -624,8 +646,8 @@ class CiphertextNode(FheDataNode):
 
 class BfvCiphertextNode(CiphertextNode):
     """
-    @class BfvCiphertextNode
-    @brief BFV ciphertext type containing 2 polynomials
+    @class CiphertextNode
+    @brief 密文类型, 包含2个多项式
     """
 
     def __init__(self, id='', level=DEFAULT_LEVEL) -> None:
@@ -634,8 +656,8 @@ class BfvCiphertextNode(CiphertextNode):
 
 class BfvCiphertext3Node(CiphertextNode):
     """
-    @class BfvCiphertext3Node
-    @brief BFV ciphertext type containing 3 polynomials
+    @class Ciphertext3Node
+    @brief 密文类型, 包含3个多项式
     """
 
     def __init__(self, id='', level=DEFAULT_LEVEL) -> None:
@@ -644,8 +666,8 @@ class BfvCiphertext3Node(CiphertextNode):
 
 class CkksCiphertextNode(CiphertextNode):
     """
-    @class CkksCiphertextNode
-    @brief CKKS ciphertext type containing 2 polynomials
+    @class CiphertextNode
+    @brief 密文类型, 包含2个多项式
     """
 
     def __init__(self, id='', level=DEFAULT_LEVEL) -> None:
@@ -655,8 +677,8 @@ class CkksCiphertextNode(CiphertextNode):
 
 class CkksCiphertext3Node(CiphertextNode):
     """
-    @class CkksCiphertext3Node
-    @brief CKKS ciphertext type containing 3 polynomials
+    @class CiphertextNode
+    @brief 密文类型, 包含2个多项式
     """
 
     def __init__(self, id='', level=DEFAULT_LEVEL) -> None:
@@ -666,8 +688,8 @@ class CkksCiphertext3Node(CiphertextNode):
 
 class SwitchKeyNode(FheDataNode):
     """
-    @class SwitchKeyNode
-    @brief Switch key type
+    @class SwitchingKeyNode
+    @brief swk类型
     """
 
     def __init__(self, id='', level=DEFAULT_LEVEL, sp_level=DEFAULT_LEVEL, type=DataType.SwitchKey) -> None:
@@ -680,7 +702,7 @@ class SwitchKeyNode(FheDataNode):
 class RelinKeyNode(SwitchKeyNode):
     """
     @class RelinKeyNode
-    @brief Relinearization key type
+    @brief rlk类型
     """
 
     def __init__(self, level=DEFAULT_LEVEL) -> None:
@@ -690,7 +712,7 @@ class RelinKeyNode(SwitchKeyNode):
 class GaloisKeyNode(SwitchKeyNode):
     """
     @class GaloisKeyNode
-    @brief Galois key type
+    @brief glk类型
     """
 
     def __init__(self, id, level=DEFAULT_LEVEL) -> None:
@@ -703,15 +725,15 @@ class GaloisKeyNode(SwitchKeyNode):
 class ComputeNode:
     """
     @class ComputeNode
-    @brief Base class for compute nodes
+    @brief 计算节点基类
 
-    Base class for all compute nodes, containing only the most basic attributes: type, id, index
+    所有计算节点的基类, 只包含最基础的属性: type, id, index
     """
 
     def __init__(self, type) -> None:
         """
-        @brief Constructor
-        @param type: Operation type
+        @brief 构造函数
+        @param type: 操作类型
         """
         self.type = type
         self.id = random_id()
@@ -724,15 +746,15 @@ class ComputeNode:
 class FheComputeNode(ComputeNode):
     """
     @class FheComputeNode
-    @brief FHE compute node type
+    @brief FHE计算节点类型
 
-    Contains operation types used in FHE computation, with FHE-related attributes such as compressed_block_info.
+    包含FHE计算中的操作类型, 具有compressed_block_info等FHE相关属性。
     """
 
     def __init__(self, type: OperationType) -> None:
         """
-        @brief Constructor
-        @param type: OperationType enumeration type
+        @brief 构造函数
+        @param type: OperationType枚举类型
         """
         super().__init__(type=type)
         self.compressed_block_info: list = None
@@ -741,10 +763,31 @@ class FheComputeNode(ComputeNode):
         return f'({self.type.value}, {self.id})'
 
 
+class CustomComputeNode(ComputeNode):
+    """
+    @class CustomComputeNode
+    @brief 自定义计算节点类型
+
+    允许用户创建带有自定义属性和元数据的计算节点。
+    """
+
+    def __init__(self, type: str, attributes: dict = None) -> None:
+        """
+        @brief 构造函数
+        @param type: 自定义操作类型的字符串标识
+        @param attributes: 自定义属性字典, 可以包含任意键值对
+        """
+        super().__init__(type=type)
+        self.attributes = attributes if attributes is not None else {}
+
+    def __repr__(self):
+        return f'(custom_{self.type}, {self.id})'
+
+
 class CmpSumComputeNode(FheComputeNode):
     """
     @class CmpSumComputeNode
-    @brief CmpSum compute node type
+    @brief CmpSum计算节点类型
     """
 
     def __init__(self, sum_cnt) -> None:
@@ -756,7 +799,7 @@ class CmpSumComputeNode(FheComputeNode):
 class CmpacSumComputeNode(FheComputeNode):
     """
     @class CmpacSumComputeNode
-    @brief CmpacSum compute node type
+    @brief CmpacSum计算节点类型
     """
 
     def __init__(self, sum_cnt) -> None:
@@ -768,7 +811,7 @@ class CmpacSumComputeNode(FheComputeNode):
 class RotateColUnitNode(FheComputeNode):
     """
     @class RotateColUnitNode
-    @brief Column rotation unit type
+    @brief 旋转单元类型
     """
 
     def __init__(self, step: int, lib=Lib.Lattigo) -> None:
@@ -780,7 +823,7 @@ class RotateColUnitNode(FheComputeNode):
 class RotateRowUnitNode(FheComputeNode):
     """
     @class RotateRowUnitNode
-    @brief Row rotation unit type
+    @brief 旋转单元类型
     """
 
     def __init__(self, lib=Lib.Lattigo) -> None:
@@ -803,13 +846,13 @@ def add(
     | CkksPlaintextRingtNode,
     output_id: Optional[str] = None,
 ) -> BfvCiphertextNode | CkksCiphertextNode:
-    """!Addition
+    """!加法
 
-    Define an addition computation step. Supported types include ct+ct, ct+pt, pt+ct.
-    @param x Input data node.
-    @param y Input data node.
-    @param output_id ID of the result data node.
-    @return Result data node.
+    定义一个加法计算步骤。支持类型包括ct+ct, ct+pt, pt+ct。
+    @param x 输入数据节点。
+    @param y 输入数据节点。
+    @param output_id 结果计算节点的id。
+    @return 结果计算节点。
     """
     global g_dag
     if (
@@ -856,13 +899,13 @@ def sub(
     | CkksPlaintextRingtNode,
     output_id: Optional[str] = None,
 ) -> BfvCiphertextNode | CkksCiphertextNode:
-    """!Subtraction
+    """!减法
 
-    Define a subtraction computation step. Supported types include ct-ct, ct-pt.
-    @param x Input data node.
-    @param y Input data node.
-    @param output_id ID of the result data node.
-    @return Result data node.
+    定义一个减法计算步骤。支持类型包括ct-ct, ct-pt。
+    @param x 输入数据节点。
+    @param y 输入数据节点。
+    @param output_id 结果计算节点的id。
+    @return 结果计算节点。
     """
     global g_dag
     if not isinstance(y, BfvPlaintextRingtNode) and not isinstance(y, CkksPlaintextRingtNode):
@@ -975,13 +1018,13 @@ def mult(
     output_id: Optional[str] = None,
     start_block_idx: int = None,
 ) -> BfvCiphertextNode | BfvCiphertext3Node | CkksCiphertextNode | CkksCiphertext3Node:
-    """!Multiplication
+    """!乘法
 
-    Define a multiplication computation step. Supported types include ct * ct, ct * pt_ringt, pt_ringt * ct, ct * pt_mul, pt_mul * ct.
-    @param x Input data node.
-    @param y Input data node.
-    @param output_id ID of the result data node.
-    @return Result data node.
+    定义一个乘法计算步骤。支持类型包括ct * ct, ct * pt_ringt, pt_ringt * ct, ct * pt_mul, pt_mul * ct。
+    @param x 输入数据节点。
+    @param y 输入数据节点。
+    @param output_id 结果计算节点的id。
+    @return 结果计算节点。
     """
     global g_dag
     op = FheComputeNode(OperationType.Mult)
@@ -1070,12 +1113,12 @@ def mult(
 def relin(
     x: BfvCiphertext3Node | CkksCiphertext3Node, output_id: Optional[str] = None
 ) -> BfvCiphertextNode | CkksCiphertextNode:
-    """!Relinearization
+    """!重线性化
 
-    Define a relinearization computation step.
-    @param x Input data node.
-    @param output_id ID of the result data node.
-    @return Result data node.
+    定义一个重线性化计算步骤。
+    @param x 输入数据节点。
+    @param output_id 结果计算节点的id。
+    @return 结果计算节点。
     """
     global g_dag
     if x.type != DataType.Ciphertext3:
@@ -1106,13 +1149,13 @@ def relin(
 def mult_relin(
     x: BfvCiphertextNode | CkksCiphertextNode, y: BfvCiphertextNode | CkksCiphertextNode, output_id=None
 ) -> BfvCiphertextNode | CkksCiphertextNode:
-    """!Ciphertext multiplication with relinearization
+    """!密文乘法并重线性化
 
-    Define a ciphertext multiplication followed by relinearization computation step.
-    @param x Input data node.
-    @param y Input data node.
-    @param output_id ID of the result data node.
-    @return Result data node.
+    定义一个密文乘法并重线性化计算步骤。
+    @param x 输入数据节点。
+    @param y 输入数据节点。
+    @param output_id 结果计算节点的id。
+    @return 结果计算节点。
     """
     return relin(mult(x, y, f'{output_id}_ct3' if output_id is not None else None), output_id)
 
@@ -1120,12 +1163,12 @@ def mult_relin(
 def rescale(
     x: BfvCiphertextNode | CkksCiphertextNode, output_id: Optional[str] = None
 ) -> BfvCiphertextNode | CkksCiphertextNode:
-    """!Modulus switching (rescale)
+    """!模数切换
 
-    Define a modulus switching computation step.
-    @param x Input data node.
-    @param output_id ID of the result data node.
-    @return Result data node.
+    定义一个模数切换计算步骤。
+    @param x 输入数据节点。
+    @param output_id 结果计算节点的id。
+    @return 结果计算节点。
     """
     global g_dag
     if x.type != DataType.Ciphertext:
@@ -1145,13 +1188,13 @@ def rescale(
 
 
 def drop_level(x: CkksCiphertextNode, drop_level: int = 1, output_id: Optional[str] = None) -> CkksCiphertextNode:
-    """!Level switching (drop level)
+    """!level切换
 
-    Define a level switching computation step.
-    @param x Input data node.
-    @param drop_level Number of levels to drop.
-    @param output_id ID of the result data node.
-    @return Result data node.
+    定义一个level切换计算步骤。
+    @param x 输入数据节点。
+    @param drop_level 需要减少的level数量。
+    @param output_id 结果计算节点的id。
+    @return 结果计算节点。
     """
     global g_dag
     if x.type != DataType.Ciphertext:
@@ -1189,13 +1232,13 @@ def rotate_cols(
     steps: list[int] | int,
     output_id: Optional[str] = None,
 ) -> list[BfvCiphertextNode | CkksCiphertextNode]:
-    """!Ciphertext rotation
+    """!密文旋转
 
-    Define a ciphertext rotation computation step.
-    @param x Input data node.
-    @param steps Number of rotation steps (positive for left rotation, negative for right rotation).
-    @param output_id ID of the result data node.
-    @return Result data node.
+    定义一个密文旋转计算步骤。
+    @param x 输入数据节点。
+    @param step 旋转的步数(正数为左旋, 负数为右旋)。
+    @param output_id 结果计算节点的id。
+    @return 结果计算节点。
     """
 
     global g_dag, g_param
@@ -1314,14 +1357,14 @@ def advanced_rotate_cols(
     output_id: Optional[str] = None,
     out_ct_type: str = 'ct',
 ) -> list[BfvCiphertextNode | CkksCiphertextNode]:
-    """!Ciphertext rotation
+    """!密文旋转
 
-    Define a ciphertext rotation computation step after preparing the rotation keys corresponding to the rotation steps.
-    @param x Input data node.
-    @param steps Number of rotation steps (positive for left rotation, negative for right rotation).
-    @param output_id ID of the result data node.
-    @param out_ct_type Output ciphertext type. Supported types include 'ct', 'ct-ntt', 'ct-ntt-mf'.
-    @return Result data node.
+    在准备好旋转步数所对应的旋转公钥后, 定义一个密文旋转计算步骤。
+    @param x 输入数据节点。
+    @param step 旋转的步数(正数为左旋, 负数为右旋)。
+    @param output_id 结果计算节点的id。
+    @param out_ct_type 输出密文的类型, 支持的类型包括 'ct', 'ct_ntt', 'ct-ntt-mf'。
+    @return 结果计算节点。
     """
 
     global g_dag, g_param
@@ -1432,13 +1475,13 @@ def seal_rotate_rows(
 def seal_rotate_cols(
     x: BfvCiphertextNode | CkksCiphertextNode, steps: list[int] | int, output_id: Optional[str] = None
 ) -> list[BfvCiphertextNode | CkksCiphertextNode]:
-    """!Ciphertext rotation (SEAL)
+    """!密文旋转
 
-    Define a ciphertext rotation computation step using SEAL library.
-    @param x Input data node.
-    @param steps Number of rotation steps (positive for left rotation, negative for right rotation).
-    @param output_id ID of the result data node.
-    @return Result data node.
+    定义一个密文旋转计算步骤。
+    @param x 输入数据节点。
+    @param step 旋转的步数(正数为左旋, 负数为右旋)。
+    @param output_id 结果计算节点的id。
+    @return 结果计算节点。
     """
     global g_param
     if g_param is None:
@@ -1512,13 +1555,13 @@ def seal_rotate_cols(
 def seal_advanced_rotate_cols(
     x: BfvCiphertextNode | CkksCiphertextNode, steps: list[int] | int, output_id: Optional[str] = None
 ) -> list[BfvCiphertextNode | CkksCiphertextNode]:
-    """!Advanced ciphertext rotation (SEAL)
+    """!密文旋转
 
-    Define a ciphertext rotation computation step using SEAL library with direct rotation keys.
-    @param x Input data node.
-    @param steps Number of rotation steps (positive for left rotation, negative for right rotation).
-    @param output_id ID of the result data node.
-    @return Result data node.
+    定义一个密文旋转计算步骤。
+    @param x 输入数据节点。
+    @param step 旋转的步数(正数为左旋, 负数为右旋)。
+    @param output_id 结果计算节点的id。
+    @return 结果计算节点。
     """
     global g_param
     if g_param is None:
@@ -1671,12 +1714,12 @@ def ct_pt_mult_accumulate(
     y: list[BfvPlaintextRingtNode | CkksPlaintextRingtNode] | BfvCompressedPlaintextRingtNode,
     output_mform: bool | None = None,
 ) -> BfvCiphertextNode | CkksCiphertextNode:
-    """!Plaintext-ciphertext vector inner product
+    """!明密文向量内积运算
 
-    Define a plaintext-ciphertext vector inner product computation step. Should be preferred for performance when vector length meets the requirements.
-    @param x Input ciphertext vector.
-    @param y Input plaintext vector, must have the same length as the ciphertext vector.
-    @return Result data node.
+    定义一个明密文向量内积计算步骤, 在向量长度满足条件的前提下, 当优先使用以提升性能。
+    @param x 输入密文向量。
+    @param y 输入明文向量, 长度要求与密文向量相同。
+    @return 结果计算节点。
     """
     y_compressed: bool = isinstance(y, BfvCompressedPlaintextRingtNode)
     if y_compressed:
@@ -1729,12 +1772,12 @@ def ct_pt_mult_accumulate_1(
     x: list[BfvCiphertextNode | CkksCiphertextNode],
     y: list[BfvPlaintextRingtNode | CkksPlaintextRingtNode],
 ) -> BfvCiphertextNode | CkksCiphertextNode:
-    """!Plaintext-ciphertext vector inner product (variant 1)
+    """!明密文向量内积运算
 
-    Define a plaintext-ciphertext vector inner product computation step. Should be preferred for performance when vector length meets the requirements.
-    @param x Input ciphertext vector.
-    @param y Input plaintext vector, must have the same length as the ciphertext vector.
-    @return Result data node.
+    定义一个明密文向量内积计算步骤, 在向量长度满足条件的前提下, 当优先使用以提升性能。
+    @param x 输入密文向量。
+    @param y 输入明文向量, 长度要求与密文向量相同。
+    @return 结果计算节点。
     """
     partial_sum: CiphertextNode | None = None
     n_input: int = len(x)
@@ -1814,25 +1857,58 @@ def bootstrap(x: CkksCiphertextNode, output_id: Optional[str] = None) -> CkksCip
     return z
 
 
+def custom_compute(
+    inputs: list[DataNode],
+    output: DataNode,
+    type: str,
+    attributes: dict = None,
+):
+    """!创建自定义计算节点
+
+    允许用户定义自定义的计算操作, 并将其加入计算图。
+
+    @param inputs 输入数据节点列表
+    @param output 输出数据节点（指定输出节点的类型和属性）
+    @param type 自定义操作类型的字符串标识
+    @param attributes 自定义属性字典, 可以包含任意键值对（例如: 参数、配置等）
+    """
+    global g_dag
+
+    if not inputs:
+        raise ValueError('At least one input data node is required for custom compute.')
+    if output is None:
+        raise ValueError('Output data node is required for custom compute.')
+
+    op = CustomComputeNode(type=type, attributes=attributes)
+
+    for input_node in inputs:
+        g_dag.add_edge(input_node, op)
+
+    g_dag.add_edge(op, output)
+
+    return
+
+
 def process_custom_task(
     input_args: list[Argument] = None,
     output_args: list[Argument] = None,
     offline_input_args: list[Argument] = None,
     output_instruction_path: str = None,
+    fpga_acc: bool = True,
 ) -> dict:
-    """!Process custom task
+    """!处理自定义任务
 
-    Convert a custom task into a set of task-related files based on its input and output data parameters.
-    If there are offline input data nodes, a set of instruction files for loading offline input data will be generated,
-    which are used to load all offline input data at once before online computation.
+    根据自定义任务的输入和输出数据参数, 把自定义任务转化成一系列任务所需文件。
+    如果有离线输入数据节点, 则会产生一组载入离线输入数据的指令文件, 用于在在线计算前, 一次性载入离线输入数据。
 
-    Note: set_fhe_param() must be called to set global FHE parameters before calling this function.
+    注意: 在调用此函数之前,必须先调用 set_fhe_param() 设置全局FHE参数。
 
-    @param input_args List of all input arguments for the custom task.
-    @param output_args List of all output arguments for the custom task.
-    @param offline_input_args List of all offline input arguments for the custom task (does not include input data nodes).
-    @param output_instruction_path Directory path for storing the custom task files.
-    @return Abstract computation graph for the task.
+    @param input_args 自定义任务的全部输入参数列表。
+    @param output_args 自定义任务的全部输出参数列表。
+    @param offline_input_args 自定义任务的全部离线输入参数列表, 不包含输入数据节点。
+    @param output_instruction_path 自定义任务的任务文件存储目录。
+    @param fpga_acc FPGA加速卡任务标识
+    @return 任务抽象计算图。
     """
 
     def flatten(x: list):
@@ -1874,6 +1950,7 @@ def process_custom_task(
             if isinstance(arg_data_list[0], FheDataNode):
                 node['level'] = arg_data_list[0].level
             node['phase'] = phase
+
             used_id.append(arg.id)
             all_data_list += arg_data_list
             sig_data_list.append(node)
@@ -1931,44 +2008,70 @@ def process_custom_task(
     mag['outputs'] = [x.index for x in all_output_list]
     mag['offline_inputs'] = [x.index for x in all_offline_list]
 
-    if True:
-        parameter = {'n': g_param.n, 'max_level': g_param.max_level, 'q': g_param.q, 'p': g_param.p}
-        if isinstance(g_param, CkksBtpParam):
-            parameter['scale'] = g_param.scale
-            parameter['btp_cts_start_level'] = g_param.btp_cts_start_level
-            parameter['btp_eval_mod_start_level'] = g_param.btp_eval_mod_start_level
-            parameter['btp_stc_start_level'] = g_param.btp_stc_start_level
-            parameter['btp_output_level'] = g_param.btp_output_level
+    parameter = {'n': g_param.n, 'max_level': g_param.max_level, 'q': g_param.q, 'p': g_param.p}
+    if isinstance(g_param, CkksBtpParam):
+        parameter['scale'] = g_param.scale
+        parameter['btp_cts_start_level'] = g_param.btp_cts_start_level
+        parameter['btp_eval_mod_start_level'] = g_param.btp_eval_mod_start_level
+        parameter['btp_stc_start_level'] = g_param.btp_stc_start_level
+        parameter['btp_output_level'] = g_param.btp_output_level
 
-        if g_param.algo == Algo.BFV:
-            parameter['t'] = g_param.t
+    if g_param.algo == Algo.BFV:
+        parameter['t'] = g_param.t
 
-        mag['parameter'] = parameter
+    mag['parameter'] = parameter
 
     for x in all_input_list_with_key:
         if x not in g_dag.nodes():
             raise RuntimeError(
-                f'Input data node "{x.id}" is not in the computation graph.\n'
-                f'The computation graph is cleared after each process_custom_task() call.\n\n'
-                f'Solution: Create new data nodes for each task.\n\n'
-                f'Recommended: Use a builder function:\n'
+                f'Input data node "{x.id}" is not in the computation graph. '
+                f'This usually happens when you reuse data nodes from a previous '
+                f'process_custom_task() call. The computation graph is cleared after each call. '
+                f'\n\nSolution: Create new data nodes for each task.\n'
+                f'Example: Instead of reusing variables like x, y:\n'
+                f'  # Wrong: reusing nodes\n'
+                f'  x = BfvCiphertextNode("x", level=3)\n'
+                f'  process_custom_task(..., fpga_acc=True)  # First call\n'
+                f'  process_custom_task(..., fpga_acc=False)  # Error! x is no longer in graph\n'
+                f'\n'
+                f'  # Correct: create new nodes for each task\n'
+                f'  x_fpga = BfvCiphertextNode("x", level=3)\n'
+                f'  process_custom_task(..., fpga_acc=True)\n'
+                f'  x_cpu = BfvCiphertextNode("x", level=3)  # New nodes\n'
+                f'  process_custom_task(..., fpga_acc=False)\n'
+                f'\n'
+                f'Or better: use a function to build the graph:\n'
                 f'  def build_graph():\n'
                 f'      x = BfvCiphertextNode("x", level=3)\n'
                 f'      y = BfvCiphertextNode("y", level=3)\n'
                 f'      z = mult_relin(x, y, "z")\n'
                 f'      return x, y, z\n'
                 f'  \n'
-                f'  inputs1 = build_graph()\n'
-                f'  process_custom_task(...)\n'
-                f'  \n'
-                f'  inputs2 = build_graph()  # Create new nodes\n'
-                f'  process_custom_task(...)'
+                f'  x1, y1, z1 = build_graph()\n'
+                f'  process_custom_task(..., fpga_acc=True)\n'
+                f'  x2, y2, z2 = build_graph()\n'
+                f'  process_custom_task(..., fpga_acc=False)'
             )
         if not g_dag.succ[x]:
             raise ValueError(f'Input data node "{x.id}" is not used for any computation.')
 
     for node in g_dag.nodes():
-        if isinstance(node, FheComputeNode):
+        if isinstance(node, CustomComputeNode):
+            op: CustomComputeNode = node
+            if op.index in compute:
+                raise ValueError(f'Same index "{op.index}" for different computation nodes.')
+
+            compute[op.index] = {
+                'id': op.id,
+                'type': op.type,
+                'is_custom': True,
+                'inputs': [y.index for y in g_dag.predecessors(op)],
+                'outputs': [s.index for s in g_dag.successors(op)],
+            }
+            if op.attributes:
+                compute[op.index]['attributes'] = op.attributes
+
+        elif isinstance(node, FheComputeNode):
             op: FheComputeNode = node
             if op.index in compute:
                 raise ValueError(f'Same index "{op.index}" for different computation nodes.')
@@ -2018,6 +2121,23 @@ def process_custom_task(
             if isinstance(datum, GaloisKeyNode):
                 data[datum.index]['galois_element'] = datum.galois_element
 
+        elif isinstance(node, CustomDataNode):
+            datum: CustomDataNode = node
+            if datum.index in data:
+                raise ValueError(f'Same index "{datum.index}" for different data nodes.')
+            if not g_dag.succ[datum]:
+                if datum not in all_output_list:
+                    raise ValueError(
+                        f'Data node "{datum.index}" is not used for any computation, nor is it an output data node.'
+                    )
+            data[datum.index] = {
+                'id': datum.id,
+                'type': datum.type,
+                'is_custom': True,
+            }
+            if datum.attributes:
+                data[datum.index]['attributes'] = datum.attributes
+
     if not os.path.exists(output_instruction_path):
         os.makedirs(output_instruction_path)
     with open(os.path.join(output_instruction_path, 'mega_ag.json'), 'w', encoding='utf-8') as f:
@@ -2029,6 +2149,16 @@ def process_custom_task(
         encoding='utf-8',
     ) as f:
         json.dump(interface_json, f, indent=4)
+
+    if fpga_acc:
+        # FPGA supports only n = 8192 now
+        if g_param.n != 8192:
+            raise ValueError('FPGA mode only supports n = 8192')
+        try:
+            from .fpga_backend import run_fpga_linker
+        except ImportError:
+            from fpga_backend import run_fpga_linker
+        run_fpga_linker(output_instruction_path, TRANSLATOR_DEV)
 
     g_swk_node_dict.clear()
     g_dag.clear()
