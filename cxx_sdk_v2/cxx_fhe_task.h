@@ -42,6 +42,10 @@ public:
     FheTask(FheTask&& other) {
         std::swap(_project_path, other._project_path);
         std::swap(_algo, other._algo);
+        // Reason: input_args/output_args hold malloc'd CArgument::data pointers;
+        // omitting swap causes double-free or leak when both objects destruct.
+        std::swap(input_args, other.input_args);
+        std::swap(output_args, other.output_args);
     }
 
     void operator=(const FheTask& other) = delete;
@@ -49,6 +53,9 @@ public:
     void operator=(FheTask&& other) {
         std::swap(_project_path, other._project_path);
         std::swap(_algo, other._algo);
+        // Reason: same as move constructor — transfer ownership of malloc'd memory.
+        std::swap(input_args, other.input_args);
+        std::swap(output_args, other.output_args);
     }
 
     ~FheTask();
