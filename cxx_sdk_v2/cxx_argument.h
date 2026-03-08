@@ -70,13 +70,9 @@ inline std::unordered_map<std::type_index, CxxArgumentType> _type_map = {
     {std::type_index(typeid(CkksPlaintextMul)), CxxArgumentType::PLAINTEXT_MUL},
 };
 
-template <typename T> struct is_vector {
-    static const bool value = false;
-};
+template <typename T> struct is_vector { static const bool value = false; };
 
-template <typename T> struct is_vector<std::vector<T>> {
-    static const bool value = true;
-};
+template <typename T> struct is_vector<std::vector<T>> { static const bool value = true; };
 
 template <typename T>
 void add_flat(T& x,
@@ -232,26 +228,41 @@ export_cxx_argument(const CxxVectorArgument& src, const Parameter& param, int mf
     switch (src.type) {
         case CxxArgumentType::CIPHERTEXT: {
             dest.data = (CCiphertext*)malloc(sizeof(CCiphertext) * dest.size);
+            // Reason: malloc returns nullptr on allocation failure; dereferencing it causes Segfault.
+            if (dest.data == nullptr)
+                throw std::bad_alloc();
             _export_ciphertexts(src.flat_handles, (CCiphertext*)dest.data, param);
             break;
         }
         case CxxArgumentType::CIPHERTEXT3: {
             dest.data = (CCiphertext*)malloc(sizeof(CCiphertext) * dest.size);
+            // Reason: malloc returns nullptr on allocation failure; dereferencing it causes Segfault.
+            if (dest.data == nullptr)
+                throw std::bad_alloc();
             _export_ciphertexts(src.flat_handles, (CCiphertext*)dest.data, param);
             break;
         }
         case CxxArgumentType::PLAINTEXT: {
             dest.data = (CPlaintext*)malloc(sizeof(CPlaintext) * dest.size);
+            // Reason: malloc returns nullptr on allocation failure; dereferencing it causes Segfault.
+            if (dest.data == nullptr)
+                throw std::bad_alloc();
             _export_plaintexts(src.flat_handles, (CPlaintext*)dest.data, param);
             break;
         }
         case CxxArgumentType::PLAINTEXT_RINGT: {
             dest.data = (CPlaintext*)malloc(sizeof(CPlaintext) * dest.size);
+            // Reason: malloc returns nullptr on allocation failure; dereferencing it causes Segfault.
+            if (dest.data == nullptr)
+                throw std::bad_alloc();
             _export_plaintext_ringts(src.flat_handles, (CPlaintext*)dest.data, param);
             break;
         }
         case CxxArgumentType::PLAINTEXT_MUL: {
             dest.data = (CPlaintext*)malloc(sizeof(CPlaintext) * dest.size);
+            // Reason: malloc returns nullptr on allocation failure; dereferencing it causes Segfault.
+            if (dest.data == nullptr)
+                throw std::bad_alloc();
             _export_plaintext_muls(src.flat_handles, (CPlaintext*)dest.data, param, mf_nbits);
             break;
         }
@@ -293,14 +304,19 @@ inline void export_public_key_arguments(nlohmann::json& key_signature,
         rlk_arg.level = rlk_level;
 
         if (!is_heterogeneous) {
-            static RelinKey saved_rlk;
-            static std::vector<Handle*> rlk_handle_vec(1);
+            // Reason: thread_local prevents data race when multiple threads call this function concurrently;
+            // static would share state across threads leading to silent data corruption.
+            thread_local RelinKey saved_rlk;
+            thread_local std::vector<Handle*> rlk_handle_vec(1);
             saved_rlk = std::move(rlk);
             rlk_handle_vec[0] = (Handle*)&saved_rlk;
             rlk_arg.data = (void*)rlk_handle_vec.data();
             input_args.push_back(rlk_arg);
         } else {
             rlk_arg.data = (CRelinKey*)malloc(sizeof(CRelinKey) * rlk_arg.size);
+            // Reason: malloc returns nullptr on allocation failure; dereferencing it causes Segfault.
+            if (rlk_arg.data == nullptr)
+                throw std::bad_alloc();
             input_args.push_back(rlk_arg);
             _export_relin_key(rlk, &((CRelinKey*)(rlk_arg.data))[0], rlk_level, context->get_parameter(), mf_nbits);
         }
@@ -323,14 +339,19 @@ inline void export_public_key_arguments(nlohmann::json& key_signature,
         glk_arg.level = glk_level;
 
         if (!is_heterogeneous) {
-            static GaloisKey saved_glk;
-            static std::vector<Handle*> glk_handle_vec(1);
+            // Reason: thread_local prevents data race when multiple threads call this function concurrently;
+            // static would share state across threads leading to silent data corruption.
+            thread_local GaloisKey saved_glk;
+            thread_local std::vector<Handle*> glk_handle_vec(1);
             saved_glk = std::move(glk);
             glk_handle_vec[0] = (Handle*)&saved_glk;
             glk_arg.data = (void*)glk_handle_vec.data();
             input_args.push_back(glk_arg);
         } else {
             CGaloisKey* c_glk = (CGaloisKey*)malloc(sizeof(CGaloisKey) * glk_arg.size);
+            // Reason: malloc returns nullptr on allocation failure; dereferencing it causes Segfault.
+            if (c_glk == nullptr)
+                throw std::bad_alloc();
             set_galois_key_steps(&c_glk[0], galois_elements.data(), galois_elements.size());
             glk_arg.data = c_glk;
             input_args.push_back(glk_arg);
@@ -357,14 +378,19 @@ inline void export_public_key_arguments(nlohmann::json& key_signature,
             swk_dts_arg.level = level;
 
             if (!is_heterogeneous) {
-                static KeySwitchKey saved_swk_dts;
-                static std::vector<Handle*> swk_dts_handle_vec(1);
+                // Reason: thread_local prevents data race when multiple threads call this function concurrently;
+                // static would share state across threads leading to silent data corruption.
+                thread_local KeySwitchKey saved_swk_dts;
+                thread_local std::vector<Handle*> swk_dts_handle_vec(1);
                 saved_swk_dts = std::move(swk_dts);
                 swk_dts_handle_vec[0] = (Handle*)&saved_swk_dts;
                 swk_dts_arg.data = (void*)swk_dts_handle_vec.data();
                 input_args.push_back(swk_dts_arg);
             } else {
                 swk_dts_arg.data = (CKeySwitchKey*)malloc(sizeof(CKeySwitchKey) * swk_dts_arg.size);
+                // Reason: malloc returns nullptr on allocation failure; dereferencing it causes Segfault.
+                if (swk_dts_arg.data == nullptr)
+                    throw std::bad_alloc();
                 input_args.push_back(swk_dts_arg);
                 _export_switching_key(swk_dts, &((CKeySwitchKey*)(swk_dts_arg.data))[0], level, sp_level,
                                       context->get_parameter(), mf_nbits);
@@ -385,14 +411,19 @@ inline void export_public_key_arguments(nlohmann::json& key_signature,
 
             if (!is_heterogeneous) {
                 // CPU mode: need to save the swk object itself
-                static KeySwitchKey saved_swk_std;
-                static std::vector<Handle*> swk_std_handle_vec(1);
+                // Reason: thread_local prevents data race when multiple threads call this function concurrently;
+                // static would share state across threads leading to silent data corruption.
+                thread_local KeySwitchKey saved_swk_std;
+                thread_local std::vector<Handle*> swk_std_handle_vec(1);
                 saved_swk_std = std::move(swk_std);
                 swk_std_handle_vec[0] = (Handle*)&saved_swk_std;
                 swk_std_arg.data = (void*)swk_std_handle_vec.data();
                 input_args.push_back(swk_std_arg);
             } else {
                 swk_std_arg.data = (CKeySwitchKey*)malloc(sizeof(CKeySwitchKey) * swk_std_arg.size);
+                // Reason: malloc returns nullptr on allocation failure; dereferencing it causes Segfault.
+                if (swk_std_arg.data == nullptr)
+                    throw std::bad_alloc();
                 input_args.push_back(swk_std_arg);
                 _export_switching_key(swk_std, &((CKeySwitchKey*)(swk_std_arg.data))[0], level, sp_level,
                                       context->get_parameter(), mf_nbits);

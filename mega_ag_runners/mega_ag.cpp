@@ -17,8 +17,10 @@
  */
 
 #include <fstream>
+#include <functional>
 #include <iostream>
 #include <string>
+#include <unordered_set>
 #include "nlohmann/json.hpp"
 
 #include "mega_ag.h"
@@ -165,6 +167,28 @@ MegaAG MegaAG::from_json(const std::string& json_path, Processor processor) {
     }
 
     mega_ag.parameter = mega_ag_json["parameter"];
+
+    // Reason: a cyclic graph causes the scheduler to wait forever because no node
+    // ever becomes fully-available; detect and reject early to prevent deadlock.
+    std::unordered_set<NodeIndex> visited;
+    std::unordered_set<NodeIndex> in_stack;
+    std::function<bool(NodeIndex)> has_cycle = [&](NodeIndex idx) -> bool {
+        visited.insert(idx);
+        in_stack.insert(idx);
+        for (const auto* succ : mega_ag.data.at(idx).successors) {
+            if (in_stack.count(succ->index))
+                return true;
+            if (!visited.count(succ->index) && has_cycle(succ->index))
+                return true;
+        }
+        in_stack.erase(idx);
+        return false;
+    };
+    for (const auto& [idx, _] : mega_ag.data) {
+        if (!visited.count(idx) && has_cycle(idx)) {
+            throw std::runtime_error("MegaAG: computation graph contains a cycle, cannot schedule");
+        }
+    }
 
     return mega_ag;
 }
