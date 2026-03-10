@@ -94,8 +94,10 @@ public:
      * @param element Plaintext to analyze
      * @return Precision statistics
      */
-    static PrecisionStats
-    GetPrecisionStats(CkksContext& context, const std::vector<double>& vWant, const CkksPlaintext& element);
+    static PrecisionStats GetPrecisionStats(CkksContext& context,
+                                            const std::vector<double>& vWant,
+                                            const CkksPlaintext& element,
+                                            bool in_coeffs_domain = false);
 
     /**
      * @brief Analyze CKKS ciphertext precision statistics
@@ -104,8 +106,10 @@ public:
      * @param element Ciphertext to analyze
      * @return Precision statistics
      */
-    static PrecisionStats
-    GetPrecisionStats(CkksContext& context, const std::vector<double>& vWant, const CkksCiphertext& element);
+    static PrecisionStats GetPrecisionStats(CkksContext& context,
+                                            const std::vector<double>& vWant,
+                                            const CkksCiphertext& element,
+                                            bool in_coeffs_domain = false);
 
     /**
      * @brief Analyze precision statistics between two vectors

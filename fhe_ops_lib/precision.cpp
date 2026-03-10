@@ -79,18 +79,19 @@ void PrecisionStats::calcCDF(const std::vector<double>& precs, std::vector<DistE
 // PrecisionAnalyzer implementation
 PrecisionStats PrecisionAnalyzer::GetPrecisionStats(CkksContext& context,
                                                     const std::vector<double>& vWant,
-                                                    const CkksPlaintext& element) {
-    std::vector<double> valuesTest =
-        element.in_coeffs_domain ? context.decode_coeffs(element) : context.decode(element);
+                                                    const CkksPlaintext& element,
+                                                    bool in_coeffs_domain) {
+    std::vector<double> valuesTest = in_coeffs_domain ? context.decode_coeffs(element) : context.decode(element);
     return GetPrecisionStatsImpl(vWant, valuesTest);
 }
 
 PrecisionStats PrecisionAnalyzer::GetPrecisionStats(CkksContext& context,
                                                     const std::vector<double>& vWant,
-                                                    const CkksCiphertext& element) {
+                                                    const CkksCiphertext& element,
+                                                    bool in_coeffs_domain) {
     CkksPlaintext decryptedPlain = context.decrypt(element);
     std::vector<double> valuesTest =
-        element.in_coeffs_domain ? context.decode_coeffs(decryptedPlain) : context.decode(decryptedPlain);
+        in_coeffs_domain ? context.decode_coeffs(decryptedPlain) : context.decode(decryptedPlain);
     return GetPrecisionStatsImpl(vWant, valuesTest);
 }
 

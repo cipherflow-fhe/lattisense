@@ -295,7 +295,6 @@ TEMPLATE_TEST_CASE_METHOD(BfvFpgaFixture, "BFV cmp_coeffs_ringt", "", BfvFpgaTes
             z_list.reserve(this->n_op);
             for (int _i = 0; _i < this->n_op; _i++) {
                 auto z_ct = this->ctx.new_ciphertext(level);
-                z_ct.in_coeffs_domain = true;
                 z_list.push_back(std::move(z_ct));
             }
             string path = fpga_base_path + "/" + this->tag + "/BFV_" + to_string(this->n_op) + "_cmp_ringt/level_" +
@@ -325,7 +324,6 @@ TEMPLATE_TEST_CASE_METHOD(BfvFpgaFixture, "BFV power-of-2-t cmp_coeffs_ringt", "
             z_list.reserve(this->n_op);
             for (int _i = 0; _i < this->n_op; _i++) {
                 auto z_ct = this->ctx.new_ciphertext(level);
-                z_ct.in_coeffs_domain = true;
                 z_list.push_back(std::move(z_ct));
             }
             string path = fpga_base_path + "/" + this->tag + "/BFV_" + to_string(this->n_op) + "_cmp_ringt/level_" +
@@ -355,7 +353,6 @@ TEMPLATE_TEST_CASE_METHOD(BfvFpgaFixture, "BFV cmp_coeffs_mul", "", BfvFpgaTestP
             z_list.reserve(this->n_op);
             for (int _i = 0; _i < this->n_op; _i++) {
                 auto z_ct = this->ctx.new_ciphertext(level);
-                z_ct.in_coeffs_domain = true;
                 z_list.push_back(std::move(z_ct));
             }
             string path = fpga_base_path + "/" + this->tag + "/BFV_" + to_string(this->n_op) + "_cmp_mul/level_" +

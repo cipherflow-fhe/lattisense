@@ -37,8 +37,9 @@ using namespace fhe_ops_lib;
 static void verify_ckks_precision(CkksContext& ctx,
                                   const vector<double>& expected,
                                   const CkksCiphertext& ct,
-                                  double minPrec = 10.0) {
-    auto stats = PrecisionAnalyzer::GetPrecisionStats(ctx, expected, ct);
+                                  double minPrec = 10.0,
+                                  bool in_coeffs_domain = false) {
+    auto stats = PrecisionAnalyzer::GetPrecisionStats(ctx, expected, ct, in_coeffs_domain);
     REQUIRE(stats.MeanPrecision.Real >= minPrec);
 }
 
@@ -268,7 +269,6 @@ TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS cmp_coeffs_ringt", "", CkksFpga
             z_list.reserve(this->n_op);
             for (int _i = 0; _i < this->n_op; _i++) {
                 auto ct = this->ctx.new_ciphertext(level, this->default_scale * this->default_scale);
-                ct.in_coeffs_domain = true;
                 z_list.push_back(std::move(ct));
             }
 
@@ -286,7 +286,7 @@ TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS cmp_coeffs_ringt", "", CkksFpga
 
             for (int i = 0; i < this->n_op; i++) {
                 auto z_true = polynomial_multiplication(n, xv.values[i], yv.values[i]);
-                verify_ckks_precision(this->ctx, z_true, z_list[i]);
+                verify_ckks_precision(this->ctx, z_true, z_list[i], 10.0, true);
             }
         }
     }
@@ -301,7 +301,6 @@ TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS cmp_coeffs_mul", "", CkksFpgaTe
             z_list.reserve(this->n_op);
             for (int _i = 0; _i < this->n_op; _i++) {
                 auto ct = this->ctx.new_ciphertext(level, this->default_scale * this->default_scale);
-                ct.in_coeffs_domain = true;
                 z_list.push_back(std::move(ct));
             }
 
@@ -319,7 +318,7 @@ TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS cmp_coeffs_mul", "", CkksFpgaTe
 
             for (int i = 0; i < this->n_op; i++) {
                 auto z_true = polynomial_multiplication(n, xv.values[i], yv.values[i]);
-                verify_ckks_precision(this->ctx, z_true, z_list[i]);
+                verify_ckks_precision(this->ctx, z_true, z_list[i], 10.0, true);
             }
         }
     }
