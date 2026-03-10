@@ -38,7 +38,7 @@ jobs:
       - name: Build SDK
         run: |
           mkdir -p build && cd build
-          cmake .. -DLATTISENSE_BUILD_TESTS=ON
+          cmake .. -DLATTISENSE_BUILD_TESTS=ON -DLATTISENSE_ENABLE_FPGA=ON
           make -j$(nproc)
 
       - name: Generate test data
