@@ -45,8 +45,8 @@ jobs:
         run: |
           cd unittests
           export PYTHONPATH=${{ github.workspace }}/build/unittests:${{ github.workspace }}:$PYTHONPATH
-          python3 test_cpu_bfv.py
-          python3 test_cpu_ckks.py
+          pytest test_cpu_bfv.py -v
+          pytest test_cpu_ckks.py -v
 
       - name: Run tests
         timeout-minutes: 30
