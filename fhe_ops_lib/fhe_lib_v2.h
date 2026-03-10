@@ -1205,6 +1205,8 @@ class BfvPlaintextRingt : public Handle {
 public:
     using Handle::Handle;
 
+    bool in_coeffs_domain = false;
+
     /**
      * Get the level of a BFV plaintext.
      * @return The plaintext level.
@@ -1219,6 +1221,8 @@ class BfvPlaintextMul : public Handle {
 public:
     using Handle::Handle;
 
+    bool in_coeffs_domain = false;
+
     /**
      * Get the level of a BFV plaintext.
      * @return The plaintext level.
@@ -1232,6 +1236,8 @@ public:
 class BfvPlaintext : public Handle {
 public:
     using Handle::Handle;
+
+    bool in_coeffs_domain = false;
 
     /**
      * Get the level of a BFV plaintext.
@@ -1248,6 +1254,8 @@ public:
 class BfvCiphertext : public Handle {
 public:
     using Handle::Handle;
+
+    bool in_coeffs_domain = false;
 
     /**
      * Get the level of a BFV ciphertext.
@@ -1312,6 +1320,8 @@ class CkksPlaintext : public Handle {
 public:
     using Handle::Handle;
 
+    bool in_coeffs_domain = false;
+
     /**
      * Get the level of a CKKS plaintext.
      * @return The plaintext level.
@@ -1330,6 +1340,8 @@ class CkksPlaintextRingt : public Handle {
 public:
     using Handle::Handle;
 
+    bool in_coeffs_domain = false;
+
     /**
      * Get the level of a CKKS plaintext.
      * @return The plaintext level.
@@ -1344,6 +1356,8 @@ class CkksPlaintextMul : public Handle {
 public:
     using Handle::Handle;
 
+    bool in_coeffs_domain = false;
+
     /**
      * Get the level of a CKKS plaintext.
      * @return The plaintext level.
@@ -1357,6 +1371,8 @@ public:
 class CkksCiphertext : public Handle {
 public:
     using Handle::Handle;
+
+    bool in_coeffs_domain = false;
 
     /**
      * Get the level of a CKKS ciphertext.

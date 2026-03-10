@@ -30,6 +30,7 @@ import (
 
 var (
 	TestCkksFpgaParamLiterals = []ckks.ParametersLiteral{acc.CkksFpgaParametersLiteral}
+	ckks_fpga_base_path          = fpga_base_path + "/ckks_param_fpga_n8192"
 )
 
 func TestCkksFpgaAcc(t *testing.T) {
@@ -87,7 +88,7 @@ func testCkksFpgaCtAddPt(tc *testCkksContext, t *testing.T) {
 				acc.NewGoVectorArgument("in_y_list", plaintext2),
 				acc.NewGoVectorArgument("out_z_list", ciphertext),
 			}
-			project_path := fmt.Sprintf("%s/CKKS_%d_cap/level_%d", fpga_base_path, tc.n_op, lvl)
+			project_path := fmt.Sprintf("%s/CKKS_%d_cap/level_%d", ckks_fpga_base_path, tc.n_op, lvl)
 			project, err := acc.NewFheTaskFpga(project_path, true)
 			if err != nil {
 				t.Fatal(err)
@@ -133,7 +134,7 @@ func testCkksFpgaCtAddPt2d(tc *testCkksContext, t *testing.T) {
 				acc.NewGoVectorArgument("y_pt_2d", plaintextY2d),
 				acc.NewGoVectorArgument("z_ct_2d", ciphertextZ2d),
 			}
-			project_path := fmt.Sprintf("%s/CKKS_cap_row_%d_col_%d/level_%d", fpga_base_path, row, col, lvl)
+			project_path := fmt.Sprintf("%s/CKKS_cap_row_%d_col_%d/level_%d", ckks_fpga_base_path, row, col, lvl)
 			project, err := acc.NewFheTaskFpga(project_path, true)
 			if err != nil {
 				t.Fatal(err)
@@ -188,7 +189,7 @@ func testCkksFpgaCtAddPt3d(tc *testCkksContext, t *testing.T) {
 				acc.NewGoVectorArgument("y_pt_3d", plaintextY3d),
 				acc.NewGoVectorArgument("z_ct_3d", ciphertextZ3d),
 			}
-			project_path := fmt.Sprintf("%s/CKKS_cap_3d/level_%d", fpga_base_path, lvl)
+			project_path := fmt.Sprintf("%s/CKKS_cap_3d/level_%d", ckks_fpga_base_path, lvl)
 			project, err := acc.NewFheTaskFpga(project_path, true)
 			if err != nil {
 				t.Fatal(err)
@@ -238,7 +239,7 @@ func testCkksFpgaCtAddCt(tc *testCkksContext, t *testing.T) {
 				acc.NewGoVectorArgument("in_y_list", ciphertext2),
 				acc.NewGoVectorArgument("out_z_list", ciphertext),
 			}
-			project_path := fmt.Sprintf("%s/CKKS_%d_cac/level_%d", fpga_base_path, tc.n_op, lvl)
+			project_path := fmt.Sprintf("%s/CKKS_%d_cac/level_%d", ckks_fpga_base_path, tc.n_op, lvl)
 			project, err := acc.NewFheTaskFpga(project_path, true)
 			if err != nil {
 				t.Fatal(err)
@@ -280,7 +281,7 @@ func testCkksFpgaCtMulPt(tc *testCkksContext, t *testing.T) {
 				acc.NewGoVectorArgument("in_y_list", plaintext2),
 				acc.NewGoVectorArgument("out_z_list", ciphertext),
 			}
-			project_path := fmt.Sprintf("%s/CKKS_%d_cmp/level_%d", fpga_base_path, tc.n_op, lvl)
+			project_path := fmt.Sprintf("%s/CKKS_%d_cmp/level_%d", ckks_fpga_base_path, tc.n_op, lvl)
 			project, err := acc.NewFheTaskFpga(project_path, true)
 			if err != nil {
 				t.Fatal(err)
@@ -329,7 +330,7 @@ func testCkksFpgaCtMulPt3d(tc *testCkksContext, t *testing.T) {
 				acc.NewGoVectorArgument("y_pt_3d", plaintextY3d),
 				acc.NewGoVectorArgument("z_ct_3d", ciphertextZ3d),
 			}
-			project_path := fmt.Sprintf("%s/CKKS_cmp_3d/level_%d", fpga_base_path, lvl)
+			project_path := fmt.Sprintf("%s/CKKS_cmp_3d/level_%d", ckks_fpga_base_path, lvl)
 			project, err := acc.NewFheTaskFpga(project_path, true)
 			if err != nil {
 				t.Fatal(err)
@@ -389,7 +390,7 @@ func testCkksFpgaCtMulPt4d(tc *testCkksContext, t *testing.T) {
 				acc.NewGoVectorArgument("y_pt_4d", plaintextY4d),
 				acc.NewGoVectorArgument("z_ct_4d", ciphertextZ4d),
 			}
-			project_path := fmt.Sprintf("%s/CKKS_cmp_4d/level_%d", fpga_base_path, lvl)
+			project_path := fmt.Sprintf("%s/CKKS_cmp_4d/level_%d", ckks_fpga_base_path, lvl)
 			project, err := acc.NewFheTaskFpga(project_path, true)
 			if err != nil {
 				t.Fatal(err)
@@ -443,7 +444,7 @@ func testCkksFpgaCtMulCtRelin(tc *testCkksContext, t *testing.T) {
 				acc.NewGoVectorArgument("in_y_list", ciphertext2),
 				acc.NewGoVectorArgument("out_z_list", ciphertext),
 			}
-			project_path := fmt.Sprintf("%s/CKKS_%d_cmc_relin/level_%d", fpga_base_path, tc.n_op, lvl)
+			project_path := fmt.Sprintf("%s/CKKS_%d_cmc_relin/level_%d", ckks_fpga_base_path, tc.n_op, lvl)
 			project, err := acc.NewFheTaskFpga(project_path, true)
 			if err != nil {
 				t.Fatal(err)
@@ -501,7 +502,7 @@ func testCkksFpgaCtMulCtRelin4d(tc *testCkksContext, t *testing.T) {
 				acc.NewGoVectorArgument("y_ct_4d", ciphertextY4d),
 				acc.NewGoVectorArgument("z_ct_4d", ciphertextZ4d),
 			}
-			project_path := fmt.Sprintf("%s/CKKS_cmc_relin_4d/level_%d", fpga_base_path, lvl)
+			project_path := fmt.Sprintf("%s/CKKS_cmc_relin_4d/level_%d", ckks_fpga_base_path, lvl)
 			project, err := acc.NewFheTaskFpga(project_path, true)
 			if err != nil {
 				t.Fatal(err)
@@ -553,7 +554,7 @@ func testCkksFpgaCtSquareRelin(tc *testCkksContext, t *testing.T) {
 				acc.NewGoVectorArgument("in_x_list", ciphertext1),
 				acc.NewGoVectorArgument("out_z_list", ciphertext),
 			}
-			project_path := fmt.Sprintf("%s/CKKS_%d_csqr_relin/level_%d", fpga_base_path, tc.n_op, lvl)
+			project_path := fmt.Sprintf("%s/CKKS_%d_csqr_relin/level_%d", ckks_fpga_base_path, tc.n_op, lvl)
 			project, err := acc.NewFheTaskFpga(project_path, true)
 			if err != nil {
 				t.Fatal(err)
@@ -609,7 +610,7 @@ func testCkksFpgaCtRotateCol(tc *testCkksContext, t *testing.T) {
 				}
 			}
 			steps_str += ""
-			project_path := fmt.Sprintf("%s/CKKS_%d_advanced_rotate_col/level_%d/steps_%s", fpga_base_path, tc.n_op, lvl, steps_str)
+			project_path := fmt.Sprintf("%s/CKKS_%d_advanced_rotate_col/level_%d/steps_%s", ckks_fpga_base_path, tc.n_op, lvl, steps_str)
 			project, err := acc.NewFheTaskFpga(project_path, true)
 			if err != nil {
 				t.Fatal(err)
@@ -653,7 +654,7 @@ func testCkksFpgaCtRotateRow(tc *testCkksContext, t *testing.T) {
 				acc.NewGoVectorArgument("arg_y", ciphertext),
 			}
 
-			project_path := fmt.Sprintf("%s/CKKS_%d_rotate_row/level_%d", fpga_base_path, tc.n_op, lvl)
+			project_path := fmt.Sprintf("%s/CKKS_%d_rotate_row/level_%d", ckks_fpga_base_path, tc.n_op, lvl)
 			project, err := acc.NewFheTaskFpga(project_path, true)
 			if err != nil {
 				t.Fatal(err)
@@ -694,7 +695,7 @@ func testCkksFpgaCtRescale(tc *testCkksContext, t *testing.T) {
 				acc.NewGoVectorArgument("in_x_list", ciphertext1),
 				acc.NewGoVectorArgument("out_y_list", ciphertext),
 			}
-			project_path := fmt.Sprintf("%s/CKKS_%d_rescale/level_%d", fpga_base_path, tc.n_op, lvl)
+			project_path := fmt.Sprintf("%s/CKKS_%d_rescale/level_%d", ckks_fpga_base_path, tc.n_op, lvl)
 			project, err := acc.NewFheTaskFpga(project_path, true)
 			if err != nil {
 				t.Fatal(err)
@@ -737,7 +738,7 @@ func testCkksFpgaCtDropLevel(tc *testCkksContext, t *testing.T) {
 				acc.NewGoVectorArgument("out_y_list", ciphertext),
 			}
 
-			project_path := fmt.Sprintf("%s/CKKS_%d_drop_level/level_%d/drop_%d", fpga_base_path, tc.n_op, lvl, drop_lvl)
+			project_path := fmt.Sprintf("%s/CKKS_%d_drop_level/level_%d/drop_%d", ckks_fpga_base_path, tc.n_op, lvl, drop_lvl)
 			project, err := acc.NewFheTaskFpga(project_path, true)
 			if err != nil {
 				t.Fatal(err)

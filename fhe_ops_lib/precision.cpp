@@ -79,38 +79,28 @@ void PrecisionStats::calcCDF(const std::vector<double>& precs, std::vector<DistE
 // PrecisionAnalyzer implementation
 PrecisionStats PrecisionAnalyzer::GetPrecisionStats(CkksContext& context,
                                                     const std::vector<double>& vWant,
-                                                    const CkksPlaintext& element,
-                                                    int logSlots,
-                                                    double sigma) {
-    // Decode plaintext to get test values
-    std::vector<double> valuesTest = context.decode(element);
-
-    return GetPrecisionStatsImpl(vWant, valuesTest, logSlots, sigma);
+                                                    const CkksPlaintext& element) {
+    std::vector<double> valuesTest =
+        element.in_coeffs_domain ? context.decode_coeffs(element) : context.decode(element);
+    return GetPrecisionStatsImpl(vWant, valuesTest);
 }
 
 PrecisionStats PrecisionAnalyzer::GetPrecisionStats(CkksContext& context,
                                                     const std::vector<double>& vWant,
-                                                    const CkksCiphertext& element,
-                                                    int logSlots,
-                                                    double sigma) {
-    // Decrypt ciphertext then decode to get test values
+                                                    const CkksCiphertext& element) {
     CkksPlaintext decryptedPlain = context.decrypt(element);
-    std::vector<double> valuesTest = context.decode(decryptedPlain);
-
-    return GetPrecisionStatsImpl(vWant, valuesTest, logSlots, sigma);
+    std::vector<double> valuesTest =
+        element.in_coeffs_domain ? context.decode_coeffs(decryptedPlain) : context.decode(decryptedPlain);
+    return GetPrecisionStatsImpl(vWant, valuesTest);
 }
 
 PrecisionStats PrecisionAnalyzer::GetPrecisionStats(const std::vector<double>& vWant,
-                                                    const std::vector<double>& vTest,
-                                                    int logSlots,
-                                                    double sigma) {
-    return GetPrecisionStatsImpl(vWant, vTest, logSlots, sigma);
+                                                    const std::vector<double>& vTest) {
+    return GetPrecisionStatsImpl(vWant, vTest);
 }
 
 PrecisionStats PrecisionAnalyzer::GetPrecisionStatsImpl(const std::vector<double>& vWant,
-                                                        const std::vector<double>& vTest,
-                                                        int logSlots,
-                                                        double sigma) {
+                                                        const std::vector<double>& vTest) {
     PrecisionStats prec;
 
     if (vWant.size() != vTest.size()) {

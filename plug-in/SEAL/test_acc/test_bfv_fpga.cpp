@@ -29,6 +29,8 @@ using namespace seal;
 using namespace seal::util;
 using namespace std;
 
+static const string bfv_fpga_base_path = fpga_base_path + "/bfv_param_fpga_n8192_t1b4001";
+
 // TEST_CASE_METHOD(TestBfvFixture, "BFV cap", "") {
 //     seal::BatchEncoder encoder(ctx);
 //     seal::KeyGenerator keygen(ctx);
@@ -134,7 +136,7 @@ TEST_CASE_METHOD(TestBfvFpgaFixture, "BFV cac", "") {
             z_list.push_back(z_ct);
         }
 
-        string project_path = fpga_base_path + "/BFV_" + to_string(n_op) + "_cac/level_" + to_string(level);
+        string project_path = bfv_fpga_base_path + "/BFV_" + to_string(n_op) + "_cac/level_" + to_string(level);
         FheTaskFpga project(project_path);
         vector<SealVectorArgument> seal_args = {
             SealVectorArgument{param, "in_x_list", &x_list},
@@ -201,7 +203,7 @@ TEST_CASE_METHOD(TestBfvFpgaFixture, "BFV ct_mult_pt_ringt", "") {
             z_list.push_back(z_ct);
         }
 
-        string project_path = fpga_base_path + "/BFV_" + to_string(n_op) + "_cmp_ringt/level_" + to_string(level);
+        string project_path = bfv_fpga_base_path + "/BFV_" + to_string(n_op) + "_cmp_ringt/level_" + to_string(level);
         FheTaskFpga project(project_path);
         vector<SealVectorArgument> seal_args = {
             SealVectorArgument{param, "in_x_list", &x_list},
@@ -273,7 +275,7 @@ TEST_CASE_METHOD(TestBfvFpgaFixture, "BFV cmc_relin", "") {
             z_list.push_back(z_ct);
         }
 
-        string project_path = fpga_base_path + "/BFV_" + to_string(n_op) + "_cmc_relin/level_" + to_string(level);
+        string project_path = bfv_fpga_base_path + "/BFV_" + to_string(n_op) + "_cmc_relin/level_" + to_string(level);
         FheTaskFpga project(project_path);
         vector<SealVectorArgument> seal_args = {
             SealVectorArgument{param, "in_x_list", &x_list},
@@ -334,7 +336,7 @@ TEST_CASE_METHOD(TestBfvFpgaFixture, "BFV rescale // mod_switch", "") {
             z_list.push_back(z_ct);
         }
 
-        string project_path = fpga_base_path + "/BFV_" + to_string(n_op) + "_rescale/level_" + to_string(level);
+        string project_path = bfv_fpga_base_path + "/BFV_" + to_string(n_op) + "_rescale/level_" + to_string(level);
         FheTaskFpga project(project_path);
         vector<SealVectorArgument> seal_args = {
             SealVectorArgument{param, "in_x_list", &x_list},
@@ -397,7 +399,8 @@ TEST_CASE_METHOD(TestBfvFpgaFixture, "BFV rotate row", "") {
             y_list.push_back(y_ct);
         }
 
-        string project_path = fpga_base_path + "/BFV_" + to_string(n_op) + "_seal_rotate_row/level_" + to_string(level);
+        string project_path =
+            bfv_fpga_base_path + "/BFV_" + to_string(n_op) + "_seal_rotate_row/level_" + to_string(level);
         FheTaskFpga project(project_path);
         vector<SealVectorArgument> seal_args = {
             SealVectorArgument{param, "arg_x", &x_list},
@@ -477,7 +480,7 @@ TEST_CASE_METHOD(TestBfvFpgaFixture, "BFV rotate col", "") {
             }
         }
 
-        string project_path = fpga_base_path + "/BFV_" + to_string(n_op) + "_seal_rotate_col/level_" +
+        string project_path = bfv_fpga_base_path + "/BFV_" + to_string(n_op) + "_seal_rotate_col/level_" +
                               to_string(level) + "/steps_" + steps_str;
         FheTaskFpga project(project_path);
         vector<SealVectorArgument> seal_args = {
@@ -559,7 +562,7 @@ TEST_CASE_METHOD(TestBfvFpgaFixture, "BFV advanced rotate col", "") {
             }
         }
 
-        string project_path = fpga_base_path + "/BFV_" + to_string(n_op) + "_seal_advanced_rotate_col/level_" +
+        string project_path = bfv_fpga_base_path + "/BFV_" + to_string(n_op) + "_seal_advanced_rotate_col/level_" +
                               to_string(level) + "/steps_" + steps_str;
         FheTaskFpga project(project_path);
         vector<SealVectorArgument> seal_args = {

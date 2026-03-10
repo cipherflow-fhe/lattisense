@@ -12,6 +12,7 @@ import (
 
 var (
 	TestCkksGpuParamLiterals = []ckks.ParametersLiteral{ckks.PN14QP438}
+	ckks_gpu_base_path       = gpu_base_path + "/ckks_param_default_n16384"
 )
 
 func TestCkksGpuAcc(t *testing.T) {
@@ -57,7 +58,7 @@ func testCkksGpuCtAddPt(tc *testCkksContext, t *testing.T) {
 				acc.NewGoVectorArgument("in_y_list", plaintext2),
 				acc.NewGoVectorArgument("out_z_list", ciphertext),
 			}
-			project_path := fmt.Sprintf("%s/CKKS_%d_cap/level_%d", gpu_base_path, tc.n_op, lvl)
+			project_path := fmt.Sprintf("%s/CKKS_%d_cap/level_%d", ckks_gpu_base_path, tc.n_op, lvl)
 			project, err := acc.NewFheTaskGpu(project_path)
 			if err != nil {
 				t.Fatal(err)
@@ -98,7 +99,7 @@ func testCkksGpuCtAddCt(tc *testCkksContext, t *testing.T) {
 				acc.NewGoVectorArgument("in_y_list", ciphertext2),
 				acc.NewGoVectorArgument("out_z_list", ciphertext),
 			}
-			project_path := fmt.Sprintf("%s/CKKS_%d_cac/level_%d", gpu_base_path, tc.n_op, lvl)
+			project_path := fmt.Sprintf("%s/CKKS_%d_cac/level_%d", ckks_gpu_base_path, tc.n_op, lvl)
 			project, err := acc.NewFheTaskGpu(project_path)
 			if err != nil {
 				t.Fatal(err)
@@ -139,7 +140,7 @@ func testCkksGpuCtMulPt(tc *testCkksContext, t *testing.T) {
 				acc.NewGoVectorArgument("in_y_list", plaintext2),
 				acc.NewGoVectorArgument("out_z_list", ciphertext),
 			}
-			project_path := fmt.Sprintf("%s/CKKS_%d_cmp/level_%d", gpu_base_path, tc.n_op, lvl)
+			project_path := fmt.Sprintf("%s/CKKS_%d_cmp/level_%d", ckks_gpu_base_path, tc.n_op, lvl)
 			project, err := acc.NewFheTaskGpu(project_path)
 			if err != nil {
 				t.Fatal(err)
@@ -182,7 +183,7 @@ func testCkksGpuCtMulCtRelin(tc *testCkksContext, t *testing.T) {
 				acc.NewGoVectorArgument("in_y_list", ciphertext2),
 				acc.NewGoVectorArgument("out_z_list", ciphertext),
 			}
-			project_path := fmt.Sprintf("%s/CKKS_%d_cmc_relin/level_%d", gpu_base_path, tc.n_op, lvl)
+			project_path := fmt.Sprintf("%s/CKKS_%d_cmc_relin/level_%d", ckks_gpu_base_path, tc.n_op, lvl)
 			project, err := acc.NewFheTaskGpu(project_path)
 			if err != nil {
 				t.Fatal(err)
@@ -223,7 +224,7 @@ func testCkksGpuCtSquareRelin(tc *testCkksContext, t *testing.T) {
 				acc.NewGoVectorArgument("in_x_list", ciphertext1),
 				acc.NewGoVectorArgument("out_z_list", ciphertext),
 			}
-			project_path := fmt.Sprintf("%s/CKKS_%d_csqr_relin/level_%d", gpu_base_path, tc.n_op, lvl)
+			project_path := fmt.Sprintf("%s/CKKS_%d_csqr_relin/level_%d", ckks_gpu_base_path, tc.n_op, lvl)
 			project, err := acc.NewFheTaskGpu(project_path)
 			if err != nil {
 				t.Fatal(err)
@@ -276,7 +277,7 @@ func testCkksGpuCtRotateCol(tc *testCkksContext, t *testing.T) {
 					steps_str += "_"
 				}
 			}
-			project_path := fmt.Sprintf("%s/CKKS_%d_advanced_rotate_col/level_%d/steps_%s", gpu_base_path, tc.n_op, lvl, steps_str)
+			project_path := fmt.Sprintf("%s/CKKS_%d_advanced_rotate_col/level_%d/steps_%s", ckks_gpu_base_path, tc.n_op, lvl, steps_str)
 			project, err := acc.NewFheTaskGpu(project_path)
 			if err != nil {
 				t.Fatal(err)
@@ -319,7 +320,7 @@ func testCkksGpuCtRotateRow(tc *testCkksContext, t *testing.T) {
 				acc.NewGoVectorArgument("arg_y", ciphertext),
 			}
 
-			project_path := fmt.Sprintf("%s/CKKS_%d_rotate_row/level_%d", gpu_base_path, tc.n_op, lvl)
+			project_path := fmt.Sprintf("%s/CKKS_%d_rotate_row/level_%d", ckks_gpu_base_path, tc.n_op, lvl)
 			project, err := acc.NewFheTaskGpu(project_path)
 			if err != nil {
 				t.Fatal(err)
@@ -358,7 +359,7 @@ func testCkksGpuCtRescale(tc *testCkksContext, t *testing.T) {
 				acc.NewGoVectorArgument("in_x_list", ciphertext1),
 				acc.NewGoVectorArgument("out_y_list", ciphertext),
 			}
-			project_path := fmt.Sprintf("%s/CKKS_%d_rescale/level_%d", gpu_base_path, tc.n_op, lvl)
+			project_path := fmt.Sprintf("%s/CKKS_%d_rescale/level_%d", ckks_gpu_base_path, tc.n_op, lvl)
 			project, err := acc.NewFheTaskGpu(project_path)
 			if err != nil {
 				t.Fatal(err)
@@ -400,7 +401,7 @@ func testCkksGpuCtDropLevel(tc *testCkksContext, t *testing.T) {
 				acc.NewGoVectorArgument("out_y_list", ciphertext),
 			}
 
-			project_path := fmt.Sprintf("%s/CKKS_%d_drop_level/level_%d/drop_%d", gpu_base_path, tc.n_op, lvl, drop_lvl)
+			project_path := fmt.Sprintf("%s/CKKS_%d_drop_level/level_%d/drop_%d", ckks_gpu_base_path, tc.n_op, lvl, drop_lvl)
 			project, err := acc.NewFheTaskGpu(project_path)
 			if err != nil {
 				t.Fatal(err)

@@ -178,15 +178,21 @@ BfvPlaintextRingt BfvContext::encode_ringt(const std::vector<uint64_t>& x_mg) {
 }
 
 BfvPlaintext BfvContext::encode_coeffs(const std::vector<uint64_t>& x_mg, int level) {
-    return BfvPlaintext(BfvEncodeCoeffs(this->get(), (uint64_t*)x_mg.data(), x_mg.size(), level));
+    auto pt = BfvPlaintext(BfvEncodeCoeffs(this->get(), (uint64_t*)x_mg.data(), x_mg.size(), level));
+    pt.in_coeffs_domain = true;
+    return pt;
 }
 
 BfvPlaintextMul BfvContext::encode_coeffs_mul(const std::vector<uint64_t>& x_mg, int level) {
-    return BfvPlaintextMul(BfvEncodeCoeffsMul(this->get(), (uint64_t*)x_mg.data(), x_mg.size(), level));
+    auto pt = BfvPlaintextMul(BfvEncodeCoeffsMul(this->get(), (uint64_t*)x_mg.data(), x_mg.size(), level));
+    pt.in_coeffs_domain = true;
+    return pt;
 }
 
 BfvPlaintextRingt BfvContext::encode_coeffs_ringt(const std::vector<uint64_t>& x_mg) {
-    return BfvPlaintextRingt(BfvEncodeCoeffsRingt(this->get(), (uint64_t*)x_mg.data(), x_mg.size()));
+    auto pt = BfvPlaintextRingt(BfvEncodeCoeffsRingt(this->get(), (uint64_t*)x_mg.data(), x_mg.size()));
+    pt.in_coeffs_domain = true;
+    return pt;
 }
 
 // std::vector<BfvPlaintext> BfvContext::bitwise_encode(const std::vector<uint64_t>& x_mg, int level) {
@@ -286,10 +292,18 @@ int BfvParameter::get_max_level() const {
 
 // BfvPlaintext
 std::vector<uint64_t> BfvContext::decode(const BfvPlaintext& x_pt) {
+    if (x_pt.in_coeffs_domain) {
+        throw std::runtime_error(
+            "BfvContext::decode() called on coeffs-domain plaintext. Use decode_coeffs() instead.");
+    }
     return export_raw_data<uint64_t>(std::bind(BfvDecode, this->get(), x_pt.get(), _1, _2));
 }
 
 std::vector<uint64_t> BfvContext::decode_coeffs(const BfvPlaintext& x_pt) {
+    if (!x_pt.in_coeffs_domain) {
+        throw std::runtime_error(
+            "BfvContext::decode_coeffs() called on non-coeffs-domain plaintext. Use decode() instead.");
+    }
     return export_raw_data<uint64_t>(std::bind(BfvDecodeCoeffs, this->get(), x_pt.get(), _1, _2));
 }
 
@@ -298,7 +312,9 @@ std::vector<uint64_t> BfvContext::decode_ringt(const BfvPlaintextRingt& x_pt) {
 }
 
 BfvCiphertext BfvContext::encrypt_asymmetric(const BfvPlaintext& x_pt) {
-    return BfvCiphertext(BfvEncryptAsymmetric(this->get(), x_pt.get()));
+    auto ct = BfvCiphertext(BfvEncryptAsymmetric(this->get(), x_pt.get()));
+    ct.in_coeffs_domain = x_pt.in_coeffs_domain;
+    return ct;
 }
 
 BfvCompressedCiphertext BfvContext::encrypt_symmetric_compressed(const BfvPlaintext& x_pt) {
@@ -314,13 +330,17 @@ BfvCiphertext BfvContext::compressed_ciphertext_to_ciphertext(const BfvCompresse
 BfvCiphertext BfvContext::encrypt_symmetric(const BfvPlaintext& x_pt) {
     uint64_t ciphertext_handle_id;
     CHECK(BfvEncryptSymmetric(this->get(), x_pt.get(), &ciphertext_handle_id));
-    return BfvCiphertext(std::move(ciphertext_handle_id));
+    auto ct = BfvCiphertext(std::move(ciphertext_handle_id));
+    ct.in_coeffs_domain = x_pt.in_coeffs_domain;
+    return ct;
 }
 
 BfvPlaintext BfvContext::decrypt(const BfvCiphertext& x_ct) {
     uint64_t plaintext_handle_id;
     CHECK(BfvDecrypt(this->get(), x_ct.get(), &plaintext_handle_id));
-    return BfvPlaintext(std::move(plaintext_handle_id));
+    auto pt = BfvPlaintext(std::move(plaintext_handle_id));
+    pt.in_coeffs_domain = x_ct.in_coeffs_domain;
+    return pt;
 }
 
 BfvPlaintext BfvContext::decrypt(const BfvCiphertext3& x_ct) {
@@ -783,18 +803,28 @@ CkksPlaintextMul CkksContext::encode_mul(const std::vector<double>& x_mg, int le
 }
 
 CkksPlaintext CkksContext::encode_coeffs(const std::vector<double>& x_mg, int level, double scale) {
-    return CkksPlaintext(CkksEncodeCoeffs(this->get(), (double*)x_mg.data(), x_mg.size(), level, scale));
+    auto pt = CkksPlaintext(CkksEncodeCoeffs(this->get(), (double*)x_mg.data(), x_mg.size(), level, scale));
+    pt.in_coeffs_domain = true;
+    return pt;
 }
 
 CkksPlaintextRingt CkksContext::encode_coeffs_ringt(const std::vector<double>& x_mg, double scale) {
-    return CkksPlaintextRingt(CkksEncodeCoeffsRingt(this->get(), (double*)x_mg.data(), x_mg.size(), scale));
+    auto pt = CkksPlaintextRingt(CkksEncodeCoeffsRingt(this->get(), (double*)x_mg.data(), x_mg.size(), scale));
+    pt.in_coeffs_domain = true;
+    return pt;
 }
 
 CkksPlaintextMul CkksContext::encode_coeffs_mul(const std::vector<double>& x_mg, int level, double scale) {
-    return CkksPlaintextMul(CkksEncodeCoeffsMul(this->get(), (double*)x_mg.data(), x_mg.size(), level, scale));
+    auto pt = CkksPlaintextMul(CkksEncodeCoeffsMul(this->get(), (double*)x_mg.data(), x_mg.size(), level, scale));
+    pt.in_coeffs_domain = true;
+    return pt;
 }
 
 std::vector<double> CkksContext::decode(const CkksPlaintext& x_pt) {
+    if (x_pt.in_coeffs_domain) {
+        throw std::runtime_error(
+            "CkksContext::decode() called on coeffs-domain plaintext. Use decode_coeffs() instead.");
+    }
     double* raw_data;
     uint64_t length;
     uint64_t binary_data_handle = CkksDecode(this->get(), x_pt.get(), &raw_data, &length);
@@ -820,6 +850,10 @@ std::vector<double> CkksContext::decode_complex(const CkksPlaintext& x_pt) {
 }
 
 std::vector<double> CkksContext::decode_coeffs(const CkksPlaintext& x_pt) {
+    if (!x_pt.in_coeffs_domain) {
+        throw std::runtime_error(
+            "CkksContext::decode_coeffs() called on non-coeffs-domain plaintext. Use decode() instead.");
+    }
     return export_raw_data<double>(std::bind(CkksDecodeCoeffs, this->get(), x_pt.get(), _1, _2));
 }
 
@@ -840,11 +874,15 @@ CkksCiphertext3 CkksContext::new_ciphertext3(int level, double scale) {
 }
 
 CkksCiphertext CkksContext::encrypt_asymmetric(const CkksPlaintext& x_pt) {
-    return CkksCiphertext(CkksEncryptAsymmetric(this->get(), x_pt.get()));
+    auto ct = CkksCiphertext(CkksEncryptAsymmetric(this->get(), x_pt.get()));
+    ct.in_coeffs_domain = x_pt.in_coeffs_domain;
+    return ct;
 }
 
 CkksCiphertext CkksContext::encrypt_symmetric(const CkksPlaintext& x_pt) {
-    return CkksCiphertext(CkksEncryptSymmetric(this->get(), x_pt.get()));
+    auto ct = CkksCiphertext(CkksEncryptSymmetric(this->get(), x_pt.get()));
+    ct.in_coeffs_domain = x_pt.in_coeffs_domain;
+    return ct;
 }
 
 CkksCompressedCiphertext CkksContext::encrypt_symmetric_compressed(const CkksPlaintext& x_pt) {
@@ -858,7 +896,9 @@ CkksCiphertext CkksContext::compressed_ciphertext_to_ciphertext(const CkksCompre
 CkksPlaintext CkksContext::decrypt(const CkksCiphertext& x_ct) {
     uint64_t plaintext_handle_id;
     CHECK(CkksDecrypt(this->get(), x_ct.get(), &plaintext_handle_id));
-    return CkksPlaintext(std::move(plaintext_handle_id));
+    auto pt = CkksPlaintext(std::move(plaintext_handle_id));
+    pt.in_coeffs_domain = x_ct.in_coeffs_domain;
+    return pt;
 }
 
 CkksPlaintext CkksContext::decrypt(const CkksCiphertext3& x_ct) {

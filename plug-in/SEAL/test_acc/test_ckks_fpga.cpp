@@ -29,6 +29,8 @@ using namespace seal;
 using namespace seal::util;
 using namespace std;
 
+static const string ckks_fpga_base_path = fpga_base_path + "/ckks_param_fpga_n8192";
+
 TEST_CASE_METHOD(TestCkksFpgaFixture, "CKKS cap", "") {
     seal::CKKSEncoder encoder(ctx);
     seal::KeyGenerator keygen(ctx);
@@ -72,7 +74,7 @@ TEST_CASE_METHOD(TestCkksFpgaFixture, "CKKS cap", "") {
             z_list.push_back(z_ct);
         }
 
-        string project_path = fpga_base_path + "/CKKS_" + to_string(n_op) + "_cap/level_" + to_string(level);
+        string project_path = ckks_fpga_base_path + "/CKKS_" + to_string(n_op) + "_cap/level_" + to_string(level);
         FheTaskFpga project(project_path);
         vector<SealVectorArgument> seal_args = {
             SealVectorArgument{param, "in_x_list", &x_list},
@@ -139,7 +141,7 @@ TEST_CASE_METHOD(TestCkksFpgaFixture, "CKKS cac", "") {
             z_list.push_back(z_ct);
         }
 
-        string project_path = fpga_base_path + "/CKKS_" + to_string(n_op) + "_cac/level_" + to_string(level);
+        string project_path = ckks_fpga_base_path + "/CKKS_" + to_string(n_op) + "_cac/level_" + to_string(level);
         FheTaskFpga project(project_path);
         vector<SealVectorArgument> seal_args = {
             SealVectorArgument{param, "in_x_list", &x_list},
@@ -206,7 +208,7 @@ TEST_CASE_METHOD(TestCkksFpgaFixture, "CKKS cmp", "") {
             z_list.push_back(z_ct);
         }
 
-        string project_path = fpga_base_path + "/CKKS_" + to_string(n_op) + "_cmp/level_" + to_string(level);
+        string project_path = ckks_fpga_base_path + "/CKKS_" + to_string(n_op) + "_cmp/level_" + to_string(level);
         FheTaskFpga project(project_path);
         vector<SealVectorArgument> seal_args = {
             SealVectorArgument{param, "in_x_list", &x_list},
@@ -278,7 +280,7 @@ TEST_CASE_METHOD(TestCkksFpgaFixture, "CKKS cmc_relin", "") {
             z_list.push_back(z_ct);
         }
 
-        string project_path = fpga_base_path + "/CKKS_" + to_string(n_op) + "_cmc_relin/level_" + to_string(level);
+        string project_path = ckks_fpga_base_path + "/CKKS_" + to_string(n_op) + "_cmc_relin/level_" + to_string(level);
         FheTaskFpga project(project_path);
         vector<SealVectorArgument> seal_args = {
             SealVectorArgument{param, "in_x_list", &x_list},
@@ -347,7 +349,7 @@ TEST_CASE_METHOD(TestCkksFpgaFixture, "CKKS rescale", "") {
             z_list.push_back(z_ct);
         }
 
-        string project_path = fpga_base_path + "/CKKS_" + to_string(n_op) + "_rescale/level_" + to_string(level);
+        string project_path = ckks_fpga_base_path + "/CKKS_" + to_string(n_op) + "_rescale/level_" + to_string(level);
         FheTaskFpga project(project_path);
         vector<SealVectorArgument> seal_args = {
             SealVectorArgument{param, "in_x_list", &x_list},
@@ -415,8 +417,8 @@ TEST_CASE_METHOD(TestCkksFpgaFixture, "CKKS drop level // mod_switch", "") {
             z_list.push_back(z_ct);
         }
 
-        string project_path = fpga_base_path + "/CKKS_" + to_string(n_op) + "_drop_level/level_" + to_string(level) +
-                              "/drop_" + to_string(drop_level);
+        string project_path = ckks_fpga_base_path + "/CKKS_" + to_string(n_op) + "_drop_level/level_" +
+                              to_string(level) + "/drop_" + to_string(drop_level);
         FheTaskFpga project(project_path);
         vector<SealVectorArgument> seal_args = {
             SealVectorArgument{param, "in_x_list", &x_list},
@@ -485,7 +487,7 @@ TEST_CASE_METHOD(TestCkksFpgaFixture, "CKKS conjugate", "") {
         }
 
         string project_path =
-            fpga_base_path + "/CKKS_" + to_string(n_op) + "_seal_rotate_row/level_" + to_string(level);
+            ckks_fpga_base_path + "/CKKS_" + to_string(n_op) + "_seal_rotate_row/level_" + to_string(level);
         FheTaskFpga project(project_path);
         vector<SealVectorArgument> seal_args = {
             SealVectorArgument{param, "arg_x", &x_list},
@@ -573,7 +575,7 @@ TEST_CASE_METHOD(TestCkksFpgaFixture, "CKKS rotate", "") {
             }
         }
 
-        string project_path = fpga_base_path + "/CKKS_" + to_string(n_op) + "_seal_rotate_col/level_" +
+        string project_path = ckks_fpga_base_path + "/CKKS_" + to_string(n_op) + "_seal_rotate_col/level_" +
                               to_string(level) + "/steps_" + steps_str;
         FheTaskFpga project(project_path);
         vector<SealVectorArgument> seal_args = {
@@ -659,7 +661,7 @@ TEST_CASE_METHOD(TestCkksFpgaFixture, "CKKS advanced rotate", "") {
             }
         }
 
-        string project_path = fpga_base_path + "/CKKS_" + to_string(n_op) + "_seal_advanced_rotate_col/level_" +
+        string project_path = ckks_fpga_base_path + "/CKKS_" + to_string(n_op) + "_seal_advanced_rotate_col/level_" +
                               to_string(level) + "/steps_" + steps_str;
         FheTaskFpga project(project_path);
         vector<SealVectorArgument> seal_args = {

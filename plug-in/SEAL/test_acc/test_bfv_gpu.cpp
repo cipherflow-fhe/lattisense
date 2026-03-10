@@ -12,6 +12,8 @@ using namespace seal;
 using namespace seal::util;
 using namespace std;
 
+static const string bfv_gpu_base_path = gpu_base_path + "/bfv_param_default_n8192_t10001";
+
 TEST_CASE_METHOD(TestBfvGpuFixture, "BFV cap_ringt", "") {
     seal::BatchEncoder encoder(ctx);
     seal::KeyGenerator keygen(ctx);
@@ -52,7 +54,7 @@ TEST_CASE_METHOD(TestBfvGpuFixture, "BFV cap_ringt", "") {
             z_list.push_back(z_ct);
         }
 
-        string project_path = gpu_base_path + "/BFV_" + to_string(n_op) + "_cap_ringt/level_" + to_string(level);
+        string project_path = bfv_gpu_base_path + "/BFV_" + to_string(n_op) + "_cap_ringt/level_" + to_string(level);
         FheTaskGpu project(project_path);
         vector<SealVectorArgument> seal_args = {
             SealVectorArgument{param, "in_x_list", &x_list},
@@ -116,7 +118,7 @@ TEST_CASE_METHOD(TestBfvGpuFixture, "BFV cac", "") {
             z_list.push_back(z_ct);
         }
 
-        string project_path = gpu_base_path + "/BFV_" + to_string(n_op) + "_cac/level_" + to_string(level);
+        string project_path = bfv_gpu_base_path + "/BFV_" + to_string(n_op) + "_cac/level_" + to_string(level);
         FheTaskGpu project(project_path);
         vector<SealVectorArgument> seal_args = {
             SealVectorArgument{param, "in_x_list", &x_list},
@@ -183,7 +185,7 @@ TEST_CASE_METHOD(TestBfvGpuFixture, "BFV ct_mult_pt_ringt", "") {
             z_list.push_back(z_ct);
         }
 
-        string project_path = gpu_base_path + "/BFV_" + to_string(n_op) + "_cmp_ringt/level_" + to_string(level);
+        string project_path = bfv_gpu_base_path + "/BFV_" + to_string(n_op) + "_cmp_ringt/level_" + to_string(level);
         FheTaskGpu project(project_path);
         vector<SealVectorArgument> seal_args = {
             SealVectorArgument{param, "in_x_list", &x_list},
@@ -255,7 +257,7 @@ TEST_CASE_METHOD(TestBfvGpuFixture, "BFV cmc_relin", "") {
             z_list.push_back(z_ct);
         }
 
-        string project_path = gpu_base_path + "/BFV_" + to_string(n_op) + "_cmc_relin/level_" + to_string(level);
+        string project_path = bfv_gpu_base_path + "/BFV_" + to_string(n_op) + "_cmc_relin/level_" + to_string(level);
         FheTaskGpu project(project_path);
         vector<SealVectorArgument> seal_args = {
             SealVectorArgument{param, "in_x_list", &x_list},
