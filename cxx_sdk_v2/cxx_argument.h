@@ -169,10 +169,10 @@ struct PublicKeyStorage {
     GaloisKey saved_glk;
     KeySwitchKey saved_swk_dts;
     KeySwitchKey saved_swk_std;
-    Handle* rlk_handle = nullptr;
-    Handle* glk_handle = nullptr;
-    Handle* swk_dts_handle = nullptr;
-    Handle* swk_std_handle = nullptr;
+    RelinKey* rlk_handle = nullptr;
+    GaloisKey* glk_handle = nullptr;
+    KeySwitchKey* swk_dts_handle = nullptr;
+    KeySwitchKey* swk_std_handle = nullptr;
 };
 
 inline void export_public_key_arguments(nlohmann::json& key_signature,
@@ -189,7 +189,7 @@ inline void export_public_key_arguments(nlohmann::json& key_signature,
 
         // Use Handle* pointers; ABI conversion is performed by the EXPORT_TO_ABI node in the MegaAG graph
         keys.saved_rlk = context->extract_relin_key();
-        keys.rlk_handle = (Handle*)&keys.saved_rlk;
+        keys.rlk_handle = &keys.saved_rlk;
         rlk_arg.data = (void*)&keys.rlk_handle;
 
         input_args.push_back(rlk_arg);
@@ -209,7 +209,7 @@ inline void export_public_key_arguments(nlohmann::json& key_signature,
 
         // Use Handle* pointers; ABI conversion is performed by the EXPORT_TO_ABI node in the MegaAG graph
         keys.saved_glk = context->extract_galois_key();
-        keys.glk_handle = (Handle*)&keys.saved_glk;
+        keys.glk_handle = &keys.saved_glk;
         glk_arg.data = (void*)&keys.glk_handle;
 
         input_args.push_back(glk_arg);
@@ -233,7 +233,7 @@ inline void export_public_key_arguments(nlohmann::json& key_signature,
 
             // Use Handle* pointers; ABI conversion is performed by the EXPORT_TO_ABI node in the MegaAG graph
             keys.saved_swk_dts = btp_context->extract_swk_dts();
-            keys.swk_dts_handle = (Handle*)&keys.saved_swk_dts;
+            keys.swk_dts_handle = &keys.saved_swk_dts;
             swk_dts_arg.data = (void*)&keys.swk_dts_handle;
 
             input_args.push_back(swk_dts_arg);
@@ -251,7 +251,7 @@ inline void export_public_key_arguments(nlohmann::json& key_signature,
 
             // Use Handle* pointers; ABI conversion is performed by the EXPORT_TO_ABI node in the MegaAG graph
             keys.saved_swk_std = btp_context->extract_swk_std();
-            keys.swk_std_handle = (Handle*)&keys.saved_swk_std;
+            keys.swk_std_handle = &keys.saved_swk_std;
             swk_std_arg.data = (void*)&keys.swk_std_handle;
 
             input_args.push_back(swk_std_arg);
