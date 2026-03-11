@@ -47,9 +47,9 @@ _p2 = Param.create_bfv_custom_param(
 )
 _p3 = Param.create_bfv_default_param(n=8192)
 
-N_OP = 4  # 每个测试的并行算子数量
+N_OP = 4  # Number of parallel operators per test
 
-# ---- 在此定义要测试的所有 BFV 参数集 ----
+# ---- Define all BFV parameter sets to be tested here ----
 _BFV_PARAM_TAGS = {
     id(_p1): f'bfv_param_default_n{_p1.n}_t{hex(_p1.t)[2:]}',
     id(_p2): f'bfv_param_custom_n{_p2.n}_t{hex(_p2.t)[2:]}',

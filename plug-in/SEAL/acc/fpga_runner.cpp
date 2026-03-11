@@ -108,11 +108,11 @@ void FheTaskFpga::operator=(FheTaskFpga&& other) {
 }
 
 void FheTaskFpga::bind_abi_executors(int mf_nbits) {
-    ExecutorFunc* abi_export = new ExecutorFunc(create_seal_abi_export_executor(mf_nbits));
-    ExecutorFunc* abi_import = new ExecutorFunc(create_seal_abi_import_executor());
+    ExecutorFunc abi_export = create_seal_abi_export_executor(mf_nbits);
+    ExecutorFunc abi_import = create_seal_abi_import_executor();
 
-    bind_fpga_task_abi_bridge_executors(task_handle, reinterpret_cast<void*>(abi_export),
-                                        reinterpret_cast<void*>(abi_import));
+    bind_fpga_task_abi_bridge_executors(task_handle, reinterpret_cast<void*>(&abi_export),
+                                        reinterpret_cast<void*>(&abi_import));
 }
 
 uint64_t FheTaskFpga::run(seal::SEALContext* context,

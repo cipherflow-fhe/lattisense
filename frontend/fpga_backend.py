@@ -3,10 +3,10 @@ import sys
 
 
 def run_fpga_linker(output_instruction_path: str, translator_dev: bool = True) -> None:
-    """调用 FPGA linker，将计算图编译为 FPGA 指令文件。
+    """Invokes the FPGA linker to compile the computation graph into FPGA instruction files.
 
-    @param output_instruction_path 任务文件存储目录（包含 mega_ag.json）
-    @param translator_dev 是否为开发模式（True 时直接调用 Python linker，False 时调用编译好的二进制）
+    @param output_instruction_path Directory where task files are stored (containing mega_ag.json)
+    @param translator_dev Whether to run in developer mode (True: call the Python linker directly; False: call the compiled binary)
     """
     _linker_root = os.path.normpath(
         os.path.join(os.path.dirname(__file__), '..', 'backends', 'lattisense-fpga', 'lattisense-fpga-linker')

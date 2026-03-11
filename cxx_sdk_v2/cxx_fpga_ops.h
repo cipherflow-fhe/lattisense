@@ -26,7 +26,7 @@ extern "C" {
 namespace cxx_sdk_v2 {
 
 /**
- * @brief FPGA加速卡设备类。
+ * @brief FPGA accelerator device class.
  */
 class FpgaDevice {
 public:
@@ -35,14 +35,14 @@ public:
     void operator=(const FpgaDevice& other) = delete;
 
     /**
-     * 初始化FPGA加速卡设备。
-     * @return 无。
+     * Initializes the FPGA accelerator device.
+     * @return None.
      */
     static int init();
 
     /**
-     * 释放FPGA加速卡设备资源。
-     * @return 无。
+     * Releases the FPGA accelerator device resources.
+     * @return None.
      */
     static int free();
 
@@ -53,8 +53,8 @@ private:
         free();
     }
 
-    static FpgaDevice _instance;  ///< 设备单例对象
-    static bool _in_use;          ///< 设备占用符
+    static FpgaDevice _instance;  ///< Device singleton object
+    static bool _in_use;          ///< Device in-use flag
 };
 
 }  // namespace cxx_sdk_v2

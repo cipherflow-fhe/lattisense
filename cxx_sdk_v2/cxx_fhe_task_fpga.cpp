@@ -56,13 +56,12 @@ void FheTaskFpga::bind_abi_executors() {
     int key_mf_nbits = V2_FPGA_MFORM_BITS - int(std::log2(n));
 
     // Create ABI export and import executors
-    ExecutorFunc* abi_export =
-        new ExecutorFunc(create_abi_export_executor(_algo, true, V2_FPGA_MFORM_BITS, key_mf_nbits));
-    ExecutorFunc* abi_import = new ExecutorFunc(create_abi_import_executor(_algo, true));
+    ExecutorFunc abi_export = create_abi_export_executor(_algo, true, V2_FPGA_MFORM_BITS, key_mf_nbits);
+    ExecutorFunc abi_import = create_abi_import_executor(_algo, true);
 
     // Bind executors
-    bind_fpga_task_abi_bridge_executors(task_handle, reinterpret_cast<void*>(abi_export),
-                                        reinterpret_cast<void*>(abi_import));
+    bind_fpga_task_abi_bridge_executors(task_handle, reinterpret_cast<void*>(&abi_export),
+                                        reinterpret_cast<void*>(&abi_import));
 }
 
 uint64_t FheTaskFpga::run(FheContext* context, const std::vector<CxxVectorArgument>& cxx_args) {

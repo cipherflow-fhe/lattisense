@@ -34,7 +34,7 @@ typedef struct {
 } CPolynomial;
 
 typedef struct {
-    int level;  // Todo: 添加支持
+    int level;  // Todo: add support
     CPolynomial poly;
 } CPlaintext;
 

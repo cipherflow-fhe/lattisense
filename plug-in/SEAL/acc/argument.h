@@ -160,7 +160,7 @@ inline CArgument export_argument(const SealVectorArgument& src) {
         switch (src.type) {
             case SealArgumentType::CIPHERTEXT: ptr_arr[i] = std::any_cast<seal::Ciphertext*>(src.flat_data[i]); break;
             case SealArgumentType::PLAINTEXT: ptr_arr[i] = std::any_cast<seal::Plaintext*>(src.flat_data[i]); break;
-            default: throw std::runtime_error("Unsupported argument type in export_argument");
+            default: free(ptr_arr); throw std::runtime_error("Unsupported argument type in export_argument");
         }
     }
     dest.data = (void*)ptr_arr;

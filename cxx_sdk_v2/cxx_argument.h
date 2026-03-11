@@ -139,7 +139,7 @@ inline CArgument export_cxx_argument(const CxxVectorArgument& src) {
     dest.size = src.flat_handles.size();
     dest.level = src.level;
 
-    // 直接使用Handle*指针，ABI转换由MegaAG图中的EXPORT_TO_ABI节点完成
+    // Use Handle* pointers directly; ABI conversion is performed by the EXPORT_TO_ABI node in the MegaAG graph
     dest.data = (void*)src.flat_handles.data();
 
     return dest;
@@ -168,7 +168,7 @@ export_public_key_arguments(nlohmann::json& key_signature, std::vector<CArgument
         rlk_arg.size = 1;
         rlk_arg.level = rlk_level;
 
-        // 使用Handle*指针，ABI转换由MegaAG图中的EXPORT_TO_ABI节点完成
+        // Use Handle* pointers; ABI conversion is performed by the EXPORT_TO_ABI node in the MegaAG graph
         static RelinKey saved_rlk;
         static std::vector<Handle*> rlk_handle_vec(1);
         saved_rlk = context->extract_relin_key();
@@ -190,7 +190,7 @@ export_public_key_arguments(nlohmann::json& key_signature, std::vector<CArgument
         glk_arg.size = 1;
         glk_arg.level = glk_level;
 
-        // 使用Handle*指针，ABI转换由MegaAG图中的EXPORT_TO_ABI节点完成
+        // Use Handle* pointers; ABI conversion is performed by the EXPORT_TO_ABI node in the MegaAG graph
         static GaloisKey saved_glk;
         static std::vector<Handle*> glk_handle_vec(1);
         saved_glk = context->extract_galois_key();
@@ -216,7 +216,7 @@ export_public_key_arguments(nlohmann::json& key_signature, std::vector<CArgument
             swk_dts_arg.size = 1;
             swk_dts_arg.level = level;
 
-            // 使用Handle*指针，ABI转换由MegaAG图中的EXPORT_TO_ABI节点完成
+            // Use Handle* pointers; ABI conversion is performed by the EXPORT_TO_ABI node in the MegaAG graph
             static KeySwitchKey saved_swk_dts;
             static std::vector<Handle*> swk_dts_handle_vec(1);
             saved_swk_dts = btp_context->extract_swk_dts();
@@ -236,7 +236,7 @@ export_public_key_arguments(nlohmann::json& key_signature, std::vector<CArgument
             swk_std_arg.size = 1;
             swk_std_arg.level = level;
 
-            // 使用Handle*指针，ABI转换由MegaAG图中的EXPORT_TO_ABI节点完成
+            // Use Handle* pointers; ABI conversion is performed by the EXPORT_TO_ABI node in the MegaAG graph
             static KeySwitchKey saved_swk_std;
             static std::vector<Handle*> swk_std_handle_vec(1);
             saved_swk_std = btp_context->extract_swk_std();

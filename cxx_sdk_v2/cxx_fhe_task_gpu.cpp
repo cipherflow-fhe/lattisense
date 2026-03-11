@@ -40,16 +40,15 @@ FheTaskGpu::~FheTaskGpu() {
 
 void FheTaskGpu::bind_abi_executors() {
     // Create ABI export executor (Handle → c_struct, for pre-allocation)
-    ExecutorFunc* abi_export =
-        new ExecutorFunc(create_abi_export_executor(_algo, true, GPU_MFORM_BITS, GPU_MFORM_BITS));
+    ExecutorFunc abi_export = create_abi_export_executor(_algo, true, GPU_MFORM_BITS, GPU_MFORM_BITS);
 
     // Create ABI import executor (c_struct → Handle, for intermediate data and output write-back)
-    ExecutorFunc* abi_import = new ExecutorFunc(create_abi_import_executor(_algo, true));
+    ExecutorFunc abi_import = create_abi_import_executor(_algo, true);
 
     // Call C interface to bind these executors
     // GPU uses both: export for inputs (Handle → c_struct), import for intermediate and output nodes
-    bind_gpu_task_abi_bridge_executors(task_handle, reinterpret_cast<void*>(abi_export),
-                                       reinterpret_cast<void*>(abi_import));
+    bind_gpu_task_abi_bridge_executors(task_handle, reinterpret_cast<void*>(&abi_export),
+                                       reinterpret_cast<void*>(&abi_import));
 }
 
 void FheTaskGpu::bind_custom_executors(const std::unordered_map<std::string, ExecutorFunc>& custom_executors) {
@@ -59,9 +58,7 @@ void FheTaskGpu::bind_custom_executors(const std::unordered_map<std::string, Exe
 
     for (const auto& [custom_type, executor] : custom_executors) {
         custom_types.push_back(custom_type.c_str());
-        // Store executor in a persistent location
-        ExecutorFunc* executor_ptr = new ExecutorFunc(executor);
-        executor_ptrs.push_back(reinterpret_cast<void*>(executor_ptr));
+        executor_ptrs.push_back(reinterpret_cast<void*>(const_cast<ExecutorFunc*>(&executor)));
     }
 
     // Call C interface

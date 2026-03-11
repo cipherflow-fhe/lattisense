@@ -40,9 +40,9 @@ except ImportError:
 _p1 = Param.create_bfv_fpga_param(t=0x1B4001)
 _p2 = Param.create_bfv_fpga_param(t=1 << 10)
 
-N_OP = 4  # 每个测试的并行算子数量
+N_OP = 4  # Number of parallel operators per test
 
-# ---- 在此定义要测试的所有 BFV 参数集 ----
+# ---- Define all BFV parameter sets to be tested here ----
 _BFV_PARAM_TAGS = {
     id(_p1): f'bfv_param_fpga_n{_p1.n}_t{hex(_p1.t)[2:]}',
     id(_p2): f'bfv_param_fpga_n{_p2.n}_t{hex(_p2.t)[2:]}',
@@ -574,7 +574,7 @@ class TestTask:
         )
 
     def test_one_block_diff_cal(self, param):
-        """单个block 相同算子 不同level"""
+        """Single block, same operator, different levels"""
         set_fhe_param(param)
         param_tag = _param_tag(param)
         task_dir = os.path.join(FPGA_OUTPUT_BASE_DIR, param_tag, 'BFV_one_block_diff')
@@ -600,7 +600,7 @@ class TestTask:
 
     @pytest.mark.at_level(3)
     def test_one_block_diff_cal_2(self, param, lv):
-        """单个block 不同算子 相同level"""
+        """Single block, different operators, same level"""
         if param.max_level < 3:
             pytest.skip(f'requires max_level >= 3, got {param.max_level}')
         set_fhe_param(param)
@@ -621,7 +621,7 @@ class TestTask:
         )
 
     def test_one_block_diff_cal_3(self, param):
-        """单个block 不同算子 不同level"""
+        """Single block, different operators, different levels"""
         set_fhe_param(param)
         param_tag = _param_tag(param)
         task_dir = os.path.join(FPGA_OUTPUT_BASE_DIR, param_tag, 'BFV_one_block_diff_3')
@@ -648,7 +648,7 @@ class TestTask:
         )
 
     def test_one_block_diff_cal_4(self, param):
-        """两个(多个) block 不同算子 不同level 无数据依赖"""
+        """Two (or more) blocks, different operators, different levels, no data dependency"""
         set_fhe_param(param)
         param_tag = _param_tag(param)
         task_dir = os.path.join(FPGA_OUTPUT_BASE_DIR, param_tag, 'BFV_one_block_diff_4')
@@ -685,7 +685,7 @@ class TestTask:
         )
 
     def test_one_block_diff_cal_5(self, param):
-        """两个(多个) block 不同算子 不同level 有数据依赖"""
+        """Two (or more) blocks, different operators, different levels, with data dependency"""
         set_fhe_param(param)
         param_tag = _param_tag(param)
         task_dir = os.path.join(FPGA_OUTPUT_BASE_DIR, param_tag, 'BFV_one_block_diff_5')

@@ -45,9 +45,9 @@ _p2 = Param.create_ckks_custom_param(
 _p_toy_btp = CkksBtpParam.create_toy_param()
 _p_btp = CkksBtpParam.create_default_param()
 
-N_OP = 4  # 每个测试的并行算子数量
+N_OP = 4  # Number of parallel operators per test
 
-# ---- 在此定义要测试的所有 CKKS 参数集 ----
+# ---- Define all CKKS parameter sets to be tested here ----
 _CKKS_PARAM_TAGS = {
     id(_p1): f'ckks_param_default_n{_p1.n}',
     id(_p2): f'ckks_param_custom_n{_p2.n}',

@@ -70,7 +70,7 @@ var (
 	FpgaMFormNBits = 34
 )
 
-// FpgaDevice FPGA加速卡设备类（单例模式）
+// FpgaDevice FPGA accelerator device class (singleton pattern)
 type FpgaDevice struct {
 	inUse bool
 }
@@ -84,7 +84,7 @@ func Sigsetup() {
 	C.sigsetup()
 }
 
-// GetFpgaDevice 获取FPGA设备单例
+// GetFpgaDevice returns the FPGA device singleton
 func GetFpgaDevice() *FpgaDevice {
 	fpgaDeviceOnce.Do(func() {
 		fpgaDeviceInstance = &FpgaDevice{
@@ -94,7 +94,7 @@ func GetFpgaDevice() *FpgaDevice {
 	return fpgaDeviceInstance
 }
 
-// Init 初始化FPGA加速卡设备
+// Init initializes the FPGA accelerator device
 func (d *FpgaDevice) Init() error {
 	if !d.inUse {
 		r0 := C.c_init_fpga_device_v2()
@@ -111,7 +111,7 @@ func (d *FpgaDevice) Init() error {
 	return nil
 }
 
-// Free 释放FPGA加速卡设备资源
+// Free releases the FPGA accelerator device resources
 func (d *FpgaDevice) Free() error {
 	if d.inUse {
 		r := C.c_free_fpga_device()

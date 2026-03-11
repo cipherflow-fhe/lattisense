@@ -37,10 +37,10 @@ FheTaskCpu::FheTaskCpu(const std::string& project_path) : FheTask{project_path} 
 }
 
 void FheTaskCpu::bind_abi_executors() {
-    ExecutorFunc* abi_export = new ExecutorFunc(create_abi_export_executor(_algo, false));
-    ExecutorFunc* abi_import = new ExecutorFunc(create_abi_import_executor(_algo, false));
-    bind_cpu_task_abi_bridge_executors(task_handle, reinterpret_cast<void*>(abi_export),
-                                       reinterpret_cast<void*>(abi_import));
+    ExecutorFunc abi_export = create_abi_export_executor(_algo, false);
+    ExecutorFunc abi_import = create_abi_import_executor(_algo, false);
+    bind_cpu_task_abi_bridge_executors(task_handle, reinterpret_cast<void*>(&abi_export),
+                                       reinterpret_cast<void*>(&abi_import));
 }
 
 FheTaskCpu::~FheTaskCpu() {
@@ -53,8 +53,7 @@ void FheTaskCpu::bind_custom_executors(const std::unordered_map<std::string, Exe
 
     for (const auto& [custom_type, executor] : custom_executors) {
         custom_types.push_back(custom_type.c_str());
-        ExecutorFunc* executor_ptr = new ExecutorFunc(executor);
-        executor_ptrs.push_back(reinterpret_cast<void*>(executor_ptr));
+        executor_ptrs.push_back(reinterpret_cast<void*>(const_cast<ExecutorFunc*>(&executor)));
     }
 
     bind_cpu_task_custom_executors(task_handle, custom_types.data(), executor_ptrs.data(), custom_types.size());

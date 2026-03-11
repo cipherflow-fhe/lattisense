@@ -20,11 +20,19 @@ FheTask::~FheTask() {
 
 void FheTask::new_args(int n_in_args, int n_out_args) {
     free_args();
-    input_args.resize(n_in_args);
-    output_args.resize(n_out_args);
+    input_args.resize(n_in_args, CArgument{});
+    output_args.resize(n_out_args, CArgument{});
 }
 
 void FheTask::free_args() {
+    for (auto& arg : input_args) {
+        free(arg.data);
+        arg.data = nullptr;
+    }
+    for (auto& arg : output_args) {
+        free(arg.data);
+        arg.data = nullptr;
+    }
     input_args.clear();
     output_args.clear();
 }
