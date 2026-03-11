@@ -80,7 +80,7 @@ uint64_t FheTaskFpga::run(FheContext* context, const std::vector<CxxVectorArgume
 
     export_cxx_arguments(cxx_args, input_args, output_args);
 
-    export_public_key_arguments(key_signature, input_args, context);
+    export_public_key_arguments(key_signature, input_args, context, _key_storage);
 
     int ret =
         run_fhe_fpga_task(task_handle, input_args.data(), input_args.size(), output_args.data(), output_args.size());
