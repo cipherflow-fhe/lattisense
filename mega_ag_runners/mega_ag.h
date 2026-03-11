@@ -144,6 +144,16 @@ struct ComputeNode {
     // Execution target: true if this node runs on CPU
     bool on_cpu;
 
+    // Scheduling priority: higher value runs first
+    int priority = 0;
+
+    // Graph structural properties for scheduling, computed by MegaAG::compute_graph_properties()
+    struct ScheduleProp {
+        int depth = 0;   // longest path from any source compute node to this node
+        int height = 0;  // longest path from this node to any sink compute node
+    };
+    ScheduleProp schedule_prop;
+
     // FHE-specific properties (use custom_prop.has_value() to check if custom node)
     struct FheProperty {
         OperationType op_type;
@@ -162,6 +172,17 @@ struct ComputeNode {
         nlohmann::json attributes;  // Custom attributes from JSON (e.g., level, scale)
     };
     std::optional<CustomProperty> custom_prop;
+};
+
+/**
+ * @brief Scheduling mode for compute node priority computation.
+ *
+ * PERFORMANCE_FIRST: height (longest path to sink) — minimizes makespan.
+ * MEMORY_FIRST:      depth (longest path from source) — minimizes peak memory.
+ */
+enum class ScheduleMode {
+    PERFORMANCE_FIRST,
+    MEMORY_FIRST,
 };
 
 struct MegaAG {
@@ -261,4 +282,12 @@ struct MegaAG {
             }
         }
     }
+
+    /**
+     * @brief Compute depth/height for each compute node, then set priority by ScheduleMode.
+     *
+     * PERFORMANCE_FIRST: priority = height (longer remaining critical path runs first).
+     * MEMORY_FIRST:      priority = -depth (shallower nodes run first, delaying data production).
+     */
+    void compute_properties(ScheduleMode mode);
 };

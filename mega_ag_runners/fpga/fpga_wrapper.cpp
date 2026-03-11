@@ -210,10 +210,10 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
     // becomes schedulable (i.e. all LOAD_TO_BACKEND operations have completed).
     // It runs run_project and then injects all fpga_data output nodes into available_data
     // so that the subsequent STORE_FROM_BACKEND operations can be scheduled.
-    std::function<void(NodeIndex, std::mutex&, std::queue<NodeIndex>&, std::set<NodeIndex>&, std::atomic<size_t>&,
-                       std::atomic<size_t>&, std::condition_variable&, std::mutex&,
+    std::function<void(NodeIndex, std::mutex&, std::priority_queue<TaskInfo>&, std::set<NodeIndex>&,
+                       std::atomic<size_t>&, std::atomic<size_t>&, std::condition_variable&, std::mutex&,
                        std::unordered_map<NodeIndex, std::atomic<int>>&)>
-        submit_fpga_task = [&](NodeIndex task_index, std::mutex& m_mutex, std::queue<NodeIndex>& task_queue,
+        submit_fpga_task = [&](NodeIndex task_index, std::mutex& m_mutex, std::priority_queue<TaskInfo>& task_queue,
                                std::set<NodeIndex>& queued_computes, std::atomic<size_t>& completed_tasks,
                                std::atomic<size_t>& total_tasks, std::condition_variable& completion_cv,
                                std::mutex& completion_mutex,
@@ -275,7 +275,7 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
                             mega_ag.step_available_computes(*c_struct_node, available_data);
                         for (NodeIndex nc : new_computes) {
                             if (queued_computes.find(nc) == queued_computes.end()) {
-                                task_queue.push(nc);
+                                task_queue.push({mega_ag.computes.at(nc).priority, nc});
                                 queued_computes.insert(nc);
                             }
                         }

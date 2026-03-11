@@ -669,3 +669,61 @@ static void insert_cpu_abi_bridge_nodes(MegaAG& mega_ag) {
     // Rebuild successor/predecessor relationships for inserted bridge nodes
     rebuild_bridge_relationships(mega_ag, {OperationType::EXPORT_TO_ABI, OperationType::IMPORT_FROM_ABI});
 }
+
+// Propagates depth forward: depth[v] = max(depth[u] + 1) for all upstream compute nodes u
+static void compute_depths(MegaAG& mega_ag) {
+    for (auto& [idx, node] : mega_ag.computes) {
+        node.schedule_prop.depth = 0;
+    }
+
+    bool changed = true;
+    while (changed) {
+        changed = false;
+        for (auto& [idx, node] : mega_ag.computes) {
+            for (auto* output_datum : node.output_nodes) {
+                for (auto* downstream : output_datum->successors) {
+                    int candidate = node.schedule_prop.depth + 1;
+                    if (downstream->schedule_prop.depth < candidate) {
+                        downstream->schedule_prop.depth = candidate;
+                        changed = true;
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Propagates height backward: height[u] = max(height[v] + 1) for all downstream compute nodes v
+static void compute_heights(MegaAG& mega_ag) {
+    for (auto& [idx, node] : mega_ag.computes) {
+        node.schedule_prop.height = 0;
+    }
+
+    bool changed = true;
+    while (changed) {
+        changed = false;
+        for (auto& [idx, node] : mega_ag.computes) {
+            for (auto* input_datum : node.input_nodes) {
+                for (auto* upstream : input_datum->predecessors) {
+                    int candidate = node.schedule_prop.height + 1;
+                    if (upstream->schedule_prop.height < candidate) {
+                        upstream->schedule_prop.height = candidate;
+                        changed = true;
+                    }
+                }
+            }
+        }
+    }
+}
+
+void MegaAG::compute_properties(ScheduleMode mode) {
+    compute_depths(*this);
+    compute_heights(*this);
+
+    for (auto& [idx, node] : computes) {
+        switch (mode) {
+            case ScheduleMode::PERFORMANCE_FIRST: node.priority = node.schedule_prop.height; break;
+            case ScheduleMode::MEMORY_FIRST: node.priority = -node.schedule_prop.depth; break;
+        }
+    }
+}

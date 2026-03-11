@@ -164,10 +164,10 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args, gsl::span<CArgument> out
 
     // Define GPU task submission function
     // This receives shared state from run_tasks
-    std::function<void(NodeIndex, std::mutex&, std::queue<NodeIndex>&, std::set<NodeIndex>&, std::atomic<size_t>&,
-                       std::atomic<size_t>&, std::condition_variable&, std::mutex&,
+    std::function<void(NodeIndex, std::mutex&, std::priority_queue<TaskInfo>&, std::set<NodeIndex>&,
+                       std::atomic<size_t>&, std::atomic<size_t>&, std::condition_variable&, std::mutex&,
                        std::unordered_map<NodeIndex, std::atomic<int>>&)>
-        submit_gpu_task = [&](NodeIndex task_index, std::mutex& m_mutex, std::queue<NodeIndex>& task_queue,
+        submit_gpu_task = [&](NodeIndex task_index, std::mutex& m_mutex, std::priority_queue<TaskInfo>& task_queue,
                               std::set<NodeIndex>& queued_computes, std::atomic<size_t>& completed_tasks,
                               std::atomic<size_t>& total_tasks, std::condition_variable& completion_cv,
                               std::mutex& completion_mutex,
@@ -207,7 +207,7 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args, gsl::span<CArgument> out
 
                     if (!events_ready) {
                         queued_computes.erase(task_index);
-                        task_queue.push(task_index);
+                        task_queue.push({mega_ag.computes.at(task_index).priority, task_index});
                         return;
                     }
 
@@ -283,7 +283,7 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args, gsl::span<CArgument> out
 
                     for (const auto& new_task_index : newly_available_computes) {
                         if (queued_computes.find(new_task_index) == queued_computes.end()) {
-                            task_queue.push(new_task_index);
+                            task_queue.push({mega_ag.computes.at(new_task_index).priority, new_task_index});
                             queued_computes.insert(new_task_index);
                         }
                     }
