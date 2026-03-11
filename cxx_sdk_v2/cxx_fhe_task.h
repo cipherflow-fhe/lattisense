@@ -67,6 +67,13 @@ public:
      */
     virtual void bind_custom_executors(const std::unordered_map<std::string, ExecutorFunc>& custom_executors) = 0;
 
+    const nlohmann::json& param_json() const {
+        return _param_json;
+    }
+    Algo algo() const {
+        return _algo;
+    }
+
     // virtual uint64_t run(FheContext* context, const std::vector<CxxVectorArgument>& cxx_args) = 0;
 
 protected:
@@ -79,6 +86,7 @@ protected:
 
     std::vector<CArgument> input_args;
     std::vector<CArgument> output_args;
+    PublicKeyStorage _key_storage;
 
     void new_args(int n_in_args, int n_out_args);
     void free_args();

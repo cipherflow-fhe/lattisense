@@ -74,7 +74,7 @@ uint64_t FheTaskCpu::run(FheContext* context, const std::vector<CxxVectorArgumen
 
     export_cxx_arguments(cxx_args, input_args, output_args);
 
-    export_public_key_arguments(key_signature, input_args, context);
+    export_public_key_arguments(key_signature, input_args, context, _key_storage);
 
     int ret =
         run_fhe_cpu_task(task_handle, input_args.data(), input_args.size(), output_args.data(), output_args.size());

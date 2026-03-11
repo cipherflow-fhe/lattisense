@@ -82,7 +82,7 @@ uint64_t FheTaskGpu::run(FheContext* context, const std::vector<CxxVectorArgumen
     // Export cxx arguments to Handle (same as CPU wrapper)
     export_cxx_arguments(cxx_args, input_args, output_args);
 
-    export_public_key_arguments(key_signature, input_args, context);
+    export_public_key_arguments(key_signature, input_args, context, _key_storage);
 
     // Call GPU runner (Handle will be converted via ABI bridge executors in MegaAG)
     int ret =
