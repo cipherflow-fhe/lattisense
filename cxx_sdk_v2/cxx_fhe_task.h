@@ -79,6 +79,7 @@ protected:
 
     std::vector<CArgument> input_args;
     std::vector<CArgument> output_args;
+    PublicKeyStorage _key_storage;
 
     void new_args(int n_in_args, int n_out_args);
     void free_args();

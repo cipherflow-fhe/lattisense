@@ -158,8 +158,27 @@ inline void export_cxx_arguments(const std::vector<CxxVectorArgument>& cxx_args,
     }
 }
 
-inline void
-export_public_key_arguments(nlohmann::json& key_signature, std::vector<CArgument>& input_args, FheContext* context) {
+/**
+ * @brief Per-instance storage for extracted public keys.
+ *
+ * Owned by FheTask so that key lifetime is tied to the FheTask instance,
+ * avoiding the thread-safety and multi-instance hazards of static locals.
+ */
+struct PublicKeyStorage {
+    RelinKey saved_rlk;
+    GaloisKey saved_glk;
+    KeySwitchKey saved_swk_dts;
+    KeySwitchKey saved_swk_std;
+    Handle* rlk_handle = nullptr;
+    Handle* glk_handle = nullptr;
+    Handle* swk_dts_handle = nullptr;
+    Handle* swk_std_handle = nullptr;
+};
+
+inline void export_public_key_arguments(nlohmann::json& key_signature,
+                                        std::vector<CArgument>& input_args,
+                                        FheContext* context,
+                                        PublicKeyStorage& keys) {
     if (key_signature["rlk"].get<int>() >= 0) {
         CArgument rlk_arg;
         int rlk_level = key_signature["rlk"].get<int>();
@@ -169,11 +188,9 @@ export_public_key_arguments(nlohmann::json& key_signature, std::vector<CArgument
         rlk_arg.level = rlk_level;
 
         // Use Handle* pointers; ABI conversion is performed by the EXPORT_TO_ABI node in the MegaAG graph
-        static RelinKey saved_rlk;
-        static std::vector<Handle*> rlk_handle_vec(1);
-        saved_rlk = context->extract_relin_key();
-        rlk_handle_vec[0] = (Handle*)&saved_rlk;
-        rlk_arg.data = (void*)rlk_handle_vec.data();
+        keys.saved_rlk = context->extract_relin_key();
+        keys.rlk_handle = (Handle*)&keys.saved_rlk;
+        rlk_arg.data = (void*)&keys.rlk_handle;
 
         input_args.push_back(rlk_arg);
     }
@@ -191,11 +208,9 @@ export_public_key_arguments(nlohmann::json& key_signature, std::vector<CArgument
         glk_arg.level = glk_level;
 
         // Use Handle* pointers; ABI conversion is performed by the EXPORT_TO_ABI node in the MegaAG graph
-        static GaloisKey saved_glk;
-        static std::vector<Handle*> glk_handle_vec(1);
-        saved_glk = context->extract_galois_key();
-        glk_handle_vec[0] = (Handle*)&saved_glk;
-        glk_arg.data = (void*)glk_handle_vec.data();
+        keys.saved_glk = context->extract_galois_key();
+        keys.glk_handle = (Handle*)&keys.saved_glk;
+        glk_arg.data = (void*)&keys.glk_handle;
 
         input_args.push_back(glk_arg);
     }
@@ -217,11 +232,9 @@ export_public_key_arguments(nlohmann::json& key_signature, std::vector<CArgument
             swk_dts_arg.level = level;
 
             // Use Handle* pointers; ABI conversion is performed by the EXPORT_TO_ABI node in the MegaAG graph
-            static KeySwitchKey saved_swk_dts;
-            static std::vector<Handle*> swk_dts_handle_vec(1);
-            saved_swk_dts = btp_context->extract_swk_dts();
-            swk_dts_handle_vec[0] = (Handle*)&saved_swk_dts;
-            swk_dts_arg.data = (void*)swk_dts_handle_vec.data();
+            keys.saved_swk_dts = btp_context->extract_swk_dts();
+            keys.swk_dts_handle = (Handle*)&keys.saved_swk_dts;
+            swk_dts_arg.data = (void*)&keys.swk_dts_handle;
 
             input_args.push_back(swk_dts_arg);
         }
@@ -237,11 +250,9 @@ export_public_key_arguments(nlohmann::json& key_signature, std::vector<CArgument
             swk_std_arg.level = level;
 
             // Use Handle* pointers; ABI conversion is performed by the EXPORT_TO_ABI node in the MegaAG graph
-            static KeySwitchKey saved_swk_std;
-            static std::vector<Handle*> swk_std_handle_vec(1);
-            saved_swk_std = btp_context->extract_swk_std();
-            swk_std_handle_vec[0] = (Handle*)&saved_swk_std;
-            swk_std_arg.data = (void*)swk_std_handle_vec.data();
+            keys.saved_swk_std = btp_context->extract_swk_std();
+            keys.swk_std_handle = (Handle*)&keys.saved_swk_std;
+            swk_std_arg.data = (void*)&keys.swk_std_handle;
 
             input_args.push_back(swk_std_arg);
         }
