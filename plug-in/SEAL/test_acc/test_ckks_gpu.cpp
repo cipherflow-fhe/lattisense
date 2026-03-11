@@ -12,6 +12,8 @@ using namespace seal;
 using namespace seal::util;
 using namespace std;
 
+static const string ckks_gpu_base_path = gpu_base_path + "/ckks_param_default_n8192";
+
 TEST_CASE_METHOD(TestCkksGpuFixture, "CKKS cap", "") {
     seal::CKKSEncoder encoder(ctx);
     seal::KeyGenerator keygen(ctx);
@@ -55,7 +57,7 @@ TEST_CASE_METHOD(TestCkksGpuFixture, "CKKS cap", "") {
             z_list.push_back(z_ct);
         }
 
-        string project_path = gpu_base_path + "/CKKS_" + to_string(n_op) + "_cap/level_" + to_string(level);
+        string project_path = ckks_gpu_base_path + "/CKKS_" + to_string(n_op) + "_cap/level_" + to_string(level);
         FheTaskGpu project(project_path);
         vector<SealVectorArgument> seal_args = {
             SealVectorArgument{param, "in_x_list", &x_list},
@@ -122,7 +124,7 @@ TEST_CASE_METHOD(TestCkksGpuFixture, "CKKS cac", "") {
             z_list.push_back(z_ct);
         }
 
-        string project_path = gpu_base_path + "/CKKS_" + to_string(n_op) + "_cac/level_" + to_string(level);
+        string project_path = ckks_gpu_base_path + "/CKKS_" + to_string(n_op) + "_cac/level_" + to_string(level);
         FheTaskGpu project(project_path);
         vector<SealVectorArgument> seal_args = {
             SealVectorArgument{param, "in_x_list", &x_list},
@@ -189,7 +191,7 @@ TEST_CASE_METHOD(TestCkksGpuFixture, "CKKS cmp", "") {
             z_list.push_back(z_ct);
         }
 
-        string project_path = gpu_base_path + "/CKKS_" + to_string(n_op) + "_cmp/level_" + to_string(level);
+        string project_path = ckks_gpu_base_path + "/CKKS_" + to_string(n_op) + "_cmp/level_" + to_string(level);
         FheTaskGpu project(project_path);
         vector<SealVectorArgument> seal_args = {
             SealVectorArgument{param, "in_x_list", &x_list},
@@ -261,7 +263,7 @@ TEST_CASE_METHOD(TestCkksGpuFixture, "CKKS cmc_relin", "") {
             z_list.push_back(z_ct);
         }
 
-        string project_path = gpu_base_path + "/CKKS_" + to_string(n_op) + "_cmc_relin/level_" + to_string(level);
+        string project_path = ckks_gpu_base_path + "/CKKS_" + to_string(n_op) + "_cmc_relin/level_" + to_string(level);
         FheTaskGpu project(project_path);
         vector<SealVectorArgument> seal_args = {
             SealVectorArgument{param, "in_x_list", &x_list},
@@ -330,7 +332,7 @@ TEST_CASE_METHOD(TestCkksGpuFixture, "CKKS rescale", "") {
             z_list.push_back(z_ct);
         }
 
-        string project_path = gpu_base_path + "/CKKS_" + to_string(n_op) + "_rescale/level_" + to_string(level);
+        string project_path = ckks_gpu_base_path + "/CKKS_" + to_string(n_op) + "_rescale/level_" + to_string(level);
         FheTaskGpu project(project_path);
         vector<SealVectorArgument> seal_args = {
             SealVectorArgument{param, "in_x_list", &x_list},
@@ -398,8 +400,8 @@ TEST_CASE_METHOD(TestCkksGpuFixture, "CKKS drop level // mod_switch", "") {
             z_list.push_back(z_ct);
         }
 
-        string project_path = gpu_base_path + "/CKKS_" + to_string(n_op) + "_drop_level/level_" + to_string(level) +
-                              "/drop_" + to_string(drop_level);
+        string project_path = ckks_gpu_base_path + "/CKKS_" + to_string(n_op) + "_drop_level/level_" +
+                              to_string(level) + "/drop_" + to_string(drop_level);
         FheTaskGpu project(project_path);
         vector<SealVectorArgument> seal_args = {
             SealVectorArgument{param, "in_x_list", &x_list},

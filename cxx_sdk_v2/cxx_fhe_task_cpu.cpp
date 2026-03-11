@@ -16,40 +16,47 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <fstream>
 #include <iostream>
 #include <unordered_map>
 #include <vector>
-#include <typeindex>
-#include <set>
-#include <unordered_set>
-#include <sstream>
-#include <thread>
-#include <future>
-#include <mutex>
-#include <atomic>
-#include <condition_variable>
-#include <functional>
-#include "../lib/thread_pool/BS_thread_pool.hpp"
+#include <chrono>
 
 #include "cxx_fhe_task.h"
-#include "cxx_argument.h"
-#include "check_sig.h"
+#include "cxx_abi_bridge_executors.h"
 
 extern "C" {
 #include "../mega_ag_runners/wrapper.h"
 }
 
-// #define LOG_PARALLEL
-
 namespace cxx_sdk_v2 {
+
 FheTaskCpu::FheTaskCpu(const std::string& project_path) : FheTask{project_path} {
     task_handle = create_fhe_cpu_task(project_path.c_str());
-    _heterogeneous_mode = false;  // CPU mode uses homogeneous computation
+
+    bind_abi_executors();
+}
+
+void FheTaskCpu::bind_abi_executors() {
+    ExecutorFunc abi_export = create_abi_export_executor(_algo, false);
+    ExecutorFunc abi_import = create_abi_import_executor(_algo, false);
+    bind_cpu_task_abi_bridge_executors(task_handle, reinterpret_cast<void*>(&abi_export),
+                                       reinterpret_cast<void*>(&abi_import));
 }
 
 FheTaskCpu::~FheTaskCpu() {
     release_fhe_cpu_task(task_handle);
+}
+
+void FheTaskCpu::bind_custom_executors(const std::unordered_map<std::string, ExecutorFunc>& custom_executors) {
+    std::vector<const char*> custom_types;
+    std::vector<void*> executor_ptrs;
+
+    for (const auto& [custom_type, executor] : custom_executors) {
+        custom_types.push_back(custom_type.c_str());
+        executor_ptrs.push_back(reinterpret_cast<void*>(const_cast<ExecutorFunc*>(&executor)));
+    }
+
+    bind_cpu_task_custom_executors(task_handle, custom_types.data(), executor_ptrs.data(), custom_types.size());
 }
 
 uint64_t FheTaskCpu::run(FheContext* context, const std::vector<CxxVectorArgument>& cxx_args) {
@@ -63,17 +70,14 @@ uint64_t FheTaskCpu::run(FheContext* context, const std::vector<CxxVectorArgumen
 
     nlohmann::json key_signature = _task_signature["key"];
 
-    const Parameter& param = context->get_parameter();
-
     new_args(n_in_args, n_out_args);
 
-    export_cxx_arguments(cxx_args, input_args, output_args, param, -1, _heterogeneous_mode);
+    export_cxx_arguments(cxx_args, input_args, output_args);
 
-    export_public_key_arguments(key_signature, input_args, context, -1, _heterogeneous_mode);
+    export_public_key_arguments(key_signature, input_args, context);
 
-    // Call CPU runner
-    int ret = run_fhe_cpu_task(task_handle, input_args.data(), input_args.size(), output_args.data(),
-                               output_args.size(), _algo);
+    int ret =
+        run_fhe_cpu_task(task_handle, input_args.data(), input_args.size(), output_args.data(), output_args.size());
 
     if (ret != 0) {
         throw std::runtime_error("Failed to run CPU project");

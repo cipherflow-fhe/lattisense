@@ -4026,22 +4026,16 @@ struct IGeneratorTracker {
 
 namespace Catch {
 #    if !defined(CATCH_CONFIG_DISABLE_EXCEPTIONS)
-template <typename Ex>
-[[noreturn]]
-void throw_exception(Ex const& e) {
+template <typename Ex> [[noreturn]] void throw_exception(Ex const& e) {
     throw e;
 }
 #    else  // ^^ Exceptions are enabled //  Exceptions are disabled vv
-[[noreturn]]
-void throw_exception(std::exception const& e);
+[[noreturn]] void throw_exception(std::exception const& e);
 #    endif
 
-[[noreturn]]
-void throw_logic_error(std::string const& msg);
-[[noreturn]]
-void throw_domain_error(std::string const& msg);
-[[noreturn]]
-void throw_runtime_error(std::string const& msg);
+[[noreturn]] void throw_logic_error(std::string const& msg);
+[[noreturn]] void throw_domain_error(std::string const& msg);
+[[noreturn]] void throw_runtime_error(std::string const& msg);
 
 }  // namespace Catch
 
@@ -10518,26 +10512,22 @@ void formatReconstructedExpression(std::ostream& os, std::string const& lhs, Str
 
 namespace Catch {
 #    if defined(CATCH_CONFIG_DISABLE_EXCEPTIONS) && !defined(CATCH_CONFIG_DISABLE_EXCEPTIONS_CUSTOM_HANDLER)
-[[noreturn]]
-void throw_exception(std::exception const& e) {
+[[noreturn]] void throw_exception(std::exception const& e) {
     Catch::cerr() << "Catch will terminate because it needed to throw an exception.\n"
                   << "The message was: " << e.what() << '\n';
     std::terminate();
 }
 #    endif
 
-[[noreturn]]
-void throw_logic_error(std::string const& msg) {
+[[noreturn]] void throw_logic_error(std::string const& msg) {
     throw_exception(std::logic_error(msg));
 }
 
-[[noreturn]]
-void throw_domain_error(std::string const& msg) {
+[[noreturn]] void throw_domain_error(std::string const& msg) {
     throw_exception(std::domain_error(msg));
 }
 
-[[noreturn]]
-void throw_runtime_error(std::string const& msg) {
+[[noreturn]] void throw_runtime_error(std::string const& msg) {
     throw_exception(std::runtime_error(msg));
 }
 
@@ -10812,7 +10802,8 @@ FatalConditionHandler::FatalConditionHandler() {
     if (!SetThreadStackGuarantee(&guaranteeSize)) {
         // We do not want to fully error out, because needing
         // the stack reserve should be rare enough anyway.
-        Catch::cerr() << "Failed to reserve piece of stack." << " Stack overflows will not be reported successfully.";
+        Catch::cerr() << "Failed to reserve piece of stack."
+                      << " Stack overflows will not be reported successfully.";
     }
 }
 
@@ -13318,9 +13309,12 @@ void Session::showHelp() const {
                   << std::endl;
 }
 void Session::libIdentify() {
-    Catch::cout() << std::left << std::setw(16) << "description: " << "A Catch2 test executable\n"
-                  << std::left << std::setw(16) << "category: " << "testframework\n"
-                  << std::left << std::setw(16) << "framework: " << "Catch Test\n"
+    Catch::cout() << std::left << std::setw(16) << "description: "
+                  << "A Catch2 test executable\n"
+                  << std::left << std::setw(16) << "category: "
+                  << "testframework\n"
+                  << std::left << std::setw(16) << "framework: "
+                  << "Catch Test\n"
                   << std::left << std::setw(16) << "version: " << libraryVersion() << std::endl;
 }
 
@@ -16759,7 +16753,8 @@ void JunitReporter::writeAssertion(AssertionStats const& stats) {
 
         ReusableStringStream rss;
         if (stats.totals.assertions.total() > 0) {
-            rss << "FAILED" << ":\n";
+            rss << "FAILED"
+                << ":\n";
             if (result.hasExpression()) {
                 rss << "  ";
                 rss << result.getExpressionInMacro();

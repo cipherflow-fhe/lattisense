@@ -2,10 +2,66 @@
 
 #include <string>
 #include "runner.h"
+#include "test_config.hpp"
 
 using namespace std;
 
-string gpu_base_path = "/acc_test/integrate/gpu_tests/seal";
+string fpga_base_path = test_config::fpga_base_path;
+string gpu_base_path = test_config::gpu_base_path;
+
+class FpgaFixture {
+public:
+    FpgaFixture() {
+        FpgaDevice::init();
+    }
+
+    ~FpgaFixture() {
+        FpgaDevice::free();
+    }
+};
+
+class BfvFpgaFixture : public FpgaFixture {
+public:
+    BfvFpgaFixture() : n{8192}, t{0x1b4001}, param{GenBfvFpgaParam(t)}, ctx(seal::SEALContext(param)) {}
+
+protected:
+    uint64_t n;
+    uint64_t t;
+    seal::EncryptionParameters param;
+    seal::SEALContext ctx;
+};
+
+class TestBfvFpgaFixture : public BfvFpgaFixture {
+public:
+    TestBfvFpgaFixture() : n_op{4}, level{int(param.coeff_modulus().size()) - 2} {}
+
+protected:
+    int n_op;
+    int level;
+};
+
+class CkksFpgaFixture : public FpgaFixture {
+public:
+    CkksFpgaFixture()
+        : n{8192}, n_slot{n / 2}, default_scale(pow(2.0, 31)), param{GenCkksFpgaParam()},
+          ctx(seal::SEALContext(param)) {}
+
+protected:
+    uint64_t n;
+    uint64_t n_slot;
+    double default_scale;
+    seal::EncryptionParameters param;
+    seal::SEALContext ctx;
+};
+
+class TestCkksFpgaFixture : public CkksFpgaFixture {
+public:
+    TestCkksFpgaFixture() : n_op{4}, level(int(param.coeff_modulus().size()) - 2) {}
+
+protected:
+    int n_op;
+    int level;
+};
 
 seal::EncryptionParameters GenBfvParam(uint64_t plain_modulus) {
     int N = 8192;

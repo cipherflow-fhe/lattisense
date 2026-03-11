@@ -286,11 +286,28 @@ class Param:
         return instance
 
     @classmethod
+    def create_bfv_fpga_param(cls, t: int = 0x1B4001):
+        instance = cls(Algo.BFV, n=8192)
+        instance.q = [0x7F4E0001, 0x7FB40001, 0x7FD20001, 0x7FEA0001, 0x7FF80001, 0x7FFE0001]
+        instance.p = [0xFF5A0001]
+        instance.t = t
+        instance.max_level = len(instance.q) - 1
+        return instance
+
+    @classmethod
     def create_ckks_custom_param(cls, n: int, q: List[int], p: List[int]):
         instance = cls(Algo.CKKS, n)
         instance.q = q
         instance.p = p
         instance.max_level = len(q) - 1
+        return instance
+
+    @classmethod
+    def create_ckks_fpga_param(cls):
+        instance = cls(Algo.CKKS, n=8192)
+        instance.q = [0x7F4E0001, 0x7FB40001, 0x7FD20001, 0x7FEA0001, 0x7FF80001, 0x7FFE0001]
+        instance.p = [0xFF5A0001]
+        instance.max_level = len(instance.q) - 1
         return instance
 
     def get_max_sp_level(self):
@@ -522,6 +539,28 @@ class FheDataNode(DataNode):
         self.sp_level: int = None
 
 
+class CustomDataNode(DataNode):
+    """
+    @class CustomDataNode
+    @brief Custom data node type
+
+    Allows users to create data nodes with custom types and attributes.
+    """
+
+    def __init__(self, type: str, id='', attributes: dict = None) -> None:
+        """
+        @brief Constructor
+        @param type: String identifier for the custom data type
+        @param id: Node id
+        @param attributes: Custom attribute dict, can contain arbitrary key-value pairs
+        """
+        super().__init__(type=type, id=id)
+        self.attributes = attributes if attributes is not None else {}
+
+    def __repr__(self) -> str:
+        return f'(custom_{self.type}, {self.id})'
+
+
 class PlaintextNode(FheDataNode):
     """
     @class PlaintextNode
@@ -739,6 +778,27 @@ class FheComputeNode(ComputeNode):
 
     def __repr__(self):
         return f'({self.type.value}, {self.id})'
+
+
+class CustomComputeNode(ComputeNode):
+    """
+    @class CustomComputeNode
+    @brief Custom compute node type
+
+    Allows users to create compute nodes with custom attributes and metadata.
+    """
+
+    def __init__(self, type: str, attributes: dict = None) -> None:
+        """
+        @brief Constructor
+        @param type: String identifier for the custom operation type
+        @param attributes: Custom attribute dict, can contain arbitrary key-value pairs
+        """
+        super().__init__(type=type)
+        self.attributes = attributes if attributes is not None else {}
+
+    def __repr__(self):
+        return f'(custom_{self.type}, {self.id})'
 
 
 class CmpSumComputeNode(FheComputeNode):
@@ -1814,11 +1874,44 @@ def bootstrap(x: CkksCiphertextNode, output_id: Optional[str] = None) -> CkksCip
     return z
 
 
+def custom_compute(
+    inputs: list[DataNode],
+    output: DataNode,
+    type: str,
+    attributes: dict = None,
+):
+    """!Create a custom compute node
+
+    Allows users to define custom compute operations and add them to the compute graph.
+
+    @param inputs List of input data nodes
+    @param output Output data node (specifies the type and attributes of the output node)
+    @param type String identifier for the custom operation type
+    @param attributes Custom attribute dict, can contain arbitrary key-value pairs (e.g., parameters, configurations)
+    """
+    global g_dag
+
+    if not inputs:
+        raise ValueError('At least one input data node is required for custom compute.')
+    if output is None:
+        raise ValueError('Output data node is required for custom compute.')
+
+    op = CustomComputeNode(type=type, attributes=attributes)
+
+    for input_node in inputs:
+        g_dag.add_edge(input_node, op)
+
+    g_dag.add_edge(op, output)
+
+    return
+
+
 def process_custom_task(
     input_args: list[Argument] = None,
     output_args: list[Argument] = None,
     offline_input_args: list[Argument] = None,
     output_instruction_path: str = None,
+    fpga_acc: bool = True,
 ) -> dict:
     """!Process custom task
 
@@ -1931,19 +2024,18 @@ def process_custom_task(
     mag['outputs'] = [x.index for x in all_output_list]
     mag['offline_inputs'] = [x.index for x in all_offline_list]
 
-    if True:
-        parameter = {'n': g_param.n, 'max_level': g_param.max_level, 'q': g_param.q, 'p': g_param.p}
-        if isinstance(g_param, CkksBtpParam):
-            parameter['scale'] = g_param.scale
-            parameter['btp_cts_start_level'] = g_param.btp_cts_start_level
-            parameter['btp_eval_mod_start_level'] = g_param.btp_eval_mod_start_level
-            parameter['btp_stc_start_level'] = g_param.btp_stc_start_level
-            parameter['btp_output_level'] = g_param.btp_output_level
+    parameter = {'n': g_param.n, 'max_level': g_param.max_level, 'q': g_param.q, 'p': g_param.p}
+    if isinstance(g_param, CkksBtpParam):
+        parameter['scale'] = g_param.scale
+        parameter['btp_cts_start_level'] = g_param.btp_cts_start_level
+        parameter['btp_eval_mod_start_level'] = g_param.btp_eval_mod_start_level
+        parameter['btp_stc_start_level'] = g_param.btp_stc_start_level
+        parameter['btp_output_level'] = g_param.btp_output_level
 
-        if g_param.algo == Algo.BFV:
-            parameter['t'] = g_param.t
+    if g_param.algo == Algo.BFV:
+        parameter['t'] = g_param.t
 
-        mag['parameter'] = parameter
+    mag['parameter'] = parameter
 
     for x in all_input_list_with_key:
         if x not in g_dag.nodes():
@@ -1968,7 +2060,22 @@ def process_custom_task(
             raise ValueError(f'Input data node "{x.id}" is not used for any computation.')
 
     for node in g_dag.nodes():
-        if isinstance(node, FheComputeNode):
+        if isinstance(node, CustomComputeNode):
+            op: CustomComputeNode = node
+            if op.index in compute:
+                raise ValueError(f'Same index "{op.index}" for different computation nodes.')
+
+            compute[op.index] = {
+                'id': op.id,
+                'type': op.type,
+                'is_custom': True,
+                'inputs': [y.index for y in g_dag.predecessors(op)],
+                'outputs': [s.index for s in g_dag.successors(op)],
+            }
+            if op.attributes:
+                compute[op.index]['attributes'] = op.attributes
+
+        elif isinstance(node, FheComputeNode):
             op: FheComputeNode = node
             if op.index in compute:
                 raise ValueError(f'Same index "{op.index}" for different computation nodes.')
@@ -2018,6 +2125,23 @@ def process_custom_task(
             if isinstance(datum, GaloisKeyNode):
                 data[datum.index]['galois_element'] = datum.galois_element
 
+        elif isinstance(node, CustomDataNode):
+            datum: CustomDataNode = node
+            if datum.index in data:
+                raise ValueError(f'Same index "{datum.index}" for different data nodes.')
+            if not g_dag.succ[datum]:
+                if datum not in all_output_list:
+                    raise ValueError(
+                        f'Data node "{datum.index}" is not used for any computation, nor is it an output data node.'
+                    )
+            data[datum.index] = {
+                'id': datum.id,
+                'type': datum.type,
+                'is_custom': True,
+            }
+            if datum.attributes:
+                data[datum.index]['attributes'] = datum.attributes
+
     if not os.path.exists(output_instruction_path):
         os.makedirs(output_instruction_path)
     with open(os.path.join(output_instruction_path, 'mega_ag.json'), 'w', encoding='utf-8') as f:
@@ -2029,6 +2153,16 @@ def process_custom_task(
         encoding='utf-8',
     ) as f:
         json.dump(interface_json, f, indent=4)
+
+    if fpga_acc:
+        # FPGA supports only n = 8192 now
+        if g_param.n != 8192:
+            raise ValueError('FPGA mode only supports n = 8192')
+        try:
+            from .fpga_backend import run_fpga_linker
+        except ImportError:
+            from fpga_backend import run_fpga_linker
+        run_fpga_linker(output_instruction_path, TRANSLATOR_DEV)
 
     g_swk_node_dict.clear()
     g_dag.clear()

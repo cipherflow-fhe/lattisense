@@ -98,12 +98,12 @@ void free_galois_key(CGaloisKey* gk, bool free_component_data) {
     free(gk->key_switch_keys);
 }
 
-inline uint64_t import_bfv_ciphertext(uint64_t parameter_handle, CCiphertext* c_ciphertext) {
-    return ImportBfvCiphertext(parameter_handle, c_ciphertext);
+inline void import_bfv_ciphertext(uint64_t dest_handle, CCiphertext* c_ciphertext) {
+    ImportBfvCiphertext(dest_handle, c_ciphertext);
 }
 
-inline uint64_t import_ckks_ciphertext(uint64_t parameter_handle, CCiphertext* c_ciphertext) {
-    return ImportCkksCiphertext(parameter_handle, c_ciphertext);
+inline void import_ckks_ciphertext(uint64_t dest_handle, CCiphertext* c_ciphertext) {
+    ImportCkksCiphertext(dest_handle, c_ciphertext);
 }
 
 inline void export_bfv_plaintext_ringt(uint64_t plaintext_ringt_handle, CPlaintext* plaintext) {

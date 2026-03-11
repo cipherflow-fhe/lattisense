@@ -44,6 +44,7 @@ test_results.xml
 *.bak
 *.orig
 *~
+log/
 
 # Build artifacts
 *.o

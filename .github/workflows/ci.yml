@@ -28,7 +28,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential cmake python3 python3-pip
-          pip3 install networkx
+          pip3 install networkx pytest
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -38,15 +38,15 @@ jobs:
       - name: Build SDK
         run: |
           mkdir -p build && cd build
-          cmake .. -DLATTISENSE_BUILD_TESTS=ON
+          cmake .. -DLATTISENSE_BUILD_TESTS=ON -DLATTISENSE_ENABLE_FPGA=ON
           make -j$(nproc)
 
       - name: Generate test data
         run: |
           cd unittests
           export PYTHONPATH=${{ github.workspace }}/build/unittests:${{ github.workspace }}:$PYTHONPATH
-          python3 test_cpu_bfv.py
-          python3 test_cpu_ckks.py
+          pytest test_cpu_bfv.py -v
+          pytest test_cpu_ckks.py -v
 
       - name: Run tests
         timeout-minutes: 30

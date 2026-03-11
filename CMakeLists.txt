@@ -102,8 +102,8 @@ if(LATTISENSE_ENABLE_GPU)
     )
 
     # Check if HEonGPU is installed
-    set(HEONGPU_INSTALL_DIR "${LATTISENSE_ROOT_DIR}/HEonGPU/install")
-    set(HEONGPU_BUILD_DIR "${LATTISENSE_ROOT_DIR}/HEonGPU/build")
+    set(HEONGPU_INSTALL_DIR "${LATTISENSE_ROOT_DIR}/backends/HEonGPU/install")
+    set(HEONGPU_BUILD_DIR "${LATTISENSE_ROOT_DIR}/backends/HEonGPU/build")
 
     if(NOT EXISTS "${HEONGPU_INSTALL_DIR}/lib")
         message(FATAL_ERROR
@@ -111,7 +111,7 @@ if(LATTISENSE_ENABLE_GPU)
             "\n"
             "GPU support requires HEonGPU to be built first. Please run:\n"
             "\n"
-            "  cd ${LATTISENSE_ROOT_DIR}/HEonGPU\n"
+            "  cd ${LATTISENSE_ROOT_DIR}/backends/HEonGPU\n"
             "  cmake -S . -B build \\\n"
             "    -DCMAKE_CUDA_ARCHITECTURES=${LATTISENSE_CUDA_ARCH} \\\n"
             "    -DCMAKE_CUDA_COMPILER=/usr/local/cuda/bin/nvcc \\\n"
@@ -174,6 +174,16 @@ if(LATTISENSE_DEV)
     add_definitions(-DLATTISENSE_DEV)
 endif()
 
+option(LATTISENSE_ENABLE_FPGA "Enable FPGA" OFF)
+message(STATUS "LATTISENSE_ENABLE_FPGA: ${LATTISENSE_ENABLE_FPGA}")
+if(LATTISENSE_ENABLE_FPGA)
+    add_definitions(-DLATTISENSE_ENABLE_FPGA)
+endif()
+
+set(LATTISENSE_FPGA_RESOURCE_DIR "${CMAKE_BINARY_DIR}/backends/lattisense-fpga/lattisense-fpga-runtime/resource/fpga_tasks"
+    CACHE PATH "Path to FPGA resource files (load_roots etc.)")
+message(STATUS "LATTISENSE_FPGA_RESOURCE_DIR: ${LATTISENSE_FPGA_RESOURCE_DIR}")
+
 option(LATTISENSE_PRINT_PROFILE "Profile mode" OFF)
 if(LATTISENSE_PRINT_PROFILE)
     add_definitions(-DPRINT_PROFILE)
@@ -199,6 +209,10 @@ add_subdirectory(cxx_sdk_v2)
 
 add_subdirectory(mega_ag_runners)
 
+if(LATTISENSE_ENABLE_FPGA)
+    add_subdirectory(backends/lattisense-fpga/lattisense-fpga-runtime)
+endif()
+
 if(LATTISENSE_BUILD_TESTS)
     add_subdirectory(unittests)
 endif()
@@ -213,6 +227,12 @@ if(LATTISENSE_BUILD_MODE STREQUAL "SHARED")
         $<TARGET_OBJECTS:mega_ag_obj>
         $<TARGET_OBJECTS:cpu_mega_ag_runner_obj>
     )
+    if(LATTISENSE_ENABLE_FPGA)
+        target_sources(lattisense PRIVATE
+            $<TARGET_OBJECTS:fpga_mega_ag_runner_obj>
+            $<TARGET_OBJECTS:fpga_bfv_obj>
+        )
+    endif()
     if(LATTISENSE_ENABLE_GPU)
         target_sources(lattisense PRIVATE
             $<TARGET_OBJECTS:gpu_mega_ag_runner_obj>
@@ -258,11 +278,7 @@ endif()
 option(LATTISENSE_BUILD_SEAL_PLUG_IN "Build lattisense plug-in for SEAL" OFF)
 message(STATUS "LATTISENSE_BUILD_SEAL_PLUG_IN: ${LATTISENSE_BUILD_SEAL_PLUG_IN}")
 if(LATTISENSE_BUILD_SEAL_PLUG_IN)
-    if(LATTISENSE_ENABLE_GPU)
-        add_subdirectory(plug-in/SEAL)
-    else()
-        message(WARNING "LATTISENSE_BUILD_SEAL_PLUG_IN requires LATTISENSE_ENABLE_GPU=ON. SEAL plug-in will not be built.")
-    endif()
+    add_subdirectory(plug-in/SEAL)
 endif()
 
 # install

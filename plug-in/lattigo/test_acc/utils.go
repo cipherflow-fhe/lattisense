@@ -13,7 +13,8 @@ import (
 )
 
 var (
-	gpu_base_path  = "/acc_test/integrate/gpu_tests"
+	fpga_base_path = "../../../../test-data/fpga_tests/noc_config_16c_3"
+	gpu_base_path  = "../../../../test-data/gpu_tests"
 )
 
 func testString(opname string, p interface{}, lvl int) string {
