@@ -15,7 +15,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include <iostream>
-#include <fstream>
 #include <unordered_map>
 #include <vector>
 #include <thread>
@@ -36,6 +35,7 @@
 #include "../mega_ag.h"
 #include "gpu_abi_bridge_executors.h"
 #include "../cpu_task_utils.h"
+#include "gpu_mem_monitor.h"
 #include "../../fhe_ops_lib/fhe_lib_v2.h"
 
 extern "C" {
@@ -326,6 +326,10 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args, gsl::span<CArgument> out
     // Run tasks using common run_tasks function
     // CPU pool handles CPU nodes, GPU tasks submitted via submit_gpu_task
     // Pass cleanup to wait for GPU pool and clean up events before returning
+#ifdef LATTISENSE_DEV
+    GpuMemoryMonitor gpu_mem_monitor(100);  // sample every 100 ms
+    gpu_mem_monitor.start();
+#endif
     run_tasks(mega_ag, cpu_pool, base_cpu_context, available_data, get_other_args, submit_gpu_task,
               [&gpu_pool, &data_ready_events]() {
                   gpu_pool.wait();
@@ -335,6 +339,9 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args, gsl::span<CArgument> out
                   }
                   gpu_pool.wait();
               });
+#ifdef LATTISENSE_DEV
+    gpu_mem_monitor.stop(GpuMemoryMonitor::next_csv_path("mem_usage_gpu"));
+#endif
 }
 
 // Dispatch function to call _run_mega_ag_impl with appropriate TContext
@@ -354,7 +361,7 @@ void _run_mega_ag(gsl::span<CArgument> input_args, gsl::span<CArgument> output_a
 class FheGpuTask {
 public:
     FheGpuTask(const std::string& project_path) {
-        mega_ag_ = MegaAG::load(project_path + "/mega_ag.json", Processor::GPU);
+        mega_ag_ = MegaAG::load(project_path + "/mega_ag.json", Processor::GPU, ScheduleMode::MEMORY_FIRST);
 
         cudaSetDevice(0);
 

@@ -22,6 +22,7 @@
 
 #include "../mega_ag.h"
 #include "../cpu_task_utils.h"
+#include "../cpu_mem_monitor.h"
 #include "../../fhe_ops_lib/fhe_lib_v2.h"
 #include "../../lib/thread_pool/BS_thread_pool.hpp"
 #include "../../lib/gsl/span"
@@ -39,6 +40,8 @@ extern "C" {
 #include <iostream>
 #include <any>
 #include <memory>
+#include <fstream>
+#include <thread>
 
 namespace cpu_wrapper {
 
@@ -74,7 +77,14 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args, gsl::span<CArgument> out
     };
 
     // Run CPU tasks in thread pool
+#ifdef LATTISENSE_DEV
+    MemoryMonitor mem_monitor(100);  // sample every 100 ms
+    mem_monitor.start();
+#endif
     run_tasks(mega_ag, pool, context, available_data, get_other_args);
+#ifdef LATTISENSE_DEV
+    mem_monitor.stop(MemoryMonitor::next_csv_path("mem_usage_cpu"));
+#endif
 
     auto end = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
