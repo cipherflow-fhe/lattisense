@@ -35,8 +35,11 @@
 #include "../mega_ag.h"
 #include "gpu_abi_bridge_executors.h"
 #include "../cpu_task_utils.h"
-#include "gpu_mem_monitor.h"
 #include "../../fhe_ops_lib/fhe_lib_v2.h"
+
+#ifdef LATTISENSE_DEV
+#    include "gpu_mem_monitor.h"
+#endif
 
 extern "C" {
 #include "../../fhe_ops_lib/fhe_types_v2.h"

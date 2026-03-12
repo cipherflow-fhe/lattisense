@@ -22,10 +22,13 @@
 
 #include "../mega_ag.h"
 #include "../cpu_task_utils.h"
-#include "../cpu_mem_monitor.h"
 #include "../../fhe_ops_lib/fhe_lib_v2.h"
 #include "../../lib/thread_pool/BS_thread_pool.hpp"
 #include "../../lib/gsl/span"
+
+#ifdef LATTISENSE_DEV
+#    include "../cpu_mem_monitor.h"
+#endif
 
 extern "C" {
 #include "../wrapper.h"
