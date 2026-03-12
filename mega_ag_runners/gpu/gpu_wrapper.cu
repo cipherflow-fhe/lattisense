@@ -278,7 +278,7 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args, gsl::span<CArgument> out
                     }
 
                     // Update available computes
-                    std::set<NodeIndex> newly_available_computes =
+                    std::unordered_set<NodeIndex> newly_available_computes =
                         mega_ag.step_available_computes(*compute_output_node, available_data);
 
                     for (const auto& new_task_index : newly_available_computes) {
@@ -354,7 +354,7 @@ void _run_mega_ag(gsl::span<CArgument> input_args, gsl::span<CArgument> output_a
 class FheGpuTask {
 public:
     FheGpuTask(const std::string& project_path) {
-        mega_ag_ = MegaAG::from_json(project_path + "/mega_ag.json", Processor::GPU);
+        mega_ag_ = MegaAG::load(project_path + "/mega_ag.json", Processor::GPU);
 
         cudaSetDevice(0);
 

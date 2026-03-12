@@ -20,6 +20,7 @@
 
 #include <cstdint>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 #include <set>
 #include <string>
@@ -148,11 +149,11 @@ struct ComputeNode {
     int priority = 0;
 
     // Graph structural properties for scheduling, computed by MegaAG::compute_graph_properties()
-    struct ScheduleProp {
-        int depth = 0;   // longest path from any source compute node to this node
-        int height = 0;  // longest path from this node to any sink compute node
+    struct ScheduleMeta {
+        int top_level = 0;     // longest path from any source compute node to this node
+        int bottom_level = 0;  // longest path from this node to any sink compute node
     };
-    ScheduleProp schedule_prop;
+    ScheduleMeta sched_meta;
 
     // FHE-specific properties (use custom_prop.has_value() to check if custom node)
     struct FheProperty {
@@ -177,11 +178,11 @@ struct ComputeNode {
 /**
  * @brief Scheduling mode for compute node priority computation.
  *
- * PERFORMANCE_FIRST: height (longest path to sink) — minimizes makespan.
- * MEMORY_FIRST:      depth (longest path from source) — minimizes peak memory.
+ * MAKESPAN_FIRST: bottom_level (longest path to sink) — minimizes makespan.
+ * MEMORY_FIRST:  -bottom_level (prefer nodes closer to sink) — reduces peak memory by completing in-flight paths first.
  */
 enum class ScheduleMode {
-    PERFORMANCE_FIRST,
+    MAKESPAN_FIRST,
     MEMORY_FIRST,
 };
 
@@ -195,7 +196,12 @@ struct MegaAG {
     Processor processor = Processor::CPU;
     Algo algo = ALGO_BFV;
 
-    static MegaAG from_json(const std::string& json_path, Processor processor);
+    /**
+     * @brief Load a MegaAG from JSON, apply processor layout, and compute scheduling priorities.
+     *        This is the primary entry point for constructing a ready-to-run MegaAG.
+     */
+    static MegaAG
+    load(const std::string& json_path, Processor processor, ScheduleMode mode = ScheduleMode::MAKESPAN_FIRST);
 
     void bind_abi_bridge_executors(const ExecutorFunc& abi_export,
                                    const ExecutorFunc& abi_import,
@@ -230,8 +236,8 @@ struct MegaAG {
     }
 
     template <typename T>
-    std::set<NodeIndex> get_available_computes(const std::unordered_map<NodeIndex, T>& available_data) const {
-        std::set<NodeIndex> available_computes;
+    std::unordered_set<NodeIndex> get_available_computes(const std::unordered_map<NodeIndex, T>& available_data) const {
+        std::unordered_set<NodeIndex> available_computes;
         for (const auto& [compute_index, compute_node] : this->computes) {
             bool input_missing = false;
 
@@ -250,9 +256,10 @@ struct MegaAG {
     }
 
     template <typename T>
-    std::set<NodeIndex> step_available_computes(const DatumNode& newly_available_datum,
-                                                const std::unordered_map<NodeIndex, T>& available_data) const {
-        std::set<uint64_t> newly_available_computes;
+    std::unordered_set<NodeIndex>
+    step_available_computes(const DatumNode& newly_available_datum,
+                            const std::unordered_map<NodeIndex, T>& available_data) const {
+        std::unordered_set<NodeIndex> newly_available_computes;
 
         for (auto* compute_node : newly_available_datum.successors) {
             bool input_missing = false;
@@ -284,10 +291,24 @@ struct MegaAG {
     }
 
     /**
-     * @brief Compute depth/height for each compute node, then set priority by ScheduleMode.
+     * @brief Compute top_level/bottom_level for each compute node, then set priority by ScheduleMode.
      *
-     * PERFORMANCE_FIRST: priority = height (longer remaining critical path runs first).
-     * MEMORY_FIRST:      priority = -depth (shallower nodes run first, delaying data production).
+     * MAKESPAN_FIRST: priority = bottom_level (longer remaining critical path runs first).
+     * MEMORY_FIRST:  priority = -bottom_level (prefer nodes closer to sink, completing in-flight paths to free memory).
      */
     void compute_properties(ScheduleMode mode);
+
+private:
+    static MegaAG from_json(const std::string& json_path, Processor processor);
+
+    // Inserts ABI bridge nodes for the target processor and sets on_cpu for all compute nodes.
+    void apply_processor_layout();
+
+    std::pair<NodeIndex, NodeIndex> get_next_indices() const;
+    void rebuild_bridge_relationships(std::initializer_list<OperationType> bridge_ops);
+    void insert_gpu_abi_bridge_nodes();
+    void insert_fpga_abi_bridge_nodes();
+    void insert_cpu_abi_bridge_nodes();
+    void compute_top_levels();
+    void compute_bottom_levels();
 };

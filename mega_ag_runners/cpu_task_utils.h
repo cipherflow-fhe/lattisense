@@ -443,7 +443,7 @@ void run_tasks(const MegaAG& mega_ag,
                     mega_ag.purge_unused_data(compute_node, data_ref_counts, available_data);
 
                     // Find newly available computes
-                    std::set<NodeIndex> newly_available_computes =
+                    std::unordered_set<NodeIndex> newly_available_computes =
                         mega_ag.step_available_computes(*compute_output_node, available_data);
 
                     for (const auto& new_task_index : newly_available_computes) {
@@ -465,7 +465,7 @@ void run_tasks(const MegaAG& mega_ag,
         };
 
     // Get initial available computes and initialize task queue
-    std::set<NodeIndex> available_computes = mega_ag.get_available_computes(available_data);
+    std::unordered_set<NodeIndex> available_computes = mega_ag.get_available_computes(available_data);
     for (const auto& task_index : available_computes) {
         int pri = mega_ag.computes.at(task_index).priority;
         task_queue.push({mega_ag.computes.at(task_index).priority, task_index});
