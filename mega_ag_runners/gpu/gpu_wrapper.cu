@@ -364,7 +364,7 @@ void _run_mega_ag(gsl::span<CArgument> input_args, gsl::span<CArgument> output_a
 class FheGpuTask {
 public:
     FheGpuTask(const std::string& project_path) {
-        mega_ag_ = MegaAG::load(project_path + "/mega_ag.json", Processor::GPU, ScheduleMode::MEMORY_FIRST);
+        mega_ag_ = MegaAG::load(project_path + "/mega_ag.json", Processor::GPU);
 
         cudaSetDevice(0);
 
