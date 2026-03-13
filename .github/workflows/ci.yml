@@ -8,13 +8,23 @@ on:
     branches: [main]
   workflow_dispatch:
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
   build-and-test:
-    runs-on: ubuntu-22.04
+    runs-on: [self-hosted, linux, gpu]
+    container:
+      image: lattisense-ci:latest
+      options: --gpus all
+      volumes:
+        - /opt/heongpu-cache:/opt/heongpu-cache
+        - /opt/go-mod-cache:/root/go/pkg/mod
     timeout-minutes: 60
 
     steps:
@@ -23,42 +33,81 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Install dependencies
+      - name: Verify prerequisites
         run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential cmake python3 python3-pip
-          pip3 install networkx
+          g++ --version | head -1
+          cmake --version | head -1
+          go version
+          nvcc --version | tail -1
+          nvidia-smi --query-gpu=name --format=csv,noheader
+          python3 --version
 
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.24.0'
+      - name: Build HEonGPU (cached)
+        run: |
+          HEONGPU_COMMIT=$(git -C HEonGPU rev-parse HEAD)
+          CACHE_DIR="/opt/heongpu-cache/${HEONGPU_COMMIT}"
+          if [ -d "${CACHE_DIR}/install/lib" ]; then
+            echo "Using cached HEonGPU build (${HEONGPU_COMMIT:0:8})"
+            cp -a "${CACHE_DIR}/install" HEonGPU/install
+            cp -a "${CACHE_DIR}/build" HEonGPU/build
+          else
+            echo "Building HEonGPU from scratch"
+            cd HEonGPU
+            cmake -S . -B build \
+              -DCMAKE_CUDA_ARCHITECTURES=86 \
+              -DCMAKE_CUDA_COMPILER=/usr/local/cuda/bin/nvcc \
+              -DCMAKE_INSTALL_PREFIX=$(pwd)/install
+            cmake --build build -j$(nproc)
+            cmake --install build
+            cd ..
+            mkdir -p "${CACHE_DIR}"
+            cp -a HEonGPU/install "${CACHE_DIR}/"
+            cp -a HEonGPU/build "${CACHE_DIR}/"
+            ls -dt /opt/heongpu-cache/*/ 2>/dev/null | tail -n +4 | xargs rm -rf 2>/dev/null || true
+          fi
 
-      - name: Build SDK
+      - name: Build SDK (CPU + GPU)
         run: |
           mkdir -p build && cd build
-          cmake .. -DLATTISENSE_BUILD_TESTS=ON
+          cmake .. \
+            -DLATTISENSE_BUILD_TESTS=ON \
+            -DLATTISENSE_ENABLE_GPU=ON \
+            -DLATTISENSE_CUDA_ARCH=86
           make -j$(nproc)
 
       - name: Generate test data
         run: |
           cd unittests
-          export PYTHONPATH=${{ github.workspace }}/build/unittests:${{ github.workspace }}:$PYTHONPATH
+          export PYTHONPATH=$GITHUB_WORKSPACE/build/unittests:$GITHUB_WORKSPACE:$PYTHONPATH
           python3 test_cpu_bfv.py
           python3 test_cpu_ckks.py
+          python3 test_gpu_bfv.py
+          python3 test_gpu_ckks.py
 
-      - name: Run tests
-        timeout-minutes: 30
+      - name: Run CPU tests
+        timeout-minutes: 20
         run: |
           cd build/unittests
-          export LD_LIBRARY_PATH=${{ github.workspace }}/build/lib:$LD_LIBRARY_PATH
+          export LD_LIBRARY_PATH=$GITHUB_WORKSPACE/build/lib:$LD_LIBRARY_PATH
           ./test_lattigo
           ./test_mp_lattigo
           ./test_cpu_bfv
           ./test_cpu_ckks
 
+      - name: Run GPU tests
+        timeout-minutes: 20
+        run: |
+          cd build/unittests
+          export LD_LIBRARY_PATH=$GITHUB_WORKSPACE/build/lib:$GITHUB_WORKSPACE/HEonGPU/install/lib:$LD_LIBRARY_PATH
+          ./test_gpu_bfv
+          ./test_gpu_ckks
+
   build-docker:
-    runs-on: ubuntu-22.04
+    runs-on: [self-hosted, linux, gpu]
+    container:
+      image: lattisense-ci:latest
+      volumes:
+        - /var/run/docker.sock:/var/run/docker.sock
     needs: build-and-test
     timeout-minutes: 60
     permissions:
@@ -122,3 +171,8 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker image prune -f
