@@ -7,7 +7,7 @@ RUN apt-get update && apt-get install -y \
     build-essential git wget ca-certificates \
     python3 python3-pip \
     clang-tidy \
-    zlib1g-dev libssl-dev libomp-dev \
+    zlib1g-dev libssl-dev libomp-dev libgmp-dev \
     docker.io \
     && rm -rf /var/lib/apt/lists/*
 
