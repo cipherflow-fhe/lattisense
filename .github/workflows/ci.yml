@@ -20,7 +20,7 @@ jobs:
   build-and-test:
     runs-on: [self-hosted, linux, gpu]
     container:
-      image: lattisense-ci:latest
+      image: localhost:5000/lattisense-ci:latest
       options: --gpus all
       volumes:
         - /opt/heongpu-cache:/opt/heongpu-cache
@@ -105,7 +105,7 @@ jobs:
   build-docker:
     runs-on: [self-hosted, linux, gpu]
     container:
-      image: lattisense-ci:latest
+      image: localhost:5000/lattisense-ci:latest
       volumes:
         - /var/run/docker.sock:/var/run/docker.sock
     needs: build-and-test
