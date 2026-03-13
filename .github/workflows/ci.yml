@@ -42,6 +42,10 @@ jobs:
           nvidia-smi --query-gpu=name --format=csv,noheader
           python3 --version
 
+      - name: Configure git mirrors for China
+        run: |
+          git config --global url."https://gitee.com/nvidia_mirror/cccl.git".insteadOf "https://github.com/NVIDIA/cccl.git"
+
       - name: Build HEonGPU (cached)
         run: |
           HEONGPU_COMMIT=$(git -C HEonGPU rev-parse HEAD)
