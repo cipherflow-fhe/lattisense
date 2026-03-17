@@ -110,6 +110,7 @@ jobs:
           ./test_gpu_ckks
 
   build-docker:
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
     runs-on: [self-hosted, linux, gpu]
     defaults:
       run:
