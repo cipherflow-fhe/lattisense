@@ -58,7 +58,7 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args, gsl::span<CArgument> out
     auto start = std::chrono::high_resolution_clock::now();
 
     int num_threads = std::min(32, static_cast<int>(std::thread::hardware_concurrency()));
-    BS::thread_pool pool(num_threads);
+    BS::priority_thread_pool pool(num_threads);
 
     // Extract input handles and build available_data map
     std::vector<void*> input_handles = extract_input_handles(input_args, false);

@@ -128,8 +128,8 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args, gsl::span<CArgument> out
     std::vector<cudaStream_t> streams(num_streams);
     std::vector<heongpu::ExecutionOptions> stream_options(num_streams);
 
-    // GPU thread pool for GPU FHE operations
-    BS::thread_pool gpu_pool(num_streams);
+    // GPU thread pool for GPU FHE operations (priority-enabled to avoid high-priority tasks being starved)
+    BS::priority_thread_pool gpu_pool(num_streams);
 
     for (int i = 0; i < num_streams; i++) {
         CHECK(cudaStreamCreate(&streams[i]));
@@ -138,7 +138,7 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args, gsl::span<CArgument> out
 
     // CPU thread pool for CPU tasks (custom nodes + ABI bridge nodes)
     const int num_cpu_threads = std::min(16, static_cast<int>(std::thread::hardware_concurrency())) - num_streams;
-    BS::thread_pool cpu_pool(num_cpu_threads > 0 ? num_cpu_threads : 1);
+    BS::priority_thread_pool cpu_pool(num_cpu_threads > 0 ? num_cpu_threads : 1);
 
     // Create CPU contexts for CPU nodes (ABI bridge only, no keys needed)
     constexpr HEScheme cpu_scheme = (SchemeType == heongpu::Scheme::BFV) ? HEScheme::BFV : HEScheme::CKKS;
@@ -175,7 +175,8 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args, gsl::span<CArgument> out
                               std::atomic<size_t>& total_tasks, std::condition_variable& completion_cv,
                               std::mutex& completion_mutex,
                               std::unordered_map<NodeIndex, std::atomic<int>>& data_ref_counts) {
-            gpu_pool.detach_task([task_index, &gpu_pool, &mega_ag, &m_mutex, &task_queue, &queued_computes,
+            const BS::priority_t pool_priority = mega_ag.computes.at(task_index).priority;
+            gpu_pool.detach_task([task_index, pool_priority, &gpu_pool, &mega_ag, &m_mutex, &task_queue, &queued_computes,
                                   &completed_tasks, &total_tasks, &completion_cv, &completion_mutex, &available_data,
                                   &operators, &data_ready_events, &stream_options, &streams, &context, &galois_key,
                                   &galois_key_mutex, &data_ref_counts, &all_galois_elts]() {
@@ -303,14 +304,14 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args, gsl::span<CArgument> out
                         std::lock_guard<std::mutex> lock(m_mutex);
                         mega_ag.purge_unused_data(compute_node, data_ref_counts, available_data);
                     }
-                });
+                }, pool_priority);
 
                 // Check if all tasks are completed (in this thread, not async lambda)
                 if (completed_tasks.fetch_add(1) + 1 >= total_tasks) {
                     std::lock_guard<std::mutex> lock(completion_mutex);
                     completion_cv.notify_all();
                 }
-            });
+            }, pool_priority);
         };
 
     // Define get_other_args for IMPORT_FROM_ABI nodes: pass output Handle* as other_arg

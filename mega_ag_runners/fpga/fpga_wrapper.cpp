@@ -204,7 +204,7 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
     };
 
     // Create single-thread pool used for both CPU bridge tasks and the async fpga_run task.
-    BS::thread_pool pool(1);
+    BS::priority_thread_pool pool(1);
 
     // Define submit_fpga_task: called by run_tasks when the composite "fpga_run" node
     // becomes schedulable (i.e. all LOAD_TO_BACKEND operations have completed).

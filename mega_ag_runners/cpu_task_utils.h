@@ -189,7 +189,7 @@ void init_context(const nlohmann::json& param_json,
  * @return Vector of unique_ptrs to context copies, one per thread
  */
 template <typename TContext>
-std::vector<std::unique_ptr<TContext>> create_thread_contexts(BS::thread_pool<>& pool,
+std::vector<std::unique_ptr<TContext>> create_thread_contexts(BS::priority_thread_pool& pool,
                                                               const std::unique_ptr<TContext>& context) {
     const size_t num_threads = pool.get_thread_count();
     std::vector<std::unique_ptr<TContext>> context_ptrs(num_threads);
@@ -358,7 +358,7 @@ struct TaskInfo {
  */
 template <typename TContext>
 void run_tasks(const MegaAG& mega_ag,
-               BS::thread_pool<>& pool,
+               BS::priority_thread_pool& pool,
                const std::unique_ptr<TContext>& base_context,
                std::unordered_map<NodeIndex, std::any>& available_data,
                std::function<std::vector<std::any>(const ComputeNode&)> get_other_args = nullptr,
@@ -392,6 +392,7 @@ void run_tasks(const MegaAG& mega_ag,
     // Define CPU task submission function
     std::function<void(NodeIndex, const std::vector<std::any>&)> submit_task =
         [&](NodeIndex task_index, const std::vector<std::any>& other_args) {
+            const BS::priority_t pool_priority = mega_ag.computes.at(task_index).priority;
             pool.detach_task([task_index, &mega_ag, &completed_tasks, &total_tasks, &m_mutex, &completion_mutex,
                               &completion_cv, &available_data, &context_ptrs, &task_queue, &queued_computes,
                               &data_ref_counts, other_args]() {
@@ -449,7 +450,7 @@ void run_tasks(const MegaAG& mega_ag,
                     for (const auto& new_task_index : newly_available_computes) {
                         if (queued_computes.find(new_task_index) == queued_computes.end()) {
                             int pri = mega_ag.computes.at(new_task_index).priority;
-                            task_queue.push({mega_ag.computes.at(new_task_index).priority, new_task_index});
+                            task_queue.push({pri, new_task_index});
                             queued_computes.insert(new_task_index);
                         }
                     }
@@ -461,14 +462,14 @@ void run_tasks(const MegaAG& mega_ag,
                     std::lock_guard<std::mutex> lock(completion_mutex);
                     completion_cv.notify_all();
                 }
-            });
+            }, pool_priority);
         };
 
     // Get initial available computes and initialize task queue
     std::unordered_set<NodeIndex> available_computes = mega_ag.get_available_computes(available_data);
     for (const auto& task_index : available_computes) {
         int pri = mega_ag.computes.at(task_index).priority;
-        task_queue.push({mega_ag.computes.at(task_index).priority, task_index});
+        task_queue.push({pri, task_index});
         queued_computes.insert(task_index);
     }
 
