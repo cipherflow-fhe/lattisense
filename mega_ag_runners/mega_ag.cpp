@@ -336,8 +336,25 @@ void MegaAG::compute_properties(ScheduleMode mode) {
 
     for (auto& [idx, node] : computes) {
         switch (mode) {
-            case ScheduleMode::MAKESPAN_FIRST: node.priority = node.sched_meta.bottom_level; break;
-            case ScheduleMode::MEMORY_FIRST: node.priority = -node.sched_meta.bottom_level; break;
+            case ScheduleMode::MAKESPAN_FIRST:
+                node.priority = node.sched_meta.bottom_level;
+                break;
+            case ScheduleMode::MEMORY_FIRST: {
+                // Secondary: among same bottom_level, prefer consuming the highest-level
+                // (most expensive) CT input first — frees costly memory sooner.
+                int max_in_level = 0;
+                for (const DatumNode* d : node.input_nodes) {
+                    if (d->fhe_prop.has_value() &&
+                        d->datum_type != DataType::TYPE_RELIN_KEY &&
+                        d->datum_type != DataType::TYPE_GALOIS_KEY &&
+                        d->datum_type != DataType::TYPE_SWITCH_KEY) {
+                        max_in_level = std::max(max_in_level, d->fhe_prop->level);
+                    }
+                }
+                constexpr int level_bound = 32;  // > max CT level, keeps bottom_level dominant
+                node.priority = node.sched_meta.bottom_level * level_bound + max_in_level;
+                break;
+            }
         }
     }
 }

@@ -124,7 +124,7 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args, gsl::span<CArgument> out
     init_gpu_context<SchemeType>(mega_ag.parameter, context, operators);
 
     // GPU streams for FHE computations
-    const int num_streams = 8;
+    const int num_streams = 2;
     std::vector<cudaStream_t> streams(num_streams);
     std::vector<heongpu::ExecutionOptions> stream_options(num_streams);
 
@@ -332,7 +332,7 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args, gsl::span<CArgument> out
     // Pass cleanup to wait for GPU pool and clean up events before returning
 #ifdef LATTISENSE_DEV
     GpuMemoryMonitor gpu_mem_monitor(100);  // sample every 100 ms
-    gpu_mem_monitor.start();
+    gpu_mem_monitor.start(GpuMemoryMonitor::next_csv_path("mem_usage_gpu"));
 #endif
     run_tasks(mega_ag, cpu_pool, base_cpu_context, available_data, get_other_args, submit_gpu_task,
               [&gpu_pool, &data_ready_events]() {
@@ -344,7 +344,7 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args, gsl::span<CArgument> out
                   gpu_pool.wait();
               });
 #ifdef LATTISENSE_DEV
-    gpu_mem_monitor.stop(GpuMemoryMonitor::next_csv_path("mem_usage_gpu"));
+    gpu_mem_monitor.stop();
 #endif
 }
 
@@ -365,7 +365,7 @@ void _run_mega_ag(gsl::span<CArgument> input_args, gsl::span<CArgument> output_a
 class FheGpuTask {
 public:
     FheGpuTask(const std::string& project_path) {
-        mega_ag_ = MegaAG::load(project_path + "/mega_ag.json", Processor::GPU);
+        mega_ag_ = MegaAG::load(project_path + "/mega_ag.json", Processor::GPU, ScheduleMode::MEMORY_FIRST);
 
         cudaSetDevice(0);
 

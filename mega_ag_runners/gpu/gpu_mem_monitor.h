@@ -30,6 +30,9 @@
 // GpuMemoryMonitor: background thread that samples HEonGPU RMM MemoryPool
 // usage every `interval_ms` milliseconds.
 //
+// Each sample is flushed to the CSV file immediately, so data is preserved
+// even if the process is killed abnormally (SIGKILL, crash, etc.).
+//
 // Reports actual pool-level allocation (what application code really uses),
 // not the pool reservation that NVML/cudaMemGetInfo would report.
 // ---------------------------------------------------------------------------
@@ -46,8 +49,23 @@ struct GpuMemoryMonitor {
     int                                   interval_ms;
     double                                used_at_start_gb{0.0};
     std::chrono::steady_clock::time_point t0;
+    std::ofstream                         ofs_live;   // written continuously
+    std::string                           csv_path_;
 
     explicit GpuMemoryMonitor(int interval_ms_ = 100) : interval_ms(interval_ms_) {}
+
+    // Destructor ensures the file is flushed and closed even on abnormal exit
+    // (uncaught exception, early return, etc.). SIGKILL cannot be caught, but
+    // since each sample is already flushed, the data written so far is safe.
+    ~GpuMemoryMonitor() {
+        if (running.exchange(false)) {
+            if (thr.joinable()) thr.join();
+        }
+        if (ofs_live.is_open()) {
+            ofs_live.flush();
+            ofs_live.close();
+        }
+    }
 
     // Returns "base_NNNN.csv" where NNNN is the first index with no existing file.
     static std::string next_csv_path(const std::string& base = "mem_usage_gpu") {
@@ -71,7 +89,15 @@ struct GpuMemoryMonitor {
                 (used + free_) / 1024.0 / 1024.0 / 1024.0};
     }
 
-    void start() {
+    // Open the CSV and start the background sampling thread.
+    // The file is written sample-by-sample so it survives abnormal termination.
+    void start(const std::string& csv_path = "mem_usage_gpu.csv") {
+        csv_path_ = csv_path;
+
+        ofs_live.open(csv_path_, std::ios::out | std::ios::trunc);
+        ofs_live << "elapsed_ms,used_gb,pool_gb\n";
+        ofs_live.flush();
+
         used_at_start_gb = MemoryPool::instance().get_current_device_pool_memory_usage()
                            / 1024.0 / 1024.0 / 1024.0;
         t0 = std::chrono::steady_clock::now();
@@ -80,13 +106,22 @@ struct GpuMemoryMonitor {
             while (running) {
                 auto now = std::chrono::steady_clock::now();
                 long ms  = std::chrono::duration_cast<std::chrono::milliseconds>(now - t0).count();
-                samples.push_back(read_pool(ms));
+                Sample s = read_pool(ms);
+                samples.push_back(s);
+
+                // Write and flush immediately so data survives a kill signal.
+                ofs_live << s.elapsed_ms
+                         << "," << std::fixed << s.used_gb
+                         << "," << std::fixed << s.pool_gb
+                         << "\n";
+                ofs_live.flush();
+
                 std::this_thread::sleep_for(std::chrono::milliseconds(interval_ms));
             }
         });
     }
 
-    void stop(const std::string& csv_path = "mem_usage_gpu.csv") {
+    void stop() {
         running = false;
         if (thr.joinable())
             thr.join();
@@ -94,7 +129,15 @@ struct GpuMemoryMonitor {
         // Final sample
         auto now = std::chrono::steady_clock::now();
         long ms  = std::chrono::duration_cast<std::chrono::milliseconds>(now - t0).count();
-        samples.push_back(read_pool(ms));
+        Sample final_s = read_pool(ms);
+        samples.push_back(final_s);
+
+        ofs_live << final_s.elapsed_ms
+                 << "," << std::fixed << final_s.used_gb
+                 << "," << std::fixed << final_s.pool_gb
+                 << "\n";
+        ofs_live.flush();
+        ofs_live.close();
 
         double peak_used_gb = 0.0, sum_used_gb = 0.0;
         for (auto& s : samples) {
@@ -115,15 +158,7 @@ struct GpuMemoryMonitor {
         fprintf(stderr, "[GPU-MEM] Avg  Used      : %.2f GB\n",   avg_used_gb);
         fprintf(stderr, "[GPU-MEM] Final Used     : %.2f GB\n",   samples.back().used_gb);
         fprintf(stderr, "[GPU-MEM] Duration       : %ld ms\n",    samples.back().elapsed_ms);
-        fprintf(stderr, "[GPU-MEM] CSV            : %s\n",        csv_path.c_str());
+        fprintf(stderr, "[GPU-MEM] CSV            : %s\n",        csv_path_.c_str());
         fprintf(stderr, "[GPU-MEM] ----------------------------------------------\n\n");
-
-        std::ofstream ofs(csv_path);
-        ofs << "elapsed_ms,used_gb,pool_gb\n";
-        for (auto& s : samples)
-            ofs << s.elapsed_ms
-                << "," << std::fixed << s.used_gb
-                << "," << std::fixed << s.pool_gb
-                << "\n";
     }
 };
