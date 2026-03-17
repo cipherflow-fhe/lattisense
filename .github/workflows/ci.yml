@@ -19,6 +19,9 @@ env:
 jobs:
   build-and-test:
     runs-on: [self-hosted, linux, gpu]
+    defaults:
+      run:
+        shell: bash
     container:
       image: localhost:5000/lattisense-ci:latest
       options: --gpus all
@@ -108,6 +111,9 @@ jobs:
 
   build-docker:
     runs-on: [self-hosted, linux, gpu]
+    defaults:
+      run:
+        shell: bash
     container:
       image: localhost:5000/lattisense-ci:latest
       volumes:
