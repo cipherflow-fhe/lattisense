@@ -28,7 +28,9 @@
 // ---------------------------------------------------------------------------
 // MemoryMonitor: background thread that samples /proc/self/status every
 // `interval_ms` milliseconds and records (elapsed_ms, VmRSS_kB) pairs.
-// After stop(), dumps a CSV and prints peak/avg/final stats to stderr.
+//
+// Each sample is flushed to the CSV file immediately, so data is preserved
+// even if the process is killed abnormally (SIGKILL, crash, OOM, etc.).
 // ---------------------------------------------------------------------------
 struct MemoryMonitor {
     struct MemInfo {
@@ -47,8 +49,24 @@ struct MemoryMonitor {
     long rss_at_start{0};
     long hwm_at_start{0};
     std::chrono::steady_clock::time_point t0;
+    std::ofstream ofs_live;  // written continuously
+    std::string csv_path_;
 
-    explicit MemoryMonitor(int interval_ms_ = 200) : interval_ms(interval_ms_) {}
+    explicit MemoryMonitor(int interval_ms_ = 100) : interval_ms(interval_ms_) {}
+
+    // Destructor ensures the file is flushed and closed even on abnormal exit
+    // (uncaught exception, early return, etc.). SIGKILL cannot be caught, but
+    // since each sample is already flushed, the data written so far is safe.
+    ~MemoryMonitor() {
+        if (running.exchange(false)) {
+            if (thr.joinable())
+                thr.join();
+        }
+        if (ofs_live.is_open()) {
+            ofs_live.flush();
+            ofs_live.close();
+        }
+    }
 
     // Read VmRSS + AnonHugePages and VmHWM from /proc/self/status.
     // AnonHugePages are resident but not counted in VmRSS on some kernels;
@@ -77,19 +95,28 @@ struct MemoryMonitor {
         return {rss + anon_huge, hwm};
     }
 
-    // Returns "base_NNNN.csv" where NNNN is the first index with no existing file.
+    // Returns "base_NNNN.csv" where NNNN is one past the highest existing index.
     static std::string next_csv_path(const std::string& base = "mem_usage_cpu") {
-        char buf[8];
+        char buf[16];
+        int next = 0;
         for (int i = 0; i < 10000; ++i) {
             snprintf(buf, sizeof(buf), "%04d", i);
-            std::string path = base + "_" + buf + ".csv";
-            if (!std::ifstream(path).good())
-                return path;
+            if (std::ifstream(base + "_" + buf + ".csv").good())
+                next = i + 1;
         }
-        return base + "_9999.csv";
+        snprintf(buf, sizeof(buf), "%04d", next < 10000 ? next : 9999);
+        return base + "_" + buf + ".csv";
     }
 
-    void start() {
+    // Open the CSV and start the background sampling thread.
+    // The file is written sample-by-sample so it survives abnormal termination.
+    void start(const std::string& csv_path = "mem_usage_cpu.csv") {
+        csv_path_ = csv_path;
+
+        ofs_live.open(csv_path_, std::ios::out | std::ios::trunc);
+        ofs_live << "elapsed_ms,rss_kb,rss_gb\n";
+        ofs_live.flush();
+
         auto m = read_mem();
         rss_at_start = m.rss_kb;
         hwm_at_start = m.hwm_kb;
@@ -101,12 +128,17 @@ struct MemoryMonitor {
                 long ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - t0).count();
                 auto m = read_mem();
                 samples.push_back({ms, m.rss_kb});
+
+                // Write and flush immediately so data survives a kill signal.
+                ofs_live << ms << "," << m.rss_kb << "," << std::fixed << m.rss_kb / 1024.0 / 1024.0 << "\n";
+                ofs_live.flush();
+
                 std::this_thread::sleep_for(std::chrono::milliseconds(interval_ms));
             }
         });
     }
 
-    void stop(const std::string& csv_path = "mem_usage_cpu.csv") {
+    void stop() {
         running = false;
         if (thr.joinable())
             thr.join();
@@ -116,6 +148,10 @@ struct MemoryMonitor {
         long ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - t0).count();
         auto m = read_mem();
         samples.push_back({ms, m.rss_kb});
+
+        ofs_live << ms << "," << m.rss_kb << "," << std::fixed << m.rss_kb / 1024.0 / 1024.0 << "\n";
+        ofs_live.flush();
+        ofs_live.close();
 
         long max_rss = 0, sum_rss = 0;
         for (auto& s : samples) {
@@ -141,12 +177,7 @@ struct MemoryMonitor {
         fprintf(stderr, "[MEM] Final RSS      : %ld kB  (%.1f GB)\n", samples.back().rss_kb,
                 samples.back().rss_kb / 1024.0 / 1024.0);
         fprintf(stderr, "[MEM] Duration       : %ld ms\n", samples.back().elapsed_ms);
-        fprintf(stderr, "[MEM] CSV            : %s\n", csv_path.c_str());
+        fprintf(stderr, "[MEM] CSV            : %s\n", csv_path_.c_str());
         fprintf(stderr, "[MEM] -----------------------------------\n\n");
-
-        std::ofstream ofs(csv_path);
-        ofs << "elapsed_ms,rss_kb,rss_gb\n";
-        for (auto& s : samples)
-            ofs << s.elapsed_ms << "," << s.rss_kb << "," << std::fixed << s.rss_kb / 1024.0 / 1024.0 << "\n";
     }
 };

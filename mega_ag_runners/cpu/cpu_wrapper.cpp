@@ -82,11 +82,11 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args, gsl::span<CArgument> out
     // Run CPU tasks in thread pool
 #ifdef LATTISENSE_DEV
     MemoryMonitor mem_monitor(100);  // sample every 100 ms
-    mem_monitor.start();
+    mem_monitor.start(MemoryMonitor::next_csv_path("mem_usage_cpu"));
 #endif
     run_tasks(mega_ag, pool, context, available_data, get_other_args);
 #ifdef LATTISENSE_DEV
-    mem_monitor.stop(MemoryMonitor::next_csv_path("mem_usage_cpu"));
+    mem_monitor.stop();
 #endif
 
     auto end = std::chrono::high_resolution_clock::now();
