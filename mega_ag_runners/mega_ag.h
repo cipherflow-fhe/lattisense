@@ -201,7 +201,7 @@ struct MegaAG {
      *        This is the primary entry point for constructing a ready-to-run MegaAG.
      */
     static MegaAG
-    load(const std::string& json_path, Processor processor, ScheduleMode mode = ScheduleMode::MAKESPAN_FIRST);
+    load(const std::string& json_path, Processor processor, ScheduleMode mode = ScheduleMode::MEMORY_FIRST);
 
     void bind_abi_bridge_executors(const ExecutorFunc& abi_export,
                                    const ExecutorFunc& abi_import,
