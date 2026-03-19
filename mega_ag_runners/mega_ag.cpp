@@ -17,6 +17,7 @@
  */
 
 #include <fstream>
+#include <queue>
 #include <string>
 #include "nlohmann/json.hpp"
 
@@ -43,12 +44,88 @@ const std::unordered_map<std::string, OperationType> str_to_operation_type = {
     {"cmpac_sum", OperationType::MAC_W_PARTIAL_SUM},
     {"bootstrap", OperationType::BOOTSTRAP}};
 
-// Forward declarations for ABI bridge insertion helpers
-static std::pair<NodeIndex, NodeIndex> get_next_indices(const MegaAG& mega_ag);
-static void rebuild_bridge_relationships(MegaAG& mega_ag, std::initializer_list<OperationType> bridge_ops);
-static void insert_gpu_abi_bridge_nodes(MegaAG& mega_ag);
-static void insert_fpga_abi_bridge_nodes(MegaAG& mega_ag, const std::vector<NodeIndex>& input_indices);
-static void insert_cpu_abi_bridge_nodes(MegaAG& mega_ag);
+// =============================================================================
+// Static utility functions
+// =============================================================================
+
+// Creates a fresh data node cloned from `src`, assigned `new_idx` and `new_id`,
+// with successors/predecessors cleared and optional flag overrides.
+static DatumNode make_data_node(const DatumNode& src,
+                                NodeIndex new_idx,
+                                const std::string& new_id,
+                                bool is_input = false,
+                                bool is_output = false) {
+    DatumNode node = src;
+    node.index = new_idx;
+    node.id = new_id;
+    node.is_input = is_input;
+    node.is_output = is_output;
+    node.successors.clear();
+    node.predecessors.clear();
+    return node;
+}
+
+// Creates and inserts a bridge FHE compute node (EXPORT_TO_ABI / LOAD_TO_BACKEND /
+// STORE_FROM_BACKEND / IMPORT_FROM_ABI) into mega_ag.computes.
+// Returns a reference to the newly inserted node.
+static ComputeNode& make_bridge_compute_node(MegaAG& mega_ag,
+                                             NodeIndex compute_idx,
+                                             const std::string& id,
+                                             OperationType op,
+                                             DatumNode* input,
+                                             DatumNode* output) {
+    ComputeNode node;
+    node.index = compute_idx;
+    node.id = id;
+    ComputeNode::FheProperty prop;
+    prop.op_type = op;
+    node.fhe_prop = prop;
+    if (input)
+        node.input_nodes.push_back(input);
+    if (output)
+        node.output_nodes.push_back(output);
+    mega_ag.computes.emplace(compute_idx, std::move(node));
+    return mega_ag.computes.at(compute_idx);
+}
+
+// Redirects all successors of `old_data` to point to `new_data` instead,
+// and moves them into new_data's successor list. Clears old_data's successors.
+static void redirect_consumers(DatumNode& old_data, DatumNode& new_data) {
+    for (ComputeNode* successor : old_data.successors) {
+        for (auto& in_ptr : successor->input_nodes) {
+            if (in_ptr == &old_data)
+                in_ptr = &new_data;
+        }
+        new_data.successors.push_back(successor);
+    }
+    old_data.successors.clear();
+}
+
+// Redirects all FHE predecessors of `old_data` to point to `new_data` instead,
+// and moves them into new_data's predecessor list. Clears old_data's predecessors.
+static void redirect_producers(DatumNode& old_data, DatumNode& new_data) {
+    for (ComputeNode* predecessor : old_data.predecessors) {
+        if (!predecessor->fhe_prop.has_value())
+            continue;
+        for (auto& out_ptr : predecessor->output_nodes) {
+            if (out_ptr == &old_data)
+                out_ptr = &new_data;
+        }
+        new_data.predecessors.push_back(predecessor);
+    }
+    old_data.predecessors.clear();
+}
+
+// =============================================================================
+// MegaAG member functions — main
+// =============================================================================
+
+MegaAG MegaAG::load(const std::string& json_path, Processor processor, ScheduleMode mode) {
+    MegaAG mega_ag = from_json(json_path, processor);
+    mega_ag.apply_processor_layout();
+    mega_ag.compute_properties(mode);
+    return mega_ag;
+}
 
 MegaAG MegaAG::from_json(const std::string& json_path, Processor processor) {
     std::ifstream json_fs;
@@ -222,16 +299,19 @@ MegaAG MegaAG::from_json(const std::string& json_path, Processor processor) {
 
     mega_ag.parameter = mega_ag_json["parameter"];
 
+    return mega_ag;
+}
+
+void MegaAG::apply_processor_layout() {
     if (processor == Processor::GPU) {
-        insert_gpu_abi_bridge_nodes(mega_ag);
+        insert_gpu_abi_bridge_nodes();
     } else if (processor == Processor::FPGA) {
-        insert_fpga_abi_bridge_nodes(mega_ag, input_indices);
+        insert_fpga_abi_bridge_nodes();
     } else if (processor == Processor::CPU) {
-        insert_cpu_abi_bridge_nodes(mega_ag);
+        insert_cpu_abi_bridge_nodes();
     }
 
-    // Set on_cpu attribute for all compute nodes based on processor type
-    for (auto& [compute_index, compute_node] : mega_ag.computes) {
+    for (auto& [compute_index, compute_node] : computes) {
         if (processor == Processor::CPU) {
             compute_node.on_cpu = true;
         } else if (processor == Processor::FPGA) {
@@ -248,19 +328,49 @@ MegaAG MegaAG::from_json(const std::string& json_path, Processor processor) {
             }
         }
     }
-
-    return mega_ag;
 }
 
-// Returns {next_data_index, next_compute_index} beyond existing indices
-static std::pair<NodeIndex, NodeIndex> get_next_indices(const MegaAG& mega_ag) {
+void MegaAG::compute_properties(ScheduleMode mode) {
+    compute_top_levels();
+    compute_bottom_levels();
+
+    for (auto& [idx, node] : computes) {
+        switch (mode) {
+            case ScheduleMode::MAKESPAN_FIRST:
+                node.priority = node.sched_meta.bottom_level;
+                break;
+            case ScheduleMode::MEMORY_FIRST: {
+                // Secondary: among same bottom_level, prefer consuming the highest-level
+                // (most expensive) CT input first — frees costly memory sooner.
+                int max_in_level = 0;
+                for (const DatumNode* d : node.input_nodes) {
+                    if (d->fhe_prop.has_value() &&
+                        d->datum_type != DataType::TYPE_RELIN_KEY &&
+                        d->datum_type != DataType::TYPE_GALOIS_KEY &&
+                        d->datum_type != DataType::TYPE_SWITCH_KEY) {
+                        max_in_level = std::max(max_in_level, d->fhe_prop->level);
+                    }
+                }
+                constexpr int level_bound = 32;  // > max CT level, keeps bottom_level dominant
+                node.priority = node.sched_meta.bottom_level * level_bound + max_in_level;
+                break;
+            }
+        }
+    }
+}
+
+// =============================================================================
+// MegaAG member functions — helpers
+// =============================================================================
+
+std::pair<NodeIndex, NodeIndex> MegaAG::get_next_indices() const {
     NodeIndex next_data = 0;
     NodeIndex next_compute = 0;
-    for (const auto& [idx, _] : mega_ag.data) {
+    for (const auto& [idx, _] : data) {
         if (idx >= next_data)
             next_data = idx + 1;
     }
-    for (const auto& [idx, _] : mega_ag.computes) {
+    for (const auto& [idx, _] : computes) {
         if (idx >= next_compute)
             next_compute = idx + 1;
     }
@@ -268,8 +378,8 @@ static std::pair<NodeIndex, NodeIndex> get_next_indices(const MegaAG& mega_ag) {
 }
 
 // Rebuilds successor/predecessor relationships for newly inserted bridge compute nodes
-static void rebuild_bridge_relationships(MegaAG& mega_ag, std::initializer_list<OperationType> bridge_ops) {
-    for (auto& [compute_index, compute_node] : mega_ag.computes) {
+void MegaAG::rebuild_bridge_relationships(std::initializer_list<OperationType> bridge_ops) {
+    for (auto& [compute_index, compute_node] : computes) {
         if (!compute_node.fhe_prop.has_value())
             continue;
         OperationType op = compute_node.fhe_prop->op_type;
@@ -285,86 +395,18 @@ static void rebuild_bridge_relationships(MegaAG& mega_ag, std::initializer_list<
     }
 }
 
-// Creates a fresh data node cloned from `src`, assigned `new_idx` and `new_id`,
-// with successors/predecessors cleared and optional flag overrides.
-static DatumNode make_data_node(const DatumNode& src,
-                                NodeIndex new_idx,
-                                const std::string& new_id,
-                                bool is_input = false,
-                                bool is_output = false) {
-    DatumNode node = src;
-    node.index = new_idx;
-    node.id = new_id;
-    node.is_input = is_input;
-    node.is_output = is_output;
-    node.successors.clear();
-    node.predecessors.clear();
-    return node;
-}
-
-// Creates and inserts a bridge FHE compute node (EXPORT_TO_ABI / LOAD_TO_BACKEND /
-// STORE_FROM_BACKEND / IMPORT_FROM_ABI) into mega_ag.computes.
-// Returns a reference to the newly inserted node.
-static ComputeNode& make_bridge_compute_node(MegaAG& mega_ag,
-                                             NodeIndex compute_idx,
-                                             const std::string& id,
-                                             OperationType op,
-                                             DatumNode* input,
-                                             DatumNode* output) {
-    ComputeNode node;
-    node.index = compute_idx;
-    node.id = id;
-    ComputeNode::FheProperty prop;
-    prop.op_type = op;
-    node.fhe_prop = prop;
-    if (input)
-        node.input_nodes.push_back(input);
-    if (output)
-        node.output_nodes.push_back(output);
-    mega_ag.computes.emplace(compute_idx, std::move(node));
-    return mega_ag.computes.at(compute_idx);
-}
-
-// Redirects all successors of `old_data` to point to `new_data` instead,
-// and moves them into new_data's successor list. Clears old_data's successors.
-static void redirect_consumers(DatumNode& old_data, DatumNode& new_data) {
-    for (ComputeNode* successor : old_data.successors) {
-        for (auto& in_ptr : successor->input_nodes) {
-            if (in_ptr == &old_data)
-                in_ptr = &new_data;
-        }
-        new_data.successors.push_back(successor);
-    }
-    old_data.successors.clear();
-}
-
-// Redirects all FHE predecessors of `old_data` to point to `new_data` instead,
-// and moves them into new_data's predecessor list. Clears old_data's predecessors.
-static void redirect_producers(DatumNode& old_data, DatumNode& new_data) {
-    for (ComputeNode* predecessor : old_data.predecessors) {
-        if (!predecessor->fhe_prop.has_value())
-            continue;
-        for (auto& out_ptr : predecessor->output_nodes) {
-            if (out_ptr == &old_data)
-                out_ptr = &new_data;
-        }
-        new_data.predecessors.push_back(predecessor);
-    }
-    old_data.predecessors.clear();
-}
-
-static void insert_gpu_abi_bridge_nodes(MegaAG& mega_ag) {
-    auto [next_data_index, next_compute_index] = get_next_indices(mega_ag);
+void MegaAG::insert_gpu_abi_bridge_nodes() {
+    auto [next_data_index, next_compute_index] = get_next_indices();
 
     // Collect all data indices to process (to avoid iterator invalidation)
     std::vector<NodeIndex> data_indices_to_process;
-    for (const auto& [data_idx, _] : mega_ag.data) {
+    for (const auto& [data_idx, _] : data) {
         data_indices_to_process.push_back(data_idx);
     }
 
     // For each data node, determine its native type and insert conversion if needed
     for (NodeIndex data_idx : data_indices_to_process) {
-        DatumNode& data_node = mega_ag.data.at(data_idx);
+        DatumNode& data_node = data.at(data_idx);
 
         // Determine native type of this data node (based on producer)
         bool is_native = true;  // Default for inputs
@@ -389,12 +431,12 @@ static void insert_gpu_abi_bridge_nodes(MegaAG& mega_ag) {
         // custom_input → EXPORT_TO_ABI → c_struct (shared_ptr<CustomData>) → custom consumers
         if (data_node.is_input && data_node.custom_prop.has_value()) {
             NodeIndex c_struct_idx = next_data_index++;
-            mega_ag.data.emplace(c_struct_idx, make_data_node(data_node, c_struct_idx, data_node.id + "_concrete"));
+            data.emplace(c_struct_idx, make_data_node(data_node, c_struct_idx, data_node.id + "_concrete"));
 
-            make_bridge_compute_node(mega_ag, next_compute_index++, "export_to_abi_" + std::to_string(data_idx),
-                                     OperationType::EXPORT_TO_ABI, &data_node, &mega_ag.data.at(c_struct_idx));
+            make_bridge_compute_node(*this, next_compute_index++, "export_to_abi_" + std::to_string(data_idx),
+                                     OperationType::EXPORT_TO_ABI, &data_node, &data.at(c_struct_idx));
 
-            redirect_consumers(data_node, mega_ag.data.at(c_struct_idx));
+            redirect_consumers(data_node, data.at(c_struct_idx));
             continue;
         }
 
@@ -402,21 +444,19 @@ static void insert_gpu_abi_bridge_nodes(MegaAG& mega_ag) {
         // handle → EXPORT_TO_ABI → c_struct → LOAD_TO_BACKEND → gpu_data → FHE consumers
         if (is_native && !fhe_consumers.empty()) {
             NodeIndex c_struct_idx = next_data_index++;
-            mega_ag.data.emplace(c_struct_idx, make_data_node(data_node, c_struct_idx, data_node.id + "_c_struct_h2d"));
+            data.emplace(c_struct_idx, make_data_node(data_node, c_struct_idx, data_node.id + "_c_struct_h2d"));
 
-            make_bridge_compute_node(mega_ag, next_compute_index++, "export_to_abi_" + std::to_string(data_idx),
-                                     OperationType::EXPORT_TO_ABI, &data_node, &mega_ag.data.at(c_struct_idx));
+            make_bridge_compute_node(*this, next_compute_index++, "export_to_abi_" + std::to_string(data_idx),
+                                     OperationType::EXPORT_TO_ABI, &data_node, &data.at(c_struct_idx));
 
             NodeIndex gpu_data_idx = next_data_index++;
-            mega_ag.data.emplace(gpu_data_idx,
-                                 make_data_node(mega_ag.data.at(c_struct_idx), gpu_data_idx, data_node.id + "_gpu"));
+            data.emplace(gpu_data_idx, make_data_node(data.at(c_struct_idx), gpu_data_idx, data_node.id + "_gpu"));
 
-            make_bridge_compute_node(mega_ag, next_compute_index++, "load_to_gpu_" + std::to_string(data_idx),
-                                     OperationType::LOAD_TO_BACKEND, &mega_ag.data.at(c_struct_idx),
-                                     &mega_ag.data.at(gpu_data_idx));
+            make_bridge_compute_node(*this, next_compute_index++, "load_to_gpu_" + std::to_string(data_idx),
+                                     OperationType::LOAD_TO_BACKEND, &data.at(c_struct_idx), &data.at(gpu_data_idx));
 
             // Redirect FHE consumers to consume gpu_data instead of data_node
-            DatumNode& gpu_data = mega_ag.data.at(gpu_data_idx);
+            DatumNode& gpu_data = data.at(gpu_data_idx);
             for (auto* consumer : fhe_consumers) {
                 for (auto& input_ptr : consumer->input_nodes) {
                     if (input_ptr == &data_node)
@@ -431,20 +471,18 @@ static void insert_gpu_abi_bridge_nodes(MegaAG& mega_ag) {
         // gpu_data → STORE_FROM_BACKEND → c_struct → IMPORT_FROM_ABI → handle (output/custom)
         if (!is_native && (!custom_consumers.empty() || data_node.is_output)) {
             NodeIndex gpu_data_idx = next_data_index++;
-            mega_ag.data.emplace(gpu_data_idx,
-                                 make_data_node(data_node, gpu_data_idx, data_node.id + "_gpu", false, false));
+            data.emplace(gpu_data_idx, make_data_node(data_node, gpu_data_idx, data_node.id + "_gpu", false, false));
 
             NodeIndex c_struct_idx = next_data_index++;
-            mega_ag.data.emplace(c_struct_idx,
-                                 make_data_node(data_node, c_struct_idx, data_node.id + "_c_struct_d2h", false, false));
+            data.emplace(c_struct_idx,
+                         make_data_node(data_node, c_struct_idx, data_node.id + "_c_struct_d2h", false, false));
 
-            make_bridge_compute_node(mega_ag, next_compute_index++, "store_from_gpu_" + std::to_string(data_idx),
-                                     OperationType::STORE_FROM_BACKEND, &mega_ag.data.at(gpu_data_idx),
-                                     &mega_ag.data.at(c_struct_idx));
+            make_bridge_compute_node(*this, next_compute_index++, "store_from_gpu_" + std::to_string(data_idx),
+                                     OperationType::STORE_FROM_BACKEND, &data.at(gpu_data_idx), &data.at(c_struct_idx));
 
             ComputeNode& import_node =
-                make_bridge_compute_node(mega_ag, next_compute_index++, "import_from_abi_" + std::to_string(data_idx),
-                                         OperationType::IMPORT_FROM_ABI, &mega_ag.data.at(c_struct_idx), nullptr);
+                make_bridge_compute_node(*this, next_compute_index++, "import_from_abi_" + std::to_string(data_idx),
+                                         OperationType::IMPORT_FROM_ABI, &data.at(c_struct_idx), nullptr);
 
             if (data_node.is_output) {
                 // For output: IMPORT points to the predefined output node (data_node itself)
@@ -452,12 +490,12 @@ static void insert_gpu_abi_bridge_nodes(MegaAG& mega_ag) {
             } else {
                 // For intermediate data: Create new handle node for custom consumers
                 NodeIndex handle_data_idx = next_data_index++;
-                mega_ag.data.emplace(handle_data_idx, make_data_node(mega_ag.data.at(c_struct_idx), handle_data_idx,
-                                                                     data_node.id + "_handle", false, false));
-                import_node.output_nodes.push_back(&mega_ag.data.at(handle_data_idx));
+                data.emplace(handle_data_idx, make_data_node(data.at(c_struct_idx), handle_data_idx,
+                                                             data_node.id + "_handle", false, false));
+                import_node.output_nodes.push_back(&data.at(handle_data_idx));
 
                 // Redirect Custom consumers to consume handle_data
-                DatumNode& handle_data = mega_ag.data.at(handle_data_idx);
+                DatumNode& handle_data = data.at(handle_data_idx);
                 for (auto* consumer : custom_consumers) {
                     for (auto& input_ptr : consumer->input_nodes) {
                         if (input_ptr == &data_node)
@@ -468,9 +506,9 @@ static void insert_gpu_abi_bridge_nodes(MegaAG& mega_ag) {
             }
 
             // Redirect FHE producers and FHE consumers from data_node to gpu_data
-            redirect_producers(data_node, mega_ag.data.at(gpu_data_idx));
+            redirect_producers(data_node, data.at(gpu_data_idx));
 
-            DatumNode& gpu_data = mega_ag.data.at(gpu_data_idx);
+            DatumNode& gpu_data = data.at(gpu_data_idx);
             for (auto* consumer : fhe_consumers) {
                 for (auto& input_ptr : consumer->input_nodes) {
                     if (input_ptr == &data_node)
@@ -485,14 +523,14 @@ static void insert_gpu_abi_bridge_nodes(MegaAG& mega_ag) {
         // custom → new_data → IMPORT_FROM_ABI → output_node
         if (is_native && data_node.is_output && !data_node.is_input) {
             NodeIndex new_data_idx = next_data_index++;
-            mega_ag.data.emplace(new_data_idx,
-                                 make_data_node(data_node, new_data_idx, data_node.id + "_concrete", false, false));
+            data.emplace(new_data_idx,
+                         make_data_node(data_node, new_data_idx, data_node.id + "_concrete", false, false));
 
-            make_bridge_compute_node(mega_ag, next_compute_index++, "import_from_abi_" + std::to_string(data_idx),
-                                     OperationType::IMPORT_FROM_ABI, &mega_ag.data.at(new_data_idx), &data_node);
+            make_bridge_compute_node(*this, next_compute_index++, "import_from_abi_" + std::to_string(data_idx),
+                                     OperationType::IMPORT_FROM_ABI, &data.at(new_data_idx), &data_node);
 
             // Redirect all predecessors (including custom nodes) from data_node to new_data
-            DatumNode& new_data = mega_ag.data.at(new_data_idx);
+            DatumNode& new_data = data.at(new_data_idx);
             for (ComputeNode* predecessor : data_node.predecessors) {
                 for (auto& out_ptr : predecessor->output_nodes) {
                     if (out_ptr == &data_node)
@@ -505,18 +543,18 @@ static void insert_gpu_abi_bridge_nodes(MegaAG& mega_ag) {
     }
 
     // Rebuild predecessor and successor relationships for ABI bridge nodes
-    rebuild_bridge_relationships(mega_ag, {OperationType::EXPORT_TO_ABI, OperationType::IMPORT_FROM_ABI,
-                                           OperationType::LOAD_TO_BACKEND, OperationType::STORE_FROM_BACKEND});
+    rebuild_bridge_relationships({OperationType::EXPORT_TO_ABI, OperationType::IMPORT_FROM_ABI,
+                                  OperationType::LOAD_TO_BACKEND, OperationType::STORE_FROM_BACKEND});
 }
 
-static void insert_fpga_abi_bridge_nodes(MegaAG& mega_ag, const std::vector<NodeIndex>& input_indices) {
-    auto [next_data_index, next_compute_index] = get_next_indices(mega_ag);
+void MegaAG::insert_fpga_abi_bridge_nodes() {
+    auto [next_data_index, next_compute_index] = get_next_indices();
 
     // Step 1: Remove all original FHE compute nodes and replace with a single
     //         composite FPGA_RUN node.
     //
-    // The composite node's inputs  = mega_ag.inputs  (original input handle nodes)
-    // The composite node's outputs = mega_ag.outputs (original output handle nodes)
+    // The composite node's inputs  = inputs  (original input handle nodes)
+    // The composite node's outputs = outputs (original output handle nodes)
     //
     // After the composite node is created, we insert the ABI/backend bridge
     // nodes around it:
@@ -525,18 +563,18 @@ static void insert_fpga_abi_bridge_nodes(MegaAG& mega_ag, const std::vector<Node
 
     // Collect and remove all original FHE compute nodes
     std::vector<NodeIndex> fhe_compute_indices;
-    for (const auto& [idx, compute] : mega_ag.computes) {
+    for (const auto& [idx, compute] : computes) {
         if (compute.fhe_prop.has_value()) {
             fhe_compute_indices.push_back(idx);
         }
     }
     for (NodeIndex idx : fhe_compute_indices) {
-        mega_ag.computes.erase(idx);
+        computes.erase(idx);
     }
 
     // Clear all successor/predecessor links on data nodes that pointed to
     // the now-removed FHE compute nodes.
-    for (auto& [idx, data_node] : mega_ag.data) {
+    for (auto& [idx, data_node] : data) {
         data_node.successors.clear();
         data_node.predecessors.clear();
     }
@@ -552,74 +590,69 @@ static void insert_fpga_abi_bridge_nodes(MegaAG& mega_ag, const std::vector<Node
         ComputeNode::CustomProperty cp;
         cp.type = "fpga_run";
         fpga_run_node.custom_prop = cp;
-        for (NodeIndex input_idx : input_indices) {
-            fpga_run_node.input_nodes.push_back(&mega_ag.data.at(input_idx));
+        for (NodeIndex input_idx : inputs) {
+            fpga_run_node.input_nodes.push_back(&data.at(input_idx));
         }
-        for (NodeIndex output_idx : mega_ag.outputs) {
-            fpga_run_node.output_nodes.push_back(&mega_ag.data.at(output_idx));
+        for (NodeIndex output_idx : outputs) {
+            fpga_run_node.output_nodes.push_back(&data.at(output_idx));
         }
-        mega_ag.computes.emplace(fpga_run_idx, std::move(fpga_run_node));
+        computes.emplace(fpga_run_idx, std::move(fpga_run_node));
     }
 
     // Step 2: Insert EXPORT_TO_ABI + LOAD_TO_BACKEND on the input side.
     // handle → EXPORT_TO_ABI → c_struct → LOAD_TO_BACKEND → fpga_data
     // fpga_data becomes the new input_node for fpga_run.
-    for (NodeIndex input_idx : input_indices) {
-        DatumNode& input_node = mega_ag.data.at(input_idx);
+    for (NodeIndex input_idx : inputs) {
+        DatumNode& input_node = data.at(input_idx);
 
         NodeIndex c_struct_idx = next_data_index++;
-        mega_ag.data.emplace(c_struct_idx,
-                             make_data_node(input_node, c_struct_idx, input_node.id + "_c_struct", false));
+        data.emplace(c_struct_idx, make_data_node(input_node, c_struct_idx, input_node.id + "_c_struct", false));
 
-        make_bridge_compute_node(mega_ag, next_compute_index++, "export_to_abi_" + std::to_string(input_idx),
-                                 OperationType::EXPORT_TO_ABI, &input_node, &mega_ag.data.at(c_struct_idx));
+        make_bridge_compute_node(*this, next_compute_index++, "export_to_abi_" + std::to_string(input_idx),
+                                 OperationType::EXPORT_TO_ABI, &input_node, &data.at(c_struct_idx));
 
         NodeIndex fpga_data_idx = next_data_index++;
-        mega_ag.data.emplace(fpga_data_idx,
-                             make_data_node(mega_ag.data.at(c_struct_idx), fpga_data_idx, input_node.id + "_fpga"));
+        data.emplace(fpga_data_idx, make_data_node(data.at(c_struct_idx), fpga_data_idx, input_node.id + "_fpga"));
 
-        make_bridge_compute_node(mega_ag, next_compute_index++, "load_to_fpga_" + std::to_string(input_idx),
-                                 OperationType::LOAD_TO_BACKEND, &mega_ag.data.at(c_struct_idx),
-                                 &mega_ag.data.at(fpga_data_idx));
+        make_bridge_compute_node(*this, next_compute_index++, "load_to_fpga_" + std::to_string(input_idx),
+                                 OperationType::LOAD_TO_BACKEND, &data.at(c_struct_idx), &data.at(fpga_data_idx));
 
         // Redirect fpga_run's input pointer: handle → fpga_data
-        for (auto& in_ptr : mega_ag.computes.at(fpga_run_idx).input_nodes) {
+        for (auto& in_ptr : computes.at(fpga_run_idx).input_nodes) {
             if (in_ptr == &input_node)
-                in_ptr = &mega_ag.data.at(fpga_data_idx);
+                in_ptr = &data.at(fpga_data_idx);
         }
     }
 
     // Step 3: Insert STORE_FROM_BACKEND + IMPORT_FROM_ABI on the output side.
     // fpga_data → STORE_FROM_BACKEND → c_struct → IMPORT_FROM_ABI → handle
     // fpga_data becomes the new output_node for fpga_run.
-    for (NodeIndex output_idx : mega_ag.outputs) {
-        DatumNode& output_node = mega_ag.data.at(output_idx);
+    for (NodeIndex output_idx : outputs) {
+        DatumNode& output_node = data.at(output_idx);
 
         NodeIndex fpga_data_idx = next_data_index++;
-        mega_ag.data.emplace(fpga_data_idx,
-                             make_data_node(output_node, fpga_data_idx, output_node.id + "_fpga", false, false));
+        data.emplace(fpga_data_idx, make_data_node(output_node, fpga_data_idx, output_node.id + "_fpga", false, false));
 
         NodeIndex c_struct_idx = next_data_index++;
-        mega_ag.data.emplace(c_struct_idx,
-                             make_data_node(output_node, c_struct_idx, output_node.id + "_c_struct", false, false));
+        data.emplace(c_struct_idx,
+                     make_data_node(output_node, c_struct_idx, output_node.id + "_c_struct", false, false));
 
-        make_bridge_compute_node(mega_ag, next_compute_index++, "store_from_fpga_" + std::to_string(output_idx),
-                                 OperationType::STORE_FROM_BACKEND, &mega_ag.data.at(fpga_data_idx),
-                                 &mega_ag.data.at(c_struct_idx));
+        make_bridge_compute_node(*this, next_compute_index++, "store_from_fpga_" + std::to_string(output_idx),
+                                 OperationType::STORE_FROM_BACKEND, &data.at(fpga_data_idx), &data.at(c_struct_idx));
 
-        make_bridge_compute_node(mega_ag, next_compute_index++, "import_from_abi_" + std::to_string(output_idx),
-                                 OperationType::IMPORT_FROM_ABI, &mega_ag.data.at(c_struct_idx), &output_node);
+        make_bridge_compute_node(*this, next_compute_index++, "import_from_abi_" + std::to_string(output_idx),
+                                 OperationType::IMPORT_FROM_ABI, &data.at(c_struct_idx), &output_node);
 
         // Redirect fpga_run's output pointer: handle → fpga_data
-        for (auto& out_ptr : mega_ag.computes.at(fpga_run_idx).output_nodes) {
+        for (auto& out_ptr : computes.at(fpga_run_idx).output_nodes) {
             if (out_ptr == &output_node)
-                out_ptr = &mega_ag.data.at(fpga_data_idx);
+                out_ptr = &data.at(fpga_data_idx);
         }
     }
 
     // Step 4: Rebuild all successor/predecessor relationships for every
     //         compute node now in the graph (bridge nodes + fpga_run).
-    for (auto& [compute_index, compute_node] : mega_ag.computes) {
+    for (auto& [compute_index, compute_node] : computes) {
         for (auto* input_node : compute_node.input_nodes) {
             input_node->successors.push_back(&compute_node);
         }
@@ -629,43 +662,115 @@ static void insert_fpga_abi_bridge_nodes(MegaAG& mega_ag, const std::vector<Node
     }
 }
 
-static void insert_cpu_abi_bridge_nodes(MegaAG& mega_ag) {
-    auto [next_data_index, next_compute_index] = get_next_indices(mega_ag);
+void MegaAG::insert_cpu_abi_bridge_nodes() {
+    auto [next_data_index, next_compute_index] = get_next_indices();
 
     // Insert EXPORT_TO_ABI after each input node:
     // input_node → EXPORT_TO_ABI → new_data_node → original compute consumers
-    for (NodeIndex input_idx : mega_ag.inputs) {
-        DatumNode& input_node = mega_ag.data.at(input_idx);
+    for (NodeIndex input_idx : inputs) {
+        DatumNode& input_node = data.at(input_idx);
 
         NodeIndex new_data_idx = next_data_index++;
-        mega_ag.data.emplace(new_data_idx, make_data_node(input_node, new_data_idx, input_node.id + "_concrete"));
+        data.emplace(new_data_idx, make_data_node(input_node, new_data_idx, input_node.id + "_concrete"));
 
-        make_bridge_compute_node(mega_ag, next_compute_index++, "export_to_abi_" + std::to_string(input_idx),
-                                 OperationType::EXPORT_TO_ABI, &input_node, &mega_ag.data.at(new_data_idx));
+        make_bridge_compute_node(*this, next_compute_index++, "export_to_abi_" + std::to_string(input_idx),
+                                 OperationType::EXPORT_TO_ABI, &input_node, &data.at(new_data_idx));
 
         // Redirect input_node's compute consumers to new_data_node
-        redirect_consumers(input_node, mega_ag.data.at(new_data_idx));
+        redirect_consumers(input_node, data.at(new_data_idx));
     }
 
     // Insert IMPORT_FROM_ABI before each output node:
     // original compute producers → new_data_node → IMPORT_FROM_ABI → output_node
-    for (NodeIndex output_idx : mega_ag.outputs) {
-        DatumNode& output_node = mega_ag.data.at(output_idx);
+    for (NodeIndex output_idx : outputs) {
+        DatumNode& output_node = data.at(output_idx);
 
         NodeIndex new_data_idx = next_data_index++;
-        mega_ag.data.emplace(new_data_idx,
-                             make_data_node(output_node, new_data_idx, output_node.id + "_concrete", false, false));
+        data.emplace(new_data_idx,
+                     make_data_node(output_node, new_data_idx, output_node.id + "_concrete", false, false));
 
-        make_bridge_compute_node(mega_ag, next_compute_index++, "import_from_abi_" + std::to_string(output_idx),
-                                 OperationType::IMPORT_FROM_ABI, &mega_ag.data.at(new_data_idx), &output_node);
+        make_bridge_compute_node(*this, next_compute_index++, "import_from_abi_" + std::to_string(output_idx),
+                                 OperationType::IMPORT_FROM_ABI, &data.at(new_data_idx), &output_node);
 
         // Redirect output_node's compute producers to new_data_node
-        redirect_producers(output_node, mega_ag.data.at(new_data_idx));
+        redirect_producers(output_node, data.at(new_data_idx));
         // Redirect output_node's consumers (e.g. next ROTATE_COL) to new_data_node,
         // so they read from the concrete intermediate rather than the ABI-import destination.
-        redirect_consumers(output_node, mega_ag.data.at(new_data_idx));
+        redirect_consumers(output_node, data.at(new_data_idx));
     }
 
     // Rebuild successor/predecessor relationships for inserted bridge nodes
-    rebuild_bridge_relationships(mega_ag, {OperationType::EXPORT_TO_ABI, OperationType::IMPORT_FROM_ABI});
+    rebuild_bridge_relationships({OperationType::EXPORT_TO_ABI, OperationType::IMPORT_FROM_ABI});
+}
+
+// Propagates top_level forward using topological order (Kahn's algorithm): O(V+E)
+void MegaAG::compute_top_levels() {
+    std::unordered_map<NodeIndex, int> in_degree;
+    for (auto& [idx, node] : computes) {
+        node.sched_meta.top_level = 0;
+        in_degree[idx] = 0;
+    }
+
+    for (auto& [idx, node] : computes) {
+        for (auto* input_datum : node.input_nodes) {
+            in_degree[idx] += static_cast<int>(input_datum->predecessors.size());
+        }
+    }
+
+    std::queue<NodeIndex> q;
+    for (auto& [idx, deg] : in_degree) {
+        if (deg == 0)
+            q.push(idx);
+    }
+
+    while (!q.empty()) {
+        NodeIndex u_idx = q.front();
+        q.pop();
+        ComputeNode& u = computes.at(u_idx);
+        for (auto* output_datum : u.output_nodes) {
+            for (auto* downstream : output_datum->successors) {
+                int candidate = u.sched_meta.top_level + 1;
+                if (downstream->sched_meta.top_level < candidate)
+                    downstream->sched_meta.top_level = candidate;
+                if (--in_degree[downstream->index] == 0)
+                    q.push(downstream->index);
+            }
+        }
+    }
+}
+
+// Propagates bottom_level backward using reverse topological order (Kahn's algorithm): O(V+E)
+void MegaAG::compute_bottom_levels() {
+    std::unordered_map<NodeIndex, int> out_degree;
+    for (auto& [idx, node] : computes) {
+        node.sched_meta.bottom_level = 0;
+        out_degree[idx] = 0;
+    }
+
+    for (auto& [idx, node] : computes) {
+        for (auto* output_datum : node.output_nodes) {
+            out_degree[idx] += static_cast<int>(output_datum->successors.size());
+        }
+    }
+
+    std::queue<NodeIndex> q;
+    for (auto& [idx, deg] : out_degree) {
+        if (deg == 0)
+            q.push(idx);
+    }
+
+    while (!q.empty()) {
+        NodeIndex v_idx = q.front();
+        q.pop();
+        ComputeNode& v = computes.at(v_idx);
+        for (auto* input_datum : v.input_nodes) {
+            for (auto* upstream : input_datum->predecessors) {
+                int candidate = v.sched_meta.bottom_level + 1;
+                if (upstream->sched_meta.bottom_level < candidate)
+                    upstream->sched_meta.bottom_level = candidate;
+                if (--out_degree[upstream->index] == 0)
+                    q.push(upstream->index);
+            }
+        }
+    }
 }

@@ -204,16 +204,16 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
     };
 
     // Create single-thread pool used for both CPU bridge tasks and the async fpga_run task.
-    BS::thread_pool pool(1);
+    BS::priority_thread_pool pool(1);
 
     // Define submit_fpga_task: called by run_tasks when the composite "fpga_run" node
     // becomes schedulable (i.e. all LOAD_TO_BACKEND operations have completed).
     // It runs run_project and then injects all fpga_data output nodes into available_data
     // so that the subsequent STORE_FROM_BACKEND operations can be scheduled.
-    std::function<void(NodeIndex, std::mutex&, std::queue<NodeIndex>&, std::set<NodeIndex>&, std::atomic<size_t>&,
-                       std::atomic<size_t>&, std::condition_variable&, std::mutex&,
+    std::function<void(NodeIndex, std::mutex&, std::priority_queue<TaskInfo>&, std::set<NodeIndex>&,
+                       std::atomic<size_t>&, std::atomic<size_t>&, std::condition_variable&, std::mutex&,
                        std::unordered_map<NodeIndex, std::atomic<int>>&)>
-        submit_fpga_task = [&](NodeIndex task_index, std::mutex& m_mutex, std::queue<NodeIndex>& task_queue,
+        submit_fpga_task = [&](NodeIndex task_index, std::mutex& m_mutex, std::priority_queue<TaskInfo>& task_queue,
                                std::set<NodeIndex>& queued_computes, std::atomic<size_t>& completed_tasks,
                                std::atomic<size_t>& total_tasks, std::condition_variable& completion_cv,
                                std::mutex& completion_mutex,
@@ -271,11 +271,11 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
                         const ComputeNode* store_node = fpga_out->successors[0];
                         const DatumNode* c_struct_node = store_node->output_nodes[0];
 
-                        std::set<NodeIndex> new_computes =
+                        std::unordered_set<NodeIndex> new_computes =
                             mega_ag.step_available_computes(*c_struct_node, available_data);
                         for (NodeIndex nc : new_computes) {
                             if (queued_computes.find(nc) == queued_computes.end()) {
-                                task_queue.push(nc);
+                                task_queue.push({mega_ag.computes.at(nc).priority, nc});
                                 queued_computes.insert(nc);
                             }
                         }
@@ -316,7 +316,7 @@ void _run_mega_ag(gsl::span<CArgument> input_args,
 class FheFpgaTask {
 public:
     FheFpgaTask(const std::string& project_path, bool online_phase) {
-        mega_ag_ = MegaAG::from_json(project_path + "/mega_ag.json", Processor::FPGA);
+        mega_ag_ = MegaAG::load(project_path + "/mega_ag.json", Processor::FPGA);
         online_phase_ = online_phase;
         project_ = c_load_fpga_project(project_path.c_str(), online_phase);
         if (project_ == nullptr) {

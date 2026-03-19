@@ -266,9 +266,10 @@ using thread_t = std::thread;
 #endif
 
 /**
- * @brief A type used to indicate the priority of a task. Defined to be a signed integer with a width of exactly 8 bits (-128 to +127).
+ * @brief A type used to indicate the priority of a task. Changed from int8_t to int32_t to support
+ * wider priority ranges without information loss.
  */
-using priority_t = std::int8_t;
+using priority_t = std::int32_t;
 
 /**
  * @brief An enum containing some pre-defined priorities for convenience.

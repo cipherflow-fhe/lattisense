@@ -26,6 +26,10 @@
 #include "../../lib/thread_pool/BS_thread_pool.hpp"
 #include "../../lib/gsl/span"
 
+#ifdef LATTISENSE_DEV
+#    include "../cpu_mem_monitor.h"
+#endif
+
 extern "C" {
 #include "../wrapper.h"
 }
@@ -39,6 +43,8 @@ extern "C" {
 #include <iostream>
 #include <any>
 #include <memory>
+#include <fstream>
+#include <thread>
 
 namespace cpu_wrapper {
 
@@ -52,7 +58,7 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args, gsl::span<CArgument> out
     auto start = std::chrono::high_resolution_clock::now();
 
     int num_threads = std::min(32, static_cast<int>(std::thread::hardware_concurrency()));
-    BS::thread_pool pool(num_threads);
+    BS::priority_thread_pool pool(num_threads);
 
     // Extract input handles and build available_data map
     std::vector<void*> input_handles = extract_input_handles(input_args, false);
@@ -74,7 +80,14 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args, gsl::span<CArgument> out
     };
 
     // Run CPU tasks in thread pool
+#ifdef LATTISENSE_DEV
+    MemoryMonitor mem_monitor(100);  // sample every 100 ms
+    mem_monitor.start(MemoryMonitor::next_csv_path("mem_usage_cpu"));
+#endif
     run_tasks(mega_ag, pool, context, available_data, get_other_args);
+#ifdef LATTISENSE_DEV
+    mem_monitor.stop();
+#endif
 
     auto end = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
@@ -106,8 +119,9 @@ void _run_mega_ag(gsl::span<CArgument> input_args, gsl::span<CArgument> output_a
 
 class FheCpuTask {
 public:
-    FheCpuTask(const std::string& project_path)
-        : mega_ag_(MegaAG::from_json(project_path + "/mega_ag.json", Processor::CPU)) {}
+    FheCpuTask(const std::string& project_path) {
+        mega_ag_ = MegaAG::load(project_path + "/mega_ag.json", Processor::CPU);
+    }
 
     ~FheCpuTask() {}
 

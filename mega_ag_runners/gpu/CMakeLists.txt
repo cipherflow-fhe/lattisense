@@ -21,6 +21,9 @@ add_library(gpu_mega_ag_runner SHARED
     $<TARGET_OBJECTS:mega_ag_obj>
 )
 target_link_libraries(gpu_mega_ag_runner PUBLIC HEonGPU::heongpu CUDA::cudart)
+if(LATTISENSE_DEV)
+    target_link_libraries(gpu_mega_ag_runner PUBLIC nvidia-ml)
+endif()
 set_target_properties(gpu_mega_ag_runner PROPERTIES
     CUDA_SEPARABLE_COMPILATION ON
     CUDA_RESOLVE_DEVICE_SYMBOLS ON
