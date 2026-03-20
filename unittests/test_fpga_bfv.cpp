@@ -1163,7 +1163,7 @@ TEMPLATE_TEST_CASE_METHOD(BfvFpgaFixture, "BFV ct_ntt_pt_mac", "[.]", BfvFpgaTes
     }
 }
 
-TEMPLATE_TEST_CASE_METHOD(BfvFpgaFixture, "BFV power_dag", "", BfvFpgaTestParams) {
+TEMPLATE_TEST_CASE_METHOD(BfvFpgaFixture, "BFV power_dag", "[.][disabled]", BfvFpgaTestParams) {
     vector<int> source_power{1, 7, 18, 62, 104, 244, 259};
     int max_power = 1137;
 

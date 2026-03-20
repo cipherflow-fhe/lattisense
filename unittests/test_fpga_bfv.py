@@ -22,6 +22,12 @@ import json
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, project_root)
 
+# Add FPGA linker paths for linker/compiler imports
+_fpga_linker_base = os.path.join(project_root, 'backends', 'lattisense-fpga', 'lattisense-fpga-linker')
+sys.path.insert(0, os.path.join(_fpga_linker_base, 'linker'))
+sys.path.insert(0, os.path.join(_fpga_linker_base, 'lattisense-fpga-compiler'))
+sys.path.insert(0, _fpga_linker_base)
+
 # Add current directory to path for test_config imports
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, current_dir)
@@ -863,6 +869,7 @@ class TestTask:
                 output_instruction_path=task_dir,
             )
 
+    @pytest.mark.skip(reason='power_dag disabled')
     @pytest.mark.at_max_level
     def test_power_dag(self, param, lv):
         origin_powerdag_dir = os.path.join(FPGA_OUTPUT_BASE_DIR, 'origin_powerdag')

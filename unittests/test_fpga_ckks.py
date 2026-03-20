@@ -21,6 +21,12 @@ import os
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, project_root)
 
+# Add FPGA linker paths for linker/compiler imports
+_fpga_linker_base = os.path.join(project_root, 'backends', 'lattisense-fpga', 'lattisense-fpga-linker')
+sys.path.insert(0, os.path.join(_fpga_linker_base, 'linker'))
+sys.path.insert(0, os.path.join(_fpga_linker_base, 'lattisense-fpga-compiler'))
+sys.path.insert(0, _fpga_linker_base)
+
 # Add current directory to path for test_config imports
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, current_dir)
