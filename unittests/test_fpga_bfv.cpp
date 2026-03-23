@@ -1198,8 +1198,7 @@ TEMPLATE_TEST_CASE_METHOD(BfvFpgaFixture, "BFV power_dag", "", BfvFpgaTestParams
                 for (int j = 0; j < max_power; j++)
                     x_max_power_list.push_back(this->ctx.new_ciphertext(1));
 
-                string path = fpga_base_path + "/" + this->tag + "/BFV_power_dag/" + task_power_str + "/level_" +
-                              to_string(level);
+                string path = fpga_base_path + "/" + this->tag + "/BFV_power_dag/" + task_power_str;
                 FheTaskFpga proj(path, true);
                 vector<CxxVectorArgument> args = {
                     CxxVectorArgument{"in_x_list", &x_source_power_list},
@@ -1209,6 +1208,124 @@ TEMPLATE_TEST_CASE_METHOD(BfvFpgaFixture, "BFV power_dag", "", BfvFpgaTestParams
 
                 for (int j = 0; j < max_power; j++)
                     REQUIRE(decrypt_and_decode(this->ctx, x_max_power_list[j]) == x_max_power[j]);
+            }
+        }
+    }
+}
+
+TEMPLATE_TEST_CASE_METHOD(BfvFpgaFixture, "BFV power_mul_coeff", "", BfvFpgaTestParams) {
+    vector<int> source_power{1, 7, 18, 62, 104, 244, 259};
+    int max_power = 1137;
+    vector<int> lane_cipher_size{2, 1, 5};
+
+    string source_power_str;
+    for (int j = 0; j < (int)source_power.size(); j++) {
+        source_power_str += to_string(source_power[j]);
+        if (j != (int)source_power.size() - 1)
+            source_power_str += "-";
+    }
+    string task_power_str = "PD-" + to_string(max_power) + "#" + source_power_str;
+
+    SECTION("power_mul_coeff " + task_power_str) {
+        int n = this->param.get_n();
+
+        vector<vector<uint64_t>> x_mg(lane_cipher_size[1]);
+        vector<vector<vector<uint64_t>>> x_max_power(lane_cipher_size[1]);
+        for (int i = 0; i < lane_cipher_size[1]; i++) {
+            x_mg[i] = rand_values(n, this->param.get_t());
+            x_max_power[i].resize(max_power);
+            for (int j = 1; j <= max_power; j++)
+                x_max_power[i][j - 1] = vec_mod_exp(x_mg[i], j, this->param.get_t());
+        }
+
+        // Polynomial coefficients: p[i][j][k][l] is a length-n vector
+        // l=0: constant term (BfvPlaintext), l>0: coefficient for x^l (BfvPlaintextRingt)
+        vector<vector<vector<vector<vector<uint64_t>>>>> p(lane_cipher_size[0]);
+        for (int i = 0; i < lane_cipher_size[0]; i++) {
+            p[i].resize(lane_cipher_size[1]);
+            for (int j = 0; j < lane_cipher_size[1]; j++) {
+                p[i][j].resize(lane_cipher_size[2]);
+                for (int k = 0; k < lane_cipher_size[2]; k++) {
+                    p[i][j][k].resize(max_power + 1);
+                    for (int l = 0; l <= max_power; l++)
+                        p[i][j][k][l] = rand_values(n, this->param.get_t());
+                }
+            }
+        }
+
+        // z[i][j][k][l] = p[i][j][k][0][l] + sum_{m=1}^{max_power}(p[i][j][k][m][l] * x^m[l]) % t
+        vector<vector<vector<vector<uint64_t>>>> z_expected(lane_cipher_size[0]);
+        for (int i = 0; i < lane_cipher_size[0]; i++) {
+            z_expected[i].resize(lane_cipher_size[1]);
+            for (int j = 0; j < lane_cipher_size[1]; j++) {
+                z_expected[i][j].resize(lane_cipher_size[2]);
+                for (int k = 0; k < lane_cipher_size[2]; k++) {
+                    z_expected[i][j][k].resize(n, 0);
+                    for (int l = 0; l < n; l++) {
+                        z_expected[i][j][k][l] = p[i][j][k][0][l];
+                        for (int m = 1; m <= max_power; m++)
+                            z_expected[i][j][k][l] =
+                                (z_expected[i][j][k][l] + p[i][j][k][m][l] * x_max_power[j][m - 1][l]) %
+                                this->param.get_t();
+                    }
+                }
+            }
+        }
+
+        for (int level = 1; level <= 1; level++) {
+            SECTION("level " + to_string(level)) {
+                vector<vector<BfvCiphertext>> c_max_power_list(lane_cipher_size[1]);
+                for (int i = 0; i < lane_cipher_size[1]; i++) {
+                    c_max_power_list[i].resize(max_power);
+                    for (int j = 0; j < max_power; j++) {
+                        auto x_pt = this->ctx.encode(x_max_power[i][j], level);
+                        c_max_power_list[i][j] = this->ctx.encrypt_asymmetric(x_pt);
+                    }
+                }
+
+                vector<vector<vector<BfvPlaintext>>> p0_list(lane_cipher_size[0]);
+                vector<vector<vector<vector<BfvPlaintextRingt>>>> p_list(lane_cipher_size[0]);
+                for (int i = 0; i < lane_cipher_size[0]; i++) {
+                    p0_list[i].resize(lane_cipher_size[1]);
+                    p_list[i].resize(lane_cipher_size[1]);
+                    for (int j = 0; j < lane_cipher_size[1]; j++) {
+                        p0_list[i][j].resize(lane_cipher_size[2]);
+                        p_list[i][j].resize(lane_cipher_size[2]);
+                        for (int k = 0; k < lane_cipher_size[2]; k++) {
+                            p_list[i][j][k].resize(max_power);
+                            p0_list[i][j][k] = this->ctx.encode(p[i][j][k][0], level);
+                            for (int l = 1; l <= max_power; l++)
+                                p_list[i][j][k][l - 1] = this->ctx.encode_ringt(p[i][j][k][l]);
+                        }
+                    }
+                }
+
+                vector<vector<vector<BfvCiphertext>>> lane_list(lane_cipher_size[0]);
+                for (int i = 0; i < lane_cipher_size[0]; i++) {
+                    lane_list[i].resize(lane_cipher_size[1]);
+                    for (int j = 0; j < lane_cipher_size[1]; j++) {
+                        lane_list[i][j].resize(lane_cipher_size[2]);
+                        for (int k = 0; k < lane_cipher_size[2]; k++)
+                            lane_list[i][j][k] = this->ctx.new_ciphertext(0);
+                    }
+                }
+
+                string path = fpga_base_path + "/" + this->tag + "/BFV_power_mul_coeff/" + task_power_str + "/" +
+                              to_string(lane_cipher_size[0]) + "_" + to_string(lane_cipher_size[1]) + "_" +
+                              to_string(lane_cipher_size[2]);
+                FheTaskFpga proj(path, true);
+                vector<CxxVectorArgument> args = {
+                    CxxVectorArgument{"in_c_list", &c_max_power_list},
+                    CxxVectorArgument{"in_p0_list", &p0_list},
+                    CxxVectorArgument{"in_p_list", &p_list},
+                    CxxVectorArgument{"out_z_list", &lane_list},
+                };
+                proj.run(&this->ctx, args);
+
+                for (int i = 0; i < lane_cipher_size[0]; i++)
+                    for (int j = 0; j < lane_cipher_size[1]; j++)
+                        for (int k = 0; k < lane_cipher_size[2]; k++)
+                            REQUIRE(decrypt_and_decode(this->ctx, lane_list[i][j][k]) == z_expected[i][j][k]);
             }
         }
     }
