@@ -81,6 +81,11 @@ enum class OperationType {
     MAC_W_PARTIAL_SUM,
     BOOTSTRAP,
 
+    TO_NTT,
+    TO_MFORM,
+    TO_MUL,
+    TO_INVNTT,
+
     // ABI bridge operations (inserted automatically by from_json for heterogeneous mode)
     EXPORT_TO_ABI,       // Frontend Handle → ABI C struct (defined in cxx_sdk)
     IMPORT_FROM_ABI,     // ABI C struct → Frontend Handle (defined in cxx_sdk)

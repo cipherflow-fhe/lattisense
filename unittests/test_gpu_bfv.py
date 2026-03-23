@@ -800,63 +800,76 @@ class TestTask:
         source_power = [1, 7, 18, 62, 104, 244, 259]
         max_power = 1137
         src_power_str = '-'.join(str(p) for p in source_power)
-        lane_cipher_size = index_per_fpga_func
-        task_dir = os.path.join(
-            GPU_OUTPUT_BASE_DIR,
-            param_tag,
-            'BFV_power_mul_coeff',
-            f'PD-{max_power}#{src_power_str}',
-            f'{lane_cipher_size[0]}_{lane_cipher_size[1]}_{lane_cipher_size[2]}',
-        )
 
-        print(f'BFV_power_mul_coeff begin --')
+        for li in range(1, index_per_fpga_func[0] + 1):
+            for lj in range(1, index_per_fpga_func[1] + 1):
+                for lk in range(1, index_per_fpga_func[2] + 1):
+                    lane_cipher_size = [li, lj, lk]
+                    task_dir = os.path.join(
+                        GPU_OUTPUT_BASE_DIR,
+                        param_tag,
+                        'BFV_power_mul_coeff',
+                        f'PD-{max_power}#{src_power_str}',
+                        f'{lane_cipher_size[0]}_{lane_cipher_size[1]}_{lane_cipher_size[2]}',
+                    )
 
-        all_c = [
-            [BfvCiphertextNode(f'c{k}_{i + 1}', level=lv) for i in range(max_power)] for k in range(lane_cipher_size[1])
-        ]
-        all_p0 = []
-        all_p = []
-        all_z = []
+                    print(f'BFV_power_mul_coeff begin --')
 
-        for r in range(lane_cipher_size[0]):
-            p0_l_list = []
-            p_l_list = []
-            z_l_list = []
-            for k in range(lane_cipher_size[1]):
-                p0_list = [BfvPlaintextNode(f'p{r}_{k}_{i}_0', level=lv) for i in range(lane_cipher_size[2])]
-                p_list = [
-                    [BfvPlaintextRingtNode(f'p{r}_{k}_{i}_{j + 1}') for j in range(max_power)]
-                    for i in range(lane_cipher_size[2])
-                ]
-                p0_l_list.append(p0_list)
-                p_l_list.append(p_list)
+                    all_c = [
+                        [BfvCiphertextNode(f'c{k}_{i + 1}', level=lv) for i in range(max_power)]
+                        for k in range(lane_cipher_size[1])
+                    ]
+                    all_p0 = []
+                    all_p = []
+                    all_z = []
 
-                z = []
-                for i in range(lane_cipher_size[2]):
-                    if max_power <= 100:
-                        x = ct_pt_mult_accumulate(all_c[k], p_list[i])
-                    else:
-                        n_split = 4
-                        x_mac = None
-                        for i_split in range(n_split):
-                            start_idx = int(max_power / n_split * i_split)
-                            end_idx = int(max_power / n_split * (i_split + 1))
-                            x = ct_pt_mult_accumulate(all_c[k][start_idx:end_idx], p_list[i][start_idx:end_idx])
-                            x_mac = x if i_split == 0 else add(x, x_mac)
-                        x = x_mac
-                    y = add(x, p0_list[i], f'y{r}_{k}_{i}')
-                    z.append(rescale(y, f'z{r}_{k}_{i}'))
-                z_l_list.append(z)
+                    for r in range(lane_cipher_size[0]):
+                        p0_l_list = []
+                        p_l_list = []
+                        z_l_list = []
+                        for k in range(lane_cipher_size[1]):
+                            p0_list = [
+                                BfvPlaintextNode(f'p{r}_{k}_{i}_0', level=lv) for i in range(lane_cipher_size[2])
+                            ]
+                            p_list = [
+                                [BfvPlaintextRingtNode(f'p{r}_{k}_{i}_{j + 1}') for j in range(max_power)]
+                                for i in range(lane_cipher_size[2])
+                            ]
+                            p0_l_list.append(p0_list)
+                            p_l_list.append(p_list)
 
-            all_p0.append(p0_l_list)
-            all_p.append(p_l_list)
-            all_z.append(z_l_list)
+                            z = []
+                            for i in range(lane_cipher_size[2]):
+                                if max_power <= 100:
+                                    x = ct_pt_mult_accumulate(all_c[k], p_list[i])
+                                else:
+                                    n_split = 4
+                                    x_mac = None
+                                    for i_split in range(n_split):
+                                        start_idx = int(max_power / n_split * i_split)
+                                        end_idx = int(max_power / n_split * (i_split + 1))
+                                        x = ct_pt_mult_accumulate(
+                                            all_c[k][start_idx:end_idx], p_list[i][start_idx:end_idx]
+                                        )
+                                        x_mac = x if i_split == 0 else add(x, x_mac)
+                                    x = x_mac
+                                y = add(x, p0_list[i], f'y{r}_{k}_{i}')
+                                z.append(rescale(y, f'z{r}_{k}_{i}'))
+                            z_l_list.append(z)
 
-        process_custom_task(
-            input_args=[Argument('in_c_list', all_c), Argument('in_p0_list', all_p0), Argument('in_p_list', all_p)],
-            offline_input_args=[],
-            output_args=[Argument('out_z_list', all_z)],
-            output_instruction_path=task_dir,
-            fpga_acc=False,
-        )
-        print(f'BFV_power_mul_coeff end --')
+                        all_p0.append(p0_l_list)
+                        all_p.append(p_l_list)
+                        all_z.append(z_l_list)
+
+                    process_custom_task(
+                        input_args=[
+                            Argument('in_c_list', all_c),
+                            Argument('in_p0_list', all_p0),
+                            Argument('in_p_list', all_p),
+                        ],
+                        offline_input_args=[],
+                        output_args=[Argument('out_z_list', all_z)],
+                        output_instruction_path=task_dir,
+                        fpga_acc=False,
+                    )
+                    print(f'BFV_power_mul_coeff end --')
