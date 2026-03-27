@@ -22,7 +22,7 @@
 #include <chrono>
 #include <cmath>
 
-namespace cxx_sdk_v2 {
+namespace lattisense {
 
 const int V2_FPGA_MFORM_BITS = 34;
 
@@ -97,4 +97,4 @@ uint64_t FheTaskFpga::run(FheContext* context, const std::vector<CxxVectorArgume
     return duration.count();
 }
 
-}  // namespace cxx_sdk_v2
+}  // namespace lattisense

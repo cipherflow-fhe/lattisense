@@ -30,7 +30,7 @@
 #include "conv2d_packed_layer.h"
 #include "array_util.h"
 
-using namespace cxx_sdk_v2;
+using namespace lattisense;
 using namespace fhe_ops_lib;
 
 void benchmark_convolution(uint32_t input_size, uint32_t kernel_size, uint32_t n_in_channel, uint32_t n_out_channel) {

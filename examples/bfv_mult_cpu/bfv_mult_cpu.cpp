@@ -21,7 +21,7 @@
 
 #include <cstdio>
 
-using namespace cxx_sdk_v2;
+using namespace lattisense;
 using namespace std;
 
 void bfv_mult_cpu() {

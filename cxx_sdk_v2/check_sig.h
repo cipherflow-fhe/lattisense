@@ -23,7 +23,7 @@
 #include "nlohmann/json.hpp"
 #include <map>
 
-namespace cxx_sdk_v2 {
+namespace lattisense {
 
 // Type mapping declarations
 inline std::map<CxxArgumentType, std::string> cxx_argument_type_str_map = {
@@ -277,6 +277,6 @@ inline int check_signatures(FheContext* context,
     return n_in_args;
 }
 
-}  // namespace cxx_sdk_v2
+}  // namespace lattisense
 
 #endif  // CHECK_SIG_H

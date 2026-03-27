@@ -32,7 +32,7 @@ extern "C" {
 #include "../mega_ag_runners/wrapper.h"
 }
 
-namespace cxx_sdk_v2 {
+namespace lattisense {
 
 using namespace fhe_ops_lib;
 
@@ -281,6 +281,6 @@ inline int get_n_key_arg(nlohmann::json& key_signature, bool online_phase = true
     return n_key_arg;
 }
 
-}  // namespace cxx_sdk_v2
+}  // namespace lattisense
 
 #endif  // CXX_ARGUMENT_H

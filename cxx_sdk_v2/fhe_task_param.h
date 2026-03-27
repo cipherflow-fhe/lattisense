@@ -22,7 +22,7 @@
 #include <variant>
 #include "cxx_fhe_task.h"
 
-namespace cxx_sdk_v2 {
+namespace lattisense {
 
 using namespace fhe_ops_lib;
 
@@ -106,6 +106,6 @@ inline std::variant<BfvParameter, CkksParameter, CkksBtpParameter> create_fhe_pa
     }
 }
 
-}  // namespace cxx_sdk_v2
+}  // namespace lattisense
 
 #endif  // FHE_TASK_PARAM_H

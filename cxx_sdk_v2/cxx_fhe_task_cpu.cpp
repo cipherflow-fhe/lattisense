@@ -28,7 +28,7 @@ extern "C" {
 #include "../mega_ag_runners/wrapper.h"
 }
 
-namespace cxx_sdk_v2 {
+namespace lattisense {
 
 FheTaskCpu::FheTaskCpu(const std::string& project_path) : FheTask{project_path} {
     task_handle = create_fhe_cpu_task(project_path.c_str());
@@ -92,4 +92,4 @@ uint64_t FheTaskCpu::run(FheContext* context, const std::vector<CxxVectorArgumen
     return duration.count();
 }
 
-}  // namespace cxx_sdk_v2
+}  // namespace lattisense

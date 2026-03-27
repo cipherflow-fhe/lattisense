@@ -23,7 +23,7 @@ extern "C" {
 #include "../mega_ag_runners/fpga/fpga_ops_wrapper.h"
 }
 
-namespace cxx_sdk_v2 {
+namespace lattisense {
 
 /**
  * @brief FPGA accelerator device class.
@@ -57,5 +57,5 @@ private:
     static bool _in_use;          ///< Device in-use flag
 };
 
-}  // namespace cxx_sdk_v2
+}  // namespace lattisense
 #endif  // CXX_FPGA_OPS_H

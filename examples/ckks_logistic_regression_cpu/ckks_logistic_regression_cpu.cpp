@@ -26,7 +26,7 @@
 #include <string>
 
 using namespace std;
-using namespace cxx_sdk_v2;
+using namespace lattisense;
 
 void ckks_logistic_regression_cpu() {
     int level = 3;

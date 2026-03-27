@@ -35,7 +35,7 @@ extern "C" {
 #include "cxx_argument.h"
 #include "check_sig.h"
 
-namespace cxx_sdk_v2 {
+namespace lattisense {
 
 using namespace fhe_ops_lib;
 
@@ -152,5 +152,5 @@ private:
     bool _online_phase = true;
 };
 
-}  // namespace cxx_sdk_v2
+}  // namespace lattisense
 #endif  // CXX_FHE_TASK_H

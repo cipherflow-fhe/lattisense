@@ -24,7 +24,7 @@ extern "C" {
 
 using namespace std;
 
-namespace cxx_sdk_v2 {
+namespace lattisense {
 
 FpgaDevice FpgaDevice::_instance;
 bool FpgaDevice::_in_use = false;
@@ -61,4 +61,4 @@ int FpgaDevice::free() {
     return 0;
 }
 
-}  // namespace cxx_sdk_v2
+}  // namespace lattisense
