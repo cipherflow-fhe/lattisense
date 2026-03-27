@@ -26,7 +26,7 @@
 #include "cxx_fhe_task.h"
 #include "utils.h"
 
-using namespace cxx_sdk_v2;
+using namespace lattisense;
 using namespace std;
 
 class LattigoDBfvFixture {

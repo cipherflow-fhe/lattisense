@@ -22,7 +22,7 @@
 #include <cstdio>
 #include <cstring>
 
-using namespace cxx_sdk_v2;
+using namespace lattisense;
 
 void benchmark_bfv_mult_relin() {
     const int n_op = 1024;

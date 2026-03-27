@@ -24,7 +24,7 @@
 #include "cxx_abi_bridge_executors.h"
 #include "../mega_ag_runners/wrapper.h"
 
-namespace cxx_sdk_v2 {
+namespace lattisense {
 
 const int GPU_MFORM_BITS = 0;
 
@@ -100,4 +100,4 @@ uint64_t FheTaskGpu::run(FheContext* context, const std::vector<CxxVectorArgumen
 
     return duration.count();
 }
-}  // namespace cxx_sdk_v2
+}  // namespace lattisense

@@ -61,7 +61,7 @@ process_custom_task(
 
 using namespace std;
 using namespace fhe_ops_lib;
-using namespace cxx_sdk_v2;
+using namespace lattisense;
 
 int main() {
     // 初始化 BFV 参数

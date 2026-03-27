@@ -19,13 +19,11 @@ import math
 import os
 import random
 import string
-import sys
 from typing import List, Optional
 
 import networkx as nx
 from enum import Enum
 
-TRANSLATOR_DEV = True
 DEFAULT_LEVEL = -1
 
 random_ids = set()
@@ -2162,7 +2160,7 @@ def process_custom_task(
             from .fpga_backend import run_fpga_linker
         except ImportError:
             from fpga_backend import run_fpga_linker
-        run_fpga_linker(output_instruction_path, TRANSLATOR_DEV)
+        run_fpga_linker(output_instruction_path)
 
     g_swk_node_dict.clear()
     g_dag.clear()

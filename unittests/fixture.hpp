@@ -27,7 +27,7 @@
 #include "cxx_fhe_task.h"
 #include "test_config.hpp"
 
-using namespace cxx_sdk_v2;
+using namespace lattisense;
 using namespace std;
 
 // ---------------------------------------------------------------------------

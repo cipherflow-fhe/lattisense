@@ -25,7 +25,7 @@ extern "C" {
 #include "../fhe_ops_lib/structs_v2.h"
 }
 
-namespace cxx_sdk_v2 {
+namespace lattisense {
 
 FheTask::FheTask(const std::string& project_path) : _project_path{project_path} {
     std::ifstream sig_file;
@@ -72,4 +72,4 @@ void FheTask::free_args() {
     output_args.clear();
 }
 
-}  // namespace cxx_sdk_v2
+}  // namespace lattisense

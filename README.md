@@ -61,7 +61,7 @@ The following C++ code performs the full FHE computation cycle: generate keys, e
 
 using namespace std;
 using namespace fhe_ops_lib;
-using namespace cxx_sdk_v2;
+using namespace lattisense;
 
 int main() {
     // Initialize BFV parameters

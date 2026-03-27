@@ -912,9 +912,7 @@ class TestTask:
         source_power = [1, 7, 18, 62, 104, 244, 259]
         max_power = 1137
         src_power_str = '-'.join(str(p) for p in source_power)
-        task_dir = os.path.join(
-            FPGA_OUTPUT_BASE_DIR, param_tag, 'BFV_power_dag', f'PD-{max_power}#{src_power_str}', f'level_{lv}'
-        )
+        task_dir = os.path.join(FPGA_OUTPUT_BASE_DIR, param_tag, 'BFV_power_dag', f'PD-{max_power}#{src_power_str}')
 
         print(f'BFV_power_dag PD-{max_power}#{src_power_str} begin --')
         x_list = [BfvCiphertextNode(f'x{j}', level=lv) for j in source_power]
@@ -937,95 +935,101 @@ class TestTask:
         source_power = [1, 7, 18, 62, 104, 244, 259]
         max_power = 1137
         src_power_str = '-'.join(str(p) for p in source_power)
-        lane_cipher_size = index_per_fpga_func
-        task_dir = os.path.join(
-            FPGA_OUTPUT_BASE_DIR,
-            param_tag,
-            'BFV_power_mul_coeff',
-            f'PD-{max_power}#{src_power_str}',
-            f'{lane_cipher_size[0]}_{lane_cipher_size[1]}_{lane_cipher_size[2]}',
-        )
 
-        print(f'BFV_power_mul_coeff begin --')
+        for li in range(1, index_per_fpga_func[0] + 1):
+            for lj in range(1, index_per_fpga_func[1] + 1):
+                for lk in range(1, index_per_fpga_func[2] + 1):
+                    lane_cipher_size = [li, lj, lk]
+                    task_dir = os.path.join(
+                        FPGA_OUTPUT_BASE_DIR,
+                        param_tag,
+                        'BFV_power_mul_coeff',
+                        f'PD-{max_power}#{src_power_str}',
+                        f'{lane_cipher_size[0]}_{lane_cipher_size[1]}_{lane_cipher_size[2]}',
+                    )
 
-        all_c = []
-        all_c_mul = []
-        for k in range(lane_cipher_size[1]):
-            c_list = [BfvCiphertextNode(f'c{k}_{i + 1}', level=lv) for i in range(max_power)]
-            c_mul_list = [to_mul(c_list[i], f'c{k}_{i + 1}_mul') for i in range(max_power)]
-            all_c.append(c_list)
-            all_c_mul.append(c_mul_list)
+                    print(f'BFV_power_mul_coeff begin --')
 
-        all_p = []
-        all_z = []
-        for r in range(lane_cipher_size[0]):
-            p_l_list = []
-            z_l_list = []
-            for k in range(lane_cipher_size[1]):
-                p_list = []
-                for i in range(lane_cipher_size[2]):
-                    pi_list = [BfvPlaintextNode(f'p{r}_{k}_{i}_0', level=lv)]
-                    for j in range(max_power):
-                        pi_list.append(BfvPlaintextRingtNode(f'p{r}_{k}_{i}_{j + 1}'))
-                    p_list.append(pi_list)
-                p_l_list.append(p_list)
+                    all_c = []
+                    all_c_mul = []
+                    for k in range(lane_cipher_size[1]):
+                        c_list = [BfvCiphertextNode(f'c{k}_{i + 1}', level=lv) for i in range(max_power)]
+                        c_mul_list = [to_mul(c_list[i], f'c{k}_{i + 1}_mul') for i in range(max_power)]
+                        all_c.append(c_list)
+                        all_c_mul.append(c_mul_list)
 
-                z = []
-                for i in range(lane_cipher_size[2]):
-                    if max_power <= 50:
-                        x_ntt = ct_pt_mult_accumulate(
-                            all_c_mul[k][: len(p_list[i][1:])], p_list[i][1:], output_mform=False
-                        )
-                        x = to_inv_ntt(x_ntt)
-                    else:
-                        n_split = 4
-                        x_mac = None
-                        for i_split in range(n_split):
-                            start_idx = int(max_power / n_split * i_split)
-                            end_idx = int(max_power / n_split * (i_split + 1))
-                            x_ntt = ct_pt_mult_accumulate(
-                                all_c_mul[k][start_idx:end_idx],
-                                p_list[i][1 + start_idx : 1 + end_idx],
-                                output_mform=False,
-                            )
-                            x = to_inv_ntt(x_ntt)
-                            x_mac = x if i_split == 0 else add(x, x_mac)
-                        x = x_mac
-                    y = add(x, p_list[i][0], f'y{r}_{k}_{i}')
-                    z.append(rescale(y, f'z{r}_{k}_{i}'))
-                z_l_list.append(z)
+                    all_p = []
+                    all_z = []
+                    for r in range(lane_cipher_size[0]):
+                        p_l_list = []
+                        z_l_list = []
+                        for k in range(lane_cipher_size[1]):
+                            p_list = []
+                            for i in range(lane_cipher_size[2]):
+                                pi_list = [BfvPlaintextNode(f'p{r}_{k}_{i}_0', level=lv)]
+                                for j in range(max_power):
+                                    pi_list.append(BfvPlaintextRingtNode(f'p{r}_{k}_{i}_{j + 1}'))
+                                p_list.append(pi_list)
+                            p_l_list.append(p_list)
 
-            all_p.append(p_l_list)
-            all_z.append(z_l_list)
+                            z = []
+                            for i in range(lane_cipher_size[2]):
+                                if max_power <= 50:
+                                    x_ntt = ct_pt_mult_accumulate(
+                                        all_c_mul[k][: len(p_list[i][1:])], p_list[i][1:], output_mform=False
+                                    )
+                                    x = to_inv_ntt(x_ntt)
+                                else:
+                                    n_split = 4
+                                    x_mac = None
+                                    for i_split in range(n_split):
+                                        start_idx = int(max_power / n_split * i_split)
+                                        end_idx = int(max_power / n_split * (i_split + 1))
+                                        x_ntt = ct_pt_mult_accumulate(
+                                            all_c_mul[k][start_idx:end_idx],
+                                            p_list[i][1 + start_idx : 1 + end_idx],
+                                            output_mform=False,
+                                        )
+                                        x = to_inv_ntt(x_ntt)
+                                        x_mac = x if i_split == 0 else add(x, x_mac)
+                                    x = x_mac
+                                y = add(x, p_list[i][0], f'y{r}_{k}_{i}')
+                                z.append(rescale(y, f'z{r}_{k}_{i}'))
+                            z_l_list.append(z)
 
-        process_custom_task(
-            input_args=[
-                Argument('in_c_list', [all_c[i][j] for i in range(lane_cipher_size[1]) for j in range(max_power)]),
-                Argument(
-                    'in_p0_list',
-                    [
-                        all_p[r][i][j][0]
-                        for r in range(lane_cipher_size[0])
-                        for i in range(lane_cipher_size[1])
-                        for j in range(lane_cipher_size[2])
-                    ],
-                ),
-                Argument(
-                    'in_p_list',
-                    [
-                        all_p[r][i][j][k]
-                        for r in range(lane_cipher_size[0])
-                        for i in range(lane_cipher_size[1])
-                        for j in range(lane_cipher_size[2])
-                        for k in range(1, len(all_p[r][i][j]))
-                    ],
-                ),
-            ],
-            offline_input_args=[],
-            output_args=[Argument('out_z_list', all_z)],
-            output_instruction_path=task_dir,
-        )
-        print(f'BFV_power_mul_coeff end --')
+                        all_p.append(p_l_list)
+                        all_z.append(z_l_list)
+
+                    process_custom_task(
+                        input_args=[
+                            Argument(
+                                'in_c_list', [all_c[i][j] for i in range(lane_cipher_size[1]) for j in range(max_power)]
+                            ),
+                            Argument(
+                                'in_p0_list',
+                                [
+                                    all_p[r][i][j][0]
+                                    for r in range(lane_cipher_size[0])
+                                    for i in range(lane_cipher_size[1])
+                                    for j in range(lane_cipher_size[2])
+                                ],
+                            ),
+                            Argument(
+                                'in_p_list',
+                                [
+                                    all_p[r][i][j][k]
+                                    for r in range(lane_cipher_size[0])
+                                    for i in range(lane_cipher_size[1])
+                                    for j in range(lane_cipher_size[2])
+                                    for k in range(1, len(all_p[r][i][j]))
+                                ],
+                            ),
+                        ],
+                        offline_input_args=[],
+                        output_args=[Argument('out_z_list', all_z)],
+                        output_instruction_path=task_dir,
+                    )
+                    print(f'BFV_power_mul_coeff end --')
 
 
 class TestPow2T:

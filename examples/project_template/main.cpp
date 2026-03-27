@@ -30,7 +30,7 @@
 #include <cstdio>
 #include <vector>
 
-using namespace cxx_sdk_v2;
+using namespace lattisense;
 using namespace std;
 
 int main() {

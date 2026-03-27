@@ -24,7 +24,7 @@
 #include "utils.h"
 
 using namespace fhe_ops_lib;
-using namespace cxx_sdk_v2;
+using namespace lattisense;
 using namespace std;
 
 // ---------------------------------------------------------------------------

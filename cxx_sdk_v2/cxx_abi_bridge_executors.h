@@ -51,7 +51,7 @@ extern "C" {
 #include "../mega_ag_runners/c_argument.h"
 }
 
-namespace cxx_sdk_v2 {
+namespace lattisense {
 
 using namespace fhe_ops_lib;
 
@@ -596,6 +596,6 @@ inline ExecutorFunc create_abi_import_executor(Algo algorithm, bool heterogeneou
     throw std::runtime_error("Unsupported algorithm for IMPORT_FROM_ABI");
 }
 
-}  // namespace cxx_sdk_v2
+}  // namespace lattisense
 
 #endif  // CXX_ABI_BRIDGE_EXECUTORS_H
