@@ -137,10 +137,10 @@ inline void _export_ciphertexts(const std::vector<Handle*>& src, CCiphertext* de
 inline void _import_ciphertexts(CCiphertext* src, const std::vector<Handle*>& dest, const Parameter& param) {
     for (int i = 0; i < dest.size(); i++) {
         if (typeid(param) == typeid(BfvParameter)) {
-            *dest[i] = import_bfv_ciphertext(param.get(), &src[i]);
+            import_bfv_ciphertext(dest[i]->get(), &src[i]);
         } else if (typeid(param) == typeid(CkksParameter)) {
             double scale = ((CkksCiphertext*)dest[i])->get_scale();
-            *dest[i] = import_ckks_ciphertext(param.get(), &src[i]);
+            import_ckks_ciphertext(dest[i]->get(), &src[i]);
             ((CkksCiphertext*)dest[i])->set_scale(scale);
         }
     }
