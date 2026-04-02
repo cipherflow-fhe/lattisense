@@ -38,9 +38,9 @@ void free_relin_key(CRelinKey* rlk, bool free_component_data);
 
 void free_galois_key(CGaloisKey* gk, bool free_component_data);
 
-uint64_t import_bfv_ciphertext(uint64_t parameter_handle, CCiphertext* c_ciphertext);
+void import_bfv_ciphertext(uint64_t dest_handle, CCiphertext* c_ciphertext);
 
-uint64_t import_ckks_ciphertext(uint64_t parameter_handle, CCiphertext* c_ciphertext);
+void import_ckks_ciphertext(uint64_t dest_handle, CCiphertext* c_ciphertext);
 
 void export_bfv_plaintext_ringt(uint64_t plaintext_ringt_handle, CPlaintext* plaintext);
 
