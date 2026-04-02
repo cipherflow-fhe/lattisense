@@ -81,10 +81,7 @@ enum class OperationType {
     MAC_W_PARTIAL_SUM,
     BOOTSTRAP,
 
-    TO_NTT,
-    TO_MFORM,
-    TO_MUL,
-    TO_INVNTT,
+    FPGA_KERNEL,  // Composite FPGA sub-project operator (heterogeneous mode)
 
     // ABI bridge operations (inserted automatically by from_json for heterogeneous mode)
     EXPORT_TO_ABI,       // Frontend Handle → ABI C struct (defined in cxx_sdk)
@@ -311,9 +308,9 @@ private:
 
     std::pair<NodeIndex, NodeIndex> get_next_indices() const;
     void rebuild_bridge_relationships(std::initializer_list<OperationType> bridge_ops);
-    void insert_gpu_abi_bridge_nodes();
-    void insert_fpga_abi_bridge_nodes();
+    void insert_backend_abi_bridge_nodes();
     void insert_cpu_abi_bridge_nodes();
+
     void compute_top_levels();
     void compute_bottom_levels();
 };

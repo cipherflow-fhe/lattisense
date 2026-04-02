@@ -72,6 +72,7 @@ class OperationType(Enum):
     CmpacSum = 'cmpac_sum'
     CmpSum = 'cmp_sum'
     Bootstrap = 'bootstrap'
+    FpgaKernel = 'fpga_kernel'
 
 
 class Lib(Enum):
@@ -330,7 +331,7 @@ class Param:
 class CkksBtpParam(Param):
     """
     @class CkksBtpParam
-    @brief CKKS bootstrap parameter class
+    @brief CKKS Bootstrap parameter class.
 
     Contains additional parameters required for CKKS bootstrapping.
     """
@@ -344,7 +345,7 @@ class CkksBtpParam(Param):
 
     @classmethod
     def create_toy_param(cls):
-        """Create CKKS toy bootstrap parameters (N16QP1546H192H32 with n=8192)"""
+        """Create CKKS Toy Bootstrap parameters (N16QP1546H192H32 with n=8192)."""
         instance = cls(n=8192)
 
         instance.q = [
@@ -393,7 +394,7 @@ class CkksBtpParam(Param):
 
     @classmethod
     def create_default_param(cls):
-        """Create CKKS bootstrap parameters (N16QP1546H192H32 with n=65536)"""
+        """Create CKKS Bootstrap parameters (N16QP1546H192H32 with n=65536)."""
         instance = cls(n=1 << 16)
 
         instance.q = [
@@ -442,10 +443,10 @@ class CkksBtpParam(Param):
 
 
 def set_fhe_param(param: 'Param') -> None:
-    """Set global FHE parameters
+    """Set the global FHE parameters.
 
-    This function must be called before invoking any FHE operations.
-    It sets the global parameter object used by all subsequent FHE operations.
+    Must be called before any FHE operations.
+    This function sets the global parameter object used by all subsequent FHE operations.
 
     @param param: FHE parameter object containing algorithm type, polynomial degree n, moduli, etc.
 
@@ -460,14 +461,14 @@ def set_fhe_param(param: 'Param') -> None:
 class Argument:
     """
     @class Argument
-    @brief Class describing task input data parameters, output data parameters, and offline input data parameters.
+    @brief Describes input, output, and offline input data arguments for a task.
     """
 
     def __init__(self, arg_id: str, data: 'DataNode | list') -> None:
         """
-        @brief Constructor
-        @param arg_id: Custom argument ID
-        @param data: Data. Can be a single data node, a list of data nodes, a tuple of data nodes, or nested lists/tuples of data nodes.
+        @brief Constructor.
+        @param arg_id: Custom argument ID.
+        @param data: Data. Can be a single data node, a list/tuple of data nodes, or nested lists/tuples.
         """
 
         if not isinstance(arg_id, str):
@@ -485,16 +486,16 @@ class Argument:
 class DataNode:
     """
     @class DataNode
-    @brief Base class for data nodes
+    @brief Data node base class.
 
-    Base class for all data nodes, containing only the most basic attributes: type, id, index
+    Base class for all data nodes, containing only basic attributes: type, id, index.
     """
 
     def __init__(self, type, id='') -> None:
         """
-        @brief Constructor
-        @param type: Node type
-        @param id: Node ID
+        @brief Constructor.
+        @param type: Node type.
+        @param id: Node ID.
         """
         self.type = type
         self.id: str = id
@@ -509,10 +510,10 @@ class DataNode:
 class FheDataNode(DataNode):
     """
     @class FheDataNode
-    @brief FHE data node type; subclasses should be used for concrete usage
+    @brief FHE data node type; use its subclasses in practice.
 
-    Contains data types used in FHE computation, such as plaintext, ciphertext, keys, etc.
-    Has FHE-related attributes including level, degree, is_ntt, etc.
+    Contains FHE data types such as plaintext, ciphertext, keys, etc.
+    Has FHE-related attributes like level, degree, is_ntt.
     """
 
     def __init__(
@@ -523,34 +524,53 @@ class FheDataNode(DataNode):
         level=DEFAULT_LEVEL,
     ) -> None:
         """
-        @brief Constructor
-        @param type: DataType enumeration type
-        @param id: Custom node ID
-        @param degree: Polynomial degree
-        @param level: Data level
+        @brief Constructor.
+        @param type: DataType enum value.
+        @param id: Custom node ID.
+        @param degree: Polynomial degree.
+        @param level: Data level.
         """
         super().__init__(type=type, id=id)
         self.level: int = level
         self.degree: int = degree
         self.is_ntt = False
         self.is_mform = False
-        self.sp_level: int = None
+        self.sp_level: int | None = None
+
+    def to_json_dict(self) -> dict:
+        d = {
+            'id': self.id,
+            'type': self.type.value,
+            'level': self.level,
+            'degree': self.degree,
+            'is_ntt': self.is_ntt,
+            'is_mform': self.is_mform,
+        }
+        if self.sp_level is not None:
+            d['sp_level'] = self.sp_level
+        if isinstance(self, BfvCompressedPlaintextRingtNode):
+            d['is_compressed'] = self.is_compressed
+        if isinstance(self, CiphertextNode):
+            d['poly1_rns_sp_decomped'] = self.poly1_rns_sp_decomped
+        if isinstance(self, GaloisKeyNode):
+            d['galois_element'] = self.galois_element
+        return d
 
 
 class CustomDataNode(DataNode):
     """
     @class CustomDataNode
-    @brief Custom data node type
+    @brief Custom data node type.
 
     Allows users to create data nodes with custom types and attributes.
     """
 
-    def __init__(self, type: str, id='', attributes: dict = None) -> None:
+    def __init__(self, type: str, id='', attributes: dict | None = None) -> None:
         """
-        @brief Constructor
-        @param type: String identifier for the custom data type
-        @param id: Node id
-        @param attributes: Custom attribute dict, can contain arbitrary key-value pairs
+        @brief Constructor.
+        @param type: String identifier for the custom data type.
+        @param id: Node ID.
+        @param attributes: Custom attribute dictionary; can contain arbitrary key-value pairs.
         """
         super().__init__(type=type, id=id)
         self.attributes = attributes if attributes is not None else {}
@@ -558,11 +578,21 @@ class CustomDataNode(DataNode):
     def __repr__(self) -> str:
         return f'(custom_{self.type}, {self.id})'
 
+    def to_json_dict(self) -> dict:
+        d = {
+            'id': self.id,
+            'type': self.type,
+            'is_custom': True,
+        }
+        if self.attributes:
+            d['attributes'] = self.attributes
+        return d
+
 
 class PlaintextNode(FheDataNode):
     """
     @class PlaintextNode
-    @brief Plaintext type
+    @brief Plaintext type.
     """
 
     def __init__(self, type, id='', level=DEFAULT_LEVEL) -> None:
@@ -572,7 +602,7 @@ class PlaintextNode(FheDataNode):
 class BfvPlaintextNode(PlaintextNode):
     """
     @class BfvPlaintextNode
-    @brief BFV plaintext type
+    @brief BFV plaintext type.
     """
 
     def __init__(self, id='', level=DEFAULT_LEVEL) -> None:
@@ -582,7 +612,7 @@ class BfvPlaintextNode(PlaintextNode):
 class BfvPlaintextRingtNode(PlaintextNode):
     """
     @class BfvPlaintextRingtNode
-    @brief Plaintext type in ring-t, used for ciphertext-plaintext multiplication
+    @brief Plaintext in ring-t representation, used for ciphertext-plaintext multiplication.
     """
 
     def __init__(self, id='') -> None:
@@ -592,10 +622,10 @@ class BfvPlaintextRingtNode(PlaintextNode):
 class BfvCompressedPlaintextRingtNode(BfvPlaintextRingtNode):
     """
     @class BfvCompressedPlaintextRingtNode
-    @brief Compressed plaintext type in ring-t, used for ciphertext-plaintext multiplication
+    @brief Compressed plaintext in ring-t representation, used for ciphertext-plaintext multiplication.
     """
 
-    def __init__(self, id='', compressed_block_info: list = None) -> None:
+    def __init__(self, id='', compressed_block_info: list | None = None) -> None:
         super().__init__(id)
         assert compressed_block_info is not None
         self.compressed_block_info = compressed_block_info
@@ -605,7 +635,7 @@ class BfvCompressedPlaintextRingtNode(BfvPlaintextRingtNode):
 class BfvPlaintextMulNode(PlaintextNode):
     """
     @class BfvPlaintextMulNode
-    @brief Plaintext type for ciphertext-plaintext multiplication
+    @brief Plaintext type for ciphertext-plaintext multiplication.
     """
 
     def __init__(self, id='', level=DEFAULT_LEVEL) -> None:
@@ -617,7 +647,7 @@ class BfvPlaintextMulNode(PlaintextNode):
 class CkksPlaintextNode(PlaintextNode):
     """
     @class CkksPlaintextNode
-    @brief CKKS plaintext type
+    @brief CKKS plaintext type.
     """
 
     def __init__(self, id='', level=DEFAULT_LEVEL) -> None:
@@ -628,7 +658,7 @@ class CkksPlaintextNode(PlaintextNode):
 class CkksPlaintextRingtNode(PlaintextNode):
     """
     @class CkksPlaintextRingtNode
-    @brief CKKS plaintext type in ring-t, used for ciphertext-plaintext multiplication
+    @brief CKKS plaintext in ring-t representation, used for ciphertext-plaintext multiplication.
     """
 
     def __init__(self, id='') -> None:
@@ -639,7 +669,7 @@ class CkksPlaintextRingtNode(PlaintextNode):
 class CkksPlaintextMulNode(PlaintextNode):
     """
     @class CkksPlaintextMulNode
-    @brief CKKS plaintext type for ciphertext-plaintext multiplication
+    @brief CKKS plaintext type for ciphertext-plaintext multiplication.
     """
 
     def __init__(self, id='', level=DEFAULT_LEVEL) -> None:
@@ -651,7 +681,7 @@ class CkksPlaintextMulNode(PlaintextNode):
 class CiphertextNode(FheDataNode):
     """
     @class CiphertextNode
-    @brief Ciphertext type
+    @brief Ciphertext type.
     """
 
     def __init__(self, type=DataType.Ciphertext, id='', degree=1, level=DEFAULT_LEVEL) -> None:
@@ -662,7 +692,7 @@ class CiphertextNode(FheDataNode):
 class BfvCiphertextNode(CiphertextNode):
     """
     @class BfvCiphertextNode
-    @brief BFV ciphertext type containing 2 polynomials
+    @brief BFV ciphertext type, containing 2 polynomials.
     """
 
     def __init__(self, id='', level=DEFAULT_LEVEL) -> None:
@@ -672,7 +702,7 @@ class BfvCiphertextNode(CiphertextNode):
 class BfvCiphertext3Node(CiphertextNode):
     """
     @class BfvCiphertext3Node
-    @brief BFV ciphertext type containing 3 polynomials
+    @brief BFV ciphertext type, containing 3 polynomials.
     """
 
     def __init__(self, id='', level=DEFAULT_LEVEL) -> None:
@@ -682,7 +712,7 @@ class BfvCiphertext3Node(CiphertextNode):
 class CkksCiphertextNode(CiphertextNode):
     """
     @class CkksCiphertextNode
-    @brief CKKS ciphertext type containing 2 polynomials
+    @brief CKKS ciphertext type, containing 2 polynomials.
     """
 
     def __init__(self, id='', level=DEFAULT_LEVEL) -> None:
@@ -693,7 +723,7 @@ class CkksCiphertextNode(CiphertextNode):
 class CkksCiphertext3Node(CiphertextNode):
     """
     @class CkksCiphertext3Node
-    @brief CKKS ciphertext type containing 3 polynomials
+    @brief CKKS ciphertext type, containing 3 polynomials.
     """
 
     def __init__(self, id='', level=DEFAULT_LEVEL) -> None:
@@ -704,7 +734,7 @@ class CkksCiphertext3Node(CiphertextNode):
 class SwitchKeyNode(FheDataNode):
     """
     @class SwitchKeyNode
-    @brief Switch key type
+    @brief Switch key type.
     """
 
     def __init__(self, id='', level=DEFAULT_LEVEL, sp_level=DEFAULT_LEVEL, type=DataType.SwitchKey) -> None:
@@ -717,20 +747,22 @@ class SwitchKeyNode(FheDataNode):
 class RelinKeyNode(SwitchKeyNode):
     """
     @class RelinKeyNode
-    @brief Relinearization key type
+    @brief Relinearization key type.
     """
 
     def __init__(self, level=DEFAULT_LEVEL) -> None:
+        assert g_param is not None
         super().__init__(id='rlk_ntt', level=level, sp_level=g_param.get_max_sp_level(), type=DataType.RelinKey)
 
 
 class GaloisKeyNode(SwitchKeyNode):
     """
     @class GaloisKeyNode
-    @brief Galois key type
+    @brief Galois key type.
     """
 
     def __init__(self, id, level=DEFAULT_LEVEL) -> None:
+        assert g_param is not None
         super().__init__(id=id, level=level, sp_level=g_param.get_max_sp_level(), type=DataType.GaloisKey)
         self.galois_element = (
             int(self.id.split('_')[-1]) if 'col' in self.id else get_galois_element_for_row_rotation(g_param.n)
@@ -740,15 +772,15 @@ class GaloisKeyNode(SwitchKeyNode):
 class ComputeNode:
     """
     @class ComputeNode
-    @brief Base class for compute nodes
+    @brief Compute node base class.
 
-    Base class for all compute nodes, containing only the most basic attributes: type, id, index
+    Base class for all compute nodes, containing only basic attributes: type, id, index.
     """
 
     def __init__(self, type) -> None:
         """
-        @brief Constructor
-        @param type: Operation type
+        @brief Constructor.
+        @param type: Operation type.
         """
         self.type = type
         self.id = random_id()
@@ -761,36 +793,57 @@ class ComputeNode:
 class FheComputeNode(ComputeNode):
     """
     @class FheComputeNode
-    @brief FHE compute node type
+    @brief FHE compute node type.
 
-    Contains operation types used in FHE computation, with FHE-related attributes such as compressed_block_info.
+    Contains FHE operation types with attributes like compressed_block_info.
     """
 
     def __init__(self, type: OperationType) -> None:
         """
-        @brief Constructor
-        @param type: OperationType enumeration type
+        @brief Constructor.
+        @param type: OperationType enum value.
         """
         super().__init__(type=type)
-        self.compressed_block_info: list = None
+        self.compressed_block_info: list | None = None
 
     def __repr__(self):
         return f'({self.type.value}, {self.id})'
+
+    def to_json_dict(self, dag: nx.DiGraph) -> dict:
+        d = {
+            'id': self.id,
+            'type': self.type.value,
+            'inputs': [y.index for y in dag.predecessors(self)],
+            'outputs': [s.index for s in dag.successors(self)],
+        }
+        if isinstance(self, RotateColUnitNode):
+            d['step'] = self.step
+            if self.lib != Lib.Lattigo:
+                d['lib'] = self.lib.value
+        elif isinstance(self, RotateRowUnitNode):
+            if self.lib != Lib.Lattigo:
+                d['lib'] = self.lib.value
+        elif isinstance(self, (CmpSumComputeNode, CmpacSumComputeNode)):
+            d['sum_cnt'] = self.sum_cnt
+            d['pt_type'] = self.pt_type.value if isinstance(self.pt_type, DataType) else self.pt_type
+        if self.compressed_block_info is not None:
+            d['compressed_block_info'] = self.compressed_block_info
+        return d
 
 
 class CustomComputeNode(ComputeNode):
     """
     @class CustomComputeNode
-    @brief Custom compute node type
+    @brief Custom compute node type.
 
     Allows users to create compute nodes with custom attributes and metadata.
     """
 
-    def __init__(self, type: str, attributes: dict = None) -> None:
+    def __init__(self, type: str, attributes: dict | None = None) -> None:
         """
-        @brief Constructor
-        @param type: String identifier for the custom operation type
-        @param attributes: Custom attribute dict, can contain arbitrary key-value pairs
+        @brief Constructor.
+        @param type: String identifier for the custom operation type.
+        @param attributes: Custom attribute dictionary; can contain arbitrary key-value pairs.
         """
         super().__init__(type=type)
         self.attributes = attributes if attributes is not None else {}
@@ -798,35 +851,47 @@ class CustomComputeNode(ComputeNode):
     def __repr__(self):
         return f'(custom_{self.type}, {self.id})'
 
+    def to_json_dict(self, dag: nx.DiGraph) -> dict:
+        d = {
+            'id': self.id,
+            'type': self.type,
+            'is_custom': True,
+            'inputs': [y.index for y in dag.predecessors(self)],
+            'outputs': [s.index for s in dag.successors(self)],
+        }
+        if self.attributes:
+            d['attributes'] = self.attributes
+        return d
+
 
 class CmpSumComputeNode(FheComputeNode):
     """
     @class CmpSumComputeNode
-    @brief CmpSum compute node type
+    @brief CmpSum compute node type.
     """
 
     def __init__(self, sum_cnt) -> None:
         super().__init__(type=OperationType.CmpSum)
         self.sum_cnt = sum_cnt
-        self.pt_type = ''
+        self.pt_type: DataType | str = ''
 
 
 class CmpacSumComputeNode(FheComputeNode):
     """
     @class CmpacSumComputeNode
-    @brief CmpacSum compute node type
+    @brief CmpacSum compute node type.
     """
 
     def __init__(self, sum_cnt) -> None:
         super().__init__(type=OperationType.CmpacSum)
         self.sum_cnt = sum_cnt
-        self.pt_type = ''
+        self.pt_type: DataType | str = ''
 
 
 class RotateColUnitNode(FheComputeNode):
     """
     @class RotateColUnitNode
-    @brief Column rotation unit type
+    @brief Column rotation unit type.
     """
 
     def __init__(self, step: int, lib=Lib.Lattigo) -> None:
@@ -838,12 +903,25 @@ class RotateColUnitNode(FheComputeNode):
 class RotateRowUnitNode(FheComputeNode):
     """
     @class RotateRowUnitNode
-    @brief Row rotation unit type
+    @brief Row rotation unit type.
     """
 
     def __init__(self, lib=Lib.Lattigo) -> None:
         super().__init__(type=OperationType.RotateRow)
         self.lib = lib
+
+
+class FpgaKernelNode(FheComputeNode):
+    """
+    @class FpgaKernelComputeNode
+    @brief FPGA kernel composite compute node type.
+
+    Represents a composite FPGA sub-project operator in a heterogeneous computation graph.
+    Used in the top-level mega_ag to encapsulate one FPGA sub-project partition.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(type=OperationType.FpgaKernel)
 
 
 def add(
@@ -863,10 +941,10 @@ def add(
 ) -> BfvCiphertextNode | CkksCiphertextNode:
     """!Addition
 
-    Define an addition computation step. Supported types include ct+ct, ct+pt, pt+ct.
+    Define an addition computation step. Supported types: ct+ct, ct+pt, pt+ct.
     @param x Input data node.
     @param y Input data node.
-    @param output_id ID of the result data node.
+    @param output_id Output node ID.
     @return Result data node.
     """
     global g_dag
@@ -916,10 +994,10 @@ def sub(
 ) -> BfvCiphertextNode | CkksCiphertextNode:
     """!Subtraction
 
-    Define a subtraction computation step. Supported types include ct-ct, ct-pt.
+    Define a subtraction computation step. Supported types: ct-ct, ct-pt.
     @param x Input data node.
     @param y Input data node.
-    @param output_id ID of the result data node.
+    @param output_id Output node ID.
     @return Result data node.
     """
     global g_dag
@@ -1031,14 +1109,14 @@ def mult(
     | CkksPlaintextRingtNode
     | CkksPlaintextMulNode,
     output_id: Optional[str] = None,
-    start_block_idx: int = None,
+    start_block_idx: int | None = None,
 ) -> BfvCiphertextNode | BfvCiphertext3Node | CkksCiphertextNode | CkksCiphertext3Node:
     """!Multiplication
 
-    Define a multiplication computation step. Supported types include ct * ct, ct * pt_ringt, pt_ringt * ct, ct * pt_mul, pt_mul * ct.
+    Define a multiplication computation step. Supported types: ct*ct, ct*pt_ringt, pt_ringt*ct, ct*pt_mul, pt_mul*ct.
     @param x Input data node.
     @param y Input data node.
-    @param output_id ID of the result data node.
+    @param output_id Output node ID.
     @return Result data node.
     """
     global g_dag
@@ -1132,7 +1210,7 @@ def relin(
 
     Define a relinearization computation step.
     @param x Input data node.
-    @param output_id ID of the result data node.
+    @param output_id Output node ID.
     @return Result data node.
     """
     global g_dag
@@ -1166,23 +1244,25 @@ def mult_relin(
 ) -> BfvCiphertextNode | CkksCiphertextNode:
     """!Ciphertext multiplication with relinearization
 
-    Define a ciphertext multiplication followed by relinearization computation step.
+    Define a ciphertext multiplication followed by relinearization step.
     @param x Input data node.
     @param y Input data node.
-    @param output_id ID of the result data node.
+    @param output_id Output node ID.
     @return Result data node.
     """
-    return relin(mult(x, y, f'{output_id}_ct3' if output_id is not None else None), output_id)
+    ct3 = mult(x, y, f'{output_id}_ct3' if output_id is not None else None)
+    assert isinstance(ct3, (BfvCiphertext3Node, CkksCiphertext3Node))
+    return relin(ct3, output_id)
 
 
 def rescale(
     x: BfvCiphertextNode | CkksCiphertextNode, output_id: Optional[str] = None
 ) -> BfvCiphertextNode | CkksCiphertextNode:
-    """!Modulus switching (rescale)
+    """!Rescale
 
-    Define a modulus switching computation step.
+    Define a rescale (modulus switching) computation step.
     @param x Input data node.
-    @param output_id ID of the result data node.
+    @param output_id Output node ID.
     @return Result data node.
     """
     global g_dag
@@ -1203,12 +1283,12 @@ def rescale(
 
 
 def drop_level(x: CkksCiphertextNode, drop_level: int = 1, output_id: Optional[str] = None) -> CkksCiphertextNode:
-    """!Level switching (drop level)
+    """!Drop level
 
-    Define a level switching computation step.
+    Define a drop-level computation step.
     @param x Input data node.
     @param drop_level Number of levels to drop.
-    @param output_id ID of the result data node.
+    @param output_id Output node ID.
     @return Result data node.
     """
     global g_dag
@@ -1218,6 +1298,7 @@ def drop_level(x: CkksCiphertextNode, drop_level: int = 1, output_id: Optional[s
         raise ValueError('Dropped levels must not be larger than input level.')
 
     input = [x]
+    z: CkksCiphertextNode | None = None
     for lv in range(drop_level):
         op = FheComputeNode(OperationType.DropLevel)
         g_dag.add_edges_from([(i, op) for i in input])
@@ -1228,6 +1309,7 @@ def drop_level(x: CkksCiphertextNode, drop_level: int = 1, output_id: Optional[s
         g_dag.add_edge(op, z)
         if lv != drop_level - 1:
             input = [z]
+    assert z is not None
     return z
 
 
@@ -1251,8 +1333,8 @@ def rotate_cols(
 
     Define a ciphertext rotation computation step.
     @param x Input data node.
-    @param steps Number of rotation steps (positive for left rotation, negative for right rotation).
-    @param output_id ID of the result data node.
+    @param steps Rotation steps (positive = left rotation, negative = right rotation).
+    @param output_id Output node ID.
     @return Result data node.
     """
 
@@ -1265,7 +1347,7 @@ def rotate_cols(
     if x.type != DataType.Ciphertext:
         raise ValueError(f'Unsupported input type "{x.type.value}" for rotate.')
 
-    if type(steps) is int:
+    if isinstance(steps, int):
         steps = [steps]
 
     output = list()
@@ -1374,11 +1456,11 @@ def advanced_rotate_cols(
 ) -> list[BfvCiphertextNode | CkksCiphertextNode]:
     """!Ciphertext rotation
 
-    Define a ciphertext rotation computation step after preparing the rotation keys corresponding to the rotation steps.
+    Define a ciphertext rotation step after preparing the Galois key for the given rotation steps.
     @param x Input data node.
-    @param steps Number of rotation steps (positive for left rotation, negative for right rotation).
-    @param output_id ID of the result data node.
-    @param out_ct_type Output ciphertext type. Supported types include 'ct', 'ct-ntt', 'ct-ntt-mf'.
+    @param steps Rotation steps (positive = left rotation, negative = right rotation).
+    @param output_id Output node ID.
+    @param out_ct_type Output ciphertext type; supported types are 'ct', 'ct-ntt', 'ct-ntt-mf'.
     @return Result data node.
     """
 
@@ -1392,7 +1474,7 @@ def advanced_rotate_cols(
     if x.type != DataType.Ciphertext:
         raise ValueError(f'Unsupported input type "{x.type.value}" for rotate.')
 
-    if type(steps) is int:
+    if isinstance(steps, int):
         steps = [steps]
 
     output = list()
@@ -1494,8 +1576,8 @@ def seal_rotate_cols(
 
     Define a ciphertext rotation computation step using SEAL library.
     @param x Input data node.
-    @param steps Number of rotation steps (positive for left rotation, negative for right rotation).
-    @param output_id ID of the result data node.
+    @param steps Rotation steps (positive = left rotation, negative = right rotation).
+    @param output_id Output node ID.
     @return Result data node.
     """
     global g_param
@@ -1505,7 +1587,7 @@ def seal_rotate_cols(
     if x.type != DataType.Ciphertext:
         raise ValueError(f'Unsupported input type "{x.type.value}" for rotate.')
 
-    if type(steps) is int:
+    if isinstance(steps, int):
         steps = [steps]
 
     output = list()
@@ -1574,8 +1656,8 @@ def seal_advanced_rotate_cols(
 
     Define a ciphertext rotation computation step using SEAL library with direct rotation keys.
     @param x Input data node.
-    @param steps Number of rotation steps (positive for left rotation, negative for right rotation).
-    @param output_id ID of the result data node.
+    @param steps Rotation steps (positive = left rotation, negative = right rotation).
+    @param output_id Output node ID.
     @return Result data node.
     """
     global g_param
@@ -1585,7 +1667,7 @@ def seal_advanced_rotate_cols(
     if x.type != DataType.Ciphertext:
         raise ValueError(f'Unsupported input type "{x.type.value}" for rotate.')
 
-    if type(steps) is int:
+    if isinstance(steps, int):
         steps = [steps]
 
     output = list()
@@ -1648,7 +1730,7 @@ def ct_pt_mult_accumulate_add_ct_slice(
             assert yi[0].type == DataType.PlaintextRingt and yi[0].level == 0 and yi[0].is_compressed
 
     if y_compressed:
-        op.compressed_block_info = [yi[0].compressed_block_info[yi[1]] for yi in y]
+        op.compressed_block_info = [yi[0].compressed_block_info[yi[1]] for yi in y]  # type: ignore[union-attr]
     for i in range(len(x)):
         g_dag.add_edge(x[i], op)
 
@@ -1656,7 +1738,7 @@ def ct_pt_mult_accumulate_add_ct_slice(
         for i in range(len(y)):
             g_dag.add_edge(y[i], op)
     else:
-        g_dag.add_edge(y[0][0], op)
+        g_dag.add_edge(y[0][0], op)  # type: ignore[index]
 
     z = CiphertextNode()
     if isinstance(x[0], BfvCiphertextNode):
@@ -1701,7 +1783,7 @@ def ct_pt_mult_accumulate_slice(
             assert yi[0].type == DataType.PlaintextRingt and yi[0].level == 0 and yi[0].is_compressed
 
     if y_compressed:
-        op.compressed_block_info = [yi[0].compressed_block_info[yi[1]] for yi in y]
+        op.compressed_block_info = [yi[0].compressed_block_info[yi[1]] for yi in y]  # type: ignore[union-attr]
     for i in range(len(x)):
         g_dag.add_edge(x[i], op)
 
@@ -1709,7 +1791,7 @@ def ct_pt_mult_accumulate_slice(
         for i in range(len(y)):
             g_dag.add_edge(y[i], op)
     else:
-        g_dag.add_edge(y[0][0], op)
+        g_dag.add_edge(y[0][0], op)  # type: ignore[index]
 
     z = CiphertextNode()
     if isinstance(x[0], BfvCiphertextNode):
@@ -1729,17 +1811,18 @@ def ct_pt_mult_accumulate(
     y: list[BfvPlaintextRingtNode | CkksPlaintextRingtNode] | BfvCompressedPlaintextRingtNode,
     output_mform: bool | None = None,
 ) -> BfvCiphertextNode | CkksCiphertextNode:
-    """!Plaintext-ciphertext vector inner product
+    """!Ciphertext-plaintext vector dot product
 
-    Define a plaintext-ciphertext vector inner product computation step. Should be preferred for performance when vector length meets the requirements.
+    Define a ciphertext-plaintext vector dot product step. Prefer this when vector length meets requirements for better performance.
     @param x Input ciphertext vector.
-    @param y Input plaintext vector, must have the same length as the ciphertext vector.
+    @param y Input plaintext vector; must have the same length as the ciphertext vector.
     @return Result data node.
     """
     y_compressed: bool = isinstance(y, BfvCompressedPlaintextRingtNode)
     if y_compressed:
         assert len(x) == len(y.compressed_block_info)
 
+    n_processed_mult: int
     if len(x) >= 16 and isinstance(x[0], (BfvCiphertextNode, CkksCiphertextNode)):
         x_ct_slice = []
         w_pt_slice = []
@@ -1748,7 +1831,7 @@ def ct_pt_mult_accumulate(
             w_pt_slice.append(y[i] if not y_compressed else (y, i))
 
         partial_sum = ct_pt_mult_accumulate_slice(x_ct_slice, w_pt_slice)
-        n_processed_mult: int = 16
+        n_processed_mult = 16
 
     elif len(x) >= 8 and isinstance(x[0], (BfvCiphertextNode, CkksCiphertextNode)):
         x_ct_slice = []
@@ -1758,10 +1841,10 @@ def ct_pt_mult_accumulate(
             w_pt_slice.append(y[i] if not y_compressed else (y, i))
 
         partial_sum = ct_pt_mult_accumulate_slice(x_ct_slice, w_pt_slice)
-        n_processed_mult: int = 8
+        n_processed_mult = 8
     else:
         partial_sum = mult(x[0], y[0]) if not y_compressed else mult(x[0], y, start_block_idx=0)
-        n_processed_mult: int = 1
+        n_processed_mult = 1
 
     n_input: int = len(x)
     # n_processed_mult: int = 1
@@ -1778,8 +1861,10 @@ def ct_pt_mult_accumulate(
         n_processed_mult += slice_size
 
     if output_mform is True or (output_mform is None and x[0].is_mform):
+        assert isinstance(partial_sum, BfvCiphertextNode)
         partial_sum = to_mform(partial_sum)
 
+    assert isinstance(partial_sum, (BfvCiphertextNode, CkksCiphertextNode))
     return partial_sum
 
 
@@ -1787,11 +1872,11 @@ def ct_pt_mult_accumulate_1(
     x: list[BfvCiphertextNode | CkksCiphertextNode],
     y: list[BfvPlaintextRingtNode | CkksPlaintextRingtNode],
 ) -> BfvCiphertextNode | CkksCiphertextNode:
-    """!Plaintext-ciphertext vector inner product (variant 1)
+    """!Ciphertext-plaintext vector dot product
 
-    Define a plaintext-ciphertext vector inner product computation step. Should be preferred for performance when vector length meets the requirements.
+    Define a ciphertext-plaintext vector dot product step. Prefer this when vector length meets requirements for better performance.
     @param x Input ciphertext vector.
-    @param y Input plaintext vector, must have the same length as the ciphertext vector.
+    @param y Input plaintext vector; must have the same length as the ciphertext vector.
     @return Result data node.
     """
     partial_sum: CiphertextNode | None = None
@@ -1813,8 +1898,10 @@ def ct_pt_mult_accumulate_1(
         n_processed_mult += slice_size
 
     if x[0].is_mform:
+        assert isinstance(partial_sum, BfvCiphertextNode)
         partial_sum = to_mform(partial_sum)
 
+    assert partial_sum is not None
     return partial_sum
 
 
@@ -1866,6 +1953,7 @@ def bootstrap(x: CkksCiphertextNode, output_id: Optional[str] = None) -> CkksCip
 
     z = CkksCiphertextNode(id=random_id() if output_id is None else output_id)
     z.is_ntt = x.is_ntt
+    assert isinstance(g_param, CkksBtpParam)
     z.level = g_param.btp_output_level
     g_dag.add_edge(op, z)
 
@@ -1876,16 +1964,16 @@ def custom_compute(
     inputs: list[DataNode],
     output: DataNode,
     type: str,
-    attributes: dict = None,
+    attributes: dict | None = None,
 ):
-    """!Create a custom compute node
+    """!Create custom compute node
 
-    Allows users to define custom compute operations and add them to the compute graph.
+    Allows users to define custom compute operations and add them to the computation graph.
 
-    @param inputs List of input data nodes
-    @param output Output data node (specifies the type and attributes of the output node)
-    @param type String identifier for the custom operation type
-    @param attributes Custom attribute dict, can contain arbitrary key-value pairs (e.g., parameters, configurations)
+    @param inputs List of input data nodes.
+    @param output Output data node (specifies the type and attributes of the output node).
+    @param type String identifier for the custom operation type.
+    @param attributes Custom attribute dictionary; can contain arbitrary key-value pairs (e.g., parameters, config).
     """
     global g_dag
 
@@ -1904,31 +1992,246 @@ def custom_compute(
     return
 
 
+def _build_fpga_kernels(
+    all_output_list: list,
+    all_offline_list: list,
+) -> list[tuple['FpgaKernelNode', dict, dict]]:
+    """Partition g_dag at CustomComputeNode boundaries and replace each FPGA partition with a
+    FpgaKernelNode. Returns a list of (kernel_node, sub_mag, sub_sig) for each partition.
+
+    If offline inputs exist, a global offline FpgaKernelNode is prepended to the result.
+    Its outputs are new FheDataNode copies (FPGA-resident) that replace the original offline
+    data nodes as inputs to online kernels in g_dag.
+
+    After this call g_dag contains FpgaKernelNodes connected to boundary FheDataNodes;
+    interior FheComputeNodes and data nodes have been removed.
+    """
+    assert g_param is not None
+    parameter: dict = {'n': g_param.n, 'max_level': g_param.max_level, 'q': g_param.q, 'p': g_param.p}
+    if isinstance(g_param, CkksBtpParam):
+        parameter['scale'] = g_param.scale
+        parameter['btp_cts_start_level'] = g_param.btp_cts_start_level
+        parameter['btp_eval_mod_start_level'] = g_param.btp_eval_mod_start_level
+        parameter['btp_stc_start_level'] = g_param.btp_stc_start_level
+        parameter['btp_output_level'] = g_param.btp_output_level
+    if g_param.algo == Algo.BFV:
+        parameter['t'] = g_param.t
+
+    result: list[tuple[FpgaKernelNode, dict, dict]] = []
+
+    # Build global offline kernel if there are offline inputs.
+    # Creates FPGA-resident output nodes (copies with new indices) and rewires g_dag so that
+    # online kernels consume those outputs instead of the original offline data nodes.
+    # if all_offline_list:
+    #     import copy
+    #     offline_kernel = FpgaKernelNode()
+
+    #     # Map: original offline node -> new FPGA-resident output node
+    #     offline_output_map: dict[FheDataNode, FheDataNode] = {}
+    #     for dn in all_offline_list:
+    #         if isinstance(dn, FheDataNode):
+    #             fpga_node = copy.copy(dn)
+    #             fpga_node.index = gen_data_node_index()
+    #             fpga_node.id = dn.id + '_fpga'
+    #             offline_output_map[dn] = fpga_node
+    #             g_dag.add_node(fpga_node)
+
+    #     # Collect original successors before modifying the graph, to avoid rewiring
+    #     # the dn → offline_kernel edge we're about to add (which would create a cycle).
+    #     original_succs_map: dict[FheDataNode, list] = {
+    #         dn: [
+    #             succ for succ in g_dag.successors(dn)
+    #             if isinstance(succ, (FheComputeNode, CustomComputeNode))
+    #         ]
+    #         for dn in offline_output_map
+    #     }
+
+    #     # Wire: offline_data → offline_kernel → fpga_node
+    #     # Rewire: edges offline_data → online_compute become fpga_node → online_compute
+    #     for dn, fpga_node in offline_output_map.items():
+    #         g_dag.add_edge(dn, offline_kernel)
+    #         g_dag.add_edge(offline_kernel, fpga_node)
+    #         for succ in original_succs_map[dn]:
+    #             g_dag.remove_edge(dn, succ)
+    #             g_dag.add_edge(fpga_node, succ)
+
+    #     offline_input_data = [dn for dn in all_offline_list if isinstance(dn, FheDataNode)]
+    #     offline_output_data = list(offline_output_map.values())
+    #     all_offline_data = offline_input_data + offline_output_data
+
+    #     sub_mag_offline = {
+    #         'name': f'Kernel {offline_kernel.index}',
+    #         'algorithm': g_param.algo.value,
+    #         'parameter': parameter,
+    #         'data': {dn.index: dn.to_json_dict() for dn in all_offline_data},
+    #         'compute': {offline_kernel.index: offline_kernel.to_json_dict(g_dag)},
+    #         'inputs': [dn.index for dn in offline_input_data],
+    #         'outputs': [dn.index for dn in offline_output_data],
+    #         'offline_inputs': [dn.index for dn in offline_input_data],
+    #     }
+    #     sub_sig_offline = {
+    #         'algorithm': g_param.algo.value,
+    #         'key': {'rlk': -1, 'glk': {}},
+    #         'online': [],
+    #         'offline': [],
+    #     }
+    #     result.append((offline_kernel, sub_mag_offline, sub_sig_offline))
+
+    node_partition: dict = {}
+
+    for node in nx.topological_sort(g_dag):
+        if isinstance(node, FheDataNode):
+            compute_preds = [p for p in g_dag.predecessors(node) if isinstance(p, (FheComputeNode, CustomComputeNode))]
+            if not compute_preds:
+                node_partition[node] = -1  # global / offline input, no barrier crossed yet
+            else:
+                pred = compute_preds[0]
+                node_partition[node] = (
+                    node_partition[pred]
+                    if isinstance(pred, FheComputeNode)
+                    else node_partition[pred] + 1  # crosses a CPU barrier
+                )
+        elif isinstance(node, FheComputeNode):
+            preds = [
+                node_partition[p]
+                for p in g_dag.predecessors(node)
+                if isinstance(p, FheDataNode) and node_partition.get(p, -1) >= 0
+            ]
+            node_partition[node] = max(preds) if preds else 0
+        elif isinstance(node, CustomComputeNode):
+            preds = [
+                node_partition[p]
+                for p in g_dag.predecessors(node)
+                if isinstance(p, FheDataNode) and node_partition.get(p, -1) >= 0
+            ]
+            node_partition[node] = max(preds) if preds else 0
+
+    # Group FheComputeNodes by partition ID. Gaps are possible when custom nodes are chained.
+    partitions: dict[int, list] = {}
+    for node, pid in node_partition.items():
+        if isinstance(node, FheComputeNode):
+            partitions.setdefault(pid, []).append(node)
+
+    all_output_set = set(all_output_list)
+    all_offline_set = set(all_offline_list)
+
+    for pid in sorted(partitions):
+        compute_set = set(partitions[pid])
+
+        # Collect all FheDataNodes referenced by this partition's compute nodes.
+        partition_data: set = set()
+        for cn in compute_set:
+            for n in g_dag.predecessors(cn):
+                if isinstance(n, FheDataNode):
+                    partition_data.add(n)
+            for n in g_dag.successors(cn):
+                if isinstance(n, FheDataNode):
+                    partition_data.add(n)
+
+        inputs: list = []
+        offline_inputs: list = []
+        outputs: list = []
+        interior: set = set()
+        for dn in partition_data:
+            fhe_preds = [p for p in g_dag.predecessors(dn) if isinstance(p, FheComputeNode)]
+            produced_here = any(p in compute_set for p in fhe_preds)
+            if not produced_here:
+                inputs.append(dn)
+                if dn in all_offline_set:
+                    offline_inputs.append(dn)
+            else:
+                succs = list(g_dag.successors(dn))
+                if dn in all_output_set or any(isinstance(s, CustomComputeNode) for s in succs):
+                    outputs.append(dn)
+                else:
+                    interior.add(dn)
+
+        # Sort inputs to match the canonical key ordering used by the FPGA linker:
+        #   CT/PT → RLK → GLK (by galois_element string) → SWK
+        # This mirrors the all_input_list_with_key ordering so that the FPGA_KERNEL's
+        # input list in the JSON is already in the expected polyvec layout order.
+        def _input_sort_key(dn):
+            if isinstance(dn, RelinKeyNode):
+                return (1, '')
+            elif isinstance(dn, GaloisKeyNode):
+                return (2, str(dn.galois_element))
+            elif isinstance(dn, SwitchKeyNode):
+                return (3, '')
+            else:
+                return (0, '')
+
+        inputs.sort(key=_input_sort_key)
+
+        # Build key signature for this partition.
+        rlk_level = -1
+        glk_level: dict[str, int] = {}
+        for dn in inputs:
+            if isinstance(dn, RelinKeyNode):
+                rlk_level = dn.level
+            elif isinstance(dn, GaloisKeyNode):
+                glk_level[str(dn.galois_element)] = dn.level
+
+        # Create FpgaKernelNode — its index doubles as the sub-project directory name.
+        kernel = FpgaKernelNode()
+
+        sub_mag = {
+            'name': f'Kernel {kernel.index}',
+            'algorithm': g_param.algo.value,
+            'parameter': parameter,
+            'data': {dn.index: dn.to_json_dict() for dn in partition_data},
+            'compute': {cn.index: cn.to_json_dict(g_dag) for cn in nx.topological_sort(g_dag) if cn in compute_set},
+            'inputs': [dn.index for dn in inputs],
+            'outputs': [dn.index for dn in outputs],
+            'offline_inputs': [dn.index for dn in offline_inputs],
+        }
+        sub_sig = {
+            'algorithm': g_param.algo.value,
+            'key': {'rlk': rlk_level, 'glk': glk_level},
+            'online': [],
+            'offline': [],
+        }
+
+        # Rewire g_dag: replace this partition with the FpgaKernelNode.
+        for dn in inputs:
+            g_dag.add_edge(dn, kernel)
+        for dn in outputs:
+            g_dag.add_edge(kernel, dn)
+        for cn in compute_set:
+            g_dag.remove_node(cn)
+        for dn in interior:
+            g_dag.remove_node(dn)
+
+        result.append((kernel, sub_mag, sub_sig))
+
+    return result
+
+
 def process_custom_task(
-    input_args: list[Argument] = None,
-    output_args: list[Argument] = None,
-    offline_input_args: list[Argument] = None,
-    output_instruction_path: str = None,
+    input_args: list[Argument] | None = None,
+    output_args: list[Argument] | None = None,
+    offline_input_args: list[Argument] | None = None,
+    output_instruction_path: str | None = None,
     fpga_acc: bool = True,
 ) -> dict:
     """!Process custom task
 
-    Convert a custom task into a set of task-related files based on its input and output data parameters.
-    If there are offline input data nodes, a set of instruction files for loading offline input data will be generated,
-    which are used to load all offline input data at once before online computation.
+    Convert a custom task into the required output files based on its input and output data arguments.
+    If offline input data nodes are present, a set of instruction files for loading offline input data will be generated,
+    used to load all offline data once before the online computation.
 
-    Note: set_fhe_param() must be called to set global FHE parameters before calling this function.
+    Note: set_fhe_param() must be called before invoking this function.
 
     @param input_args List of all input arguments for the custom task.
     @param output_args List of all output arguments for the custom task.
-    @param offline_input_args List of all offline input arguments for the custom task (does not include input data nodes).
-    @param output_instruction_path Directory path for storing the custom task files.
-    @return Abstract computation graph for the task.
+    @param offline_input_args List of all offline input arguments (excluding online input data nodes).
+    @param output_instruction_path Directory to store the task output files.
+    @param fpga_acc Whether to generate for FPGA accelerator.
+    @return The task abstract computation graph.
     """
 
-    def flatten(x: list):
-        if type(x) is list:
-            result = []
+    def flatten(x: list | DataNode) -> list[DataNode]:
+        if isinstance(x, list):
+            result: list[DataNode] = []
             for a in x:
                 result += flatten(a)
             return result
@@ -1944,7 +2247,7 @@ def process_custom_task(
 
         return [len(x)] + sub_shape
 
-    def process_data_args(args: list[Argument], phase: str) -> tuple[list, list[dict]]:
+    def process_data_args(args: list[Argument] | None, phase: str) -> tuple[list[DataNode], list[dict]]:
         all_data_list = []
         sig_data_list = []
         if args is None:
@@ -1965,6 +2268,7 @@ def process_custom_task(
             if isinstance(arg_data_list[0], FheDataNode):
                 node['level'] = arg_data_list[0].level
             node['phase'] = phase
+
             used_id.append(arg.id)
             all_data_list += arg_data_list
             sig_data_list.append(node)
@@ -2038,67 +2342,60 @@ def process_custom_task(
     for x in all_input_list_with_key:
         if x not in g_dag.nodes():
             raise RuntimeError(
-                f'Input data node "{x.id}" is not in the computation graph.\n'
-                f'The computation graph is cleared after each process_custom_task() call.\n\n'
-                f'Solution: Create new data nodes for each task.\n\n'
-                f'Recommended: Use a builder function:\n'
+                f'Input data node "{x.id}" is not in the computation graph. '
+                f'This usually happens when you reuse data nodes from a previous '
+                f'process_custom_task() call. The computation graph is cleared after each call. '
+                f'\n\nSolution: Create new data nodes for each task.\n'
+                f'Example: Instead of reusing variables like x, y:\n'
+                f'  # Wrong: reusing nodes\n'
+                f'  x = BfvCiphertextNode("x", level=3)\n'
+                f'  process_custom_task(..., fpga_acc=True)  # First call\n'
+                f'  process_custom_task(..., fpga_acc=False)  # Error! x is no longer in graph\n'
+                f'\n'
+                f'  # Correct: create new nodes for each task\n'
+                f'  x_fpga = BfvCiphertextNode("x", level=3)\n'
+                f'  process_custom_task(..., fpga_acc=True)\n'
+                f'  x_cpu = BfvCiphertextNode("x", level=3)  # New nodes\n'
+                f'  process_custom_task(..., fpga_acc=False)\n'
+                f'\n'
+                f'Or better: use a function to build the graph:\n'
                 f'  def build_graph():\n'
                 f'      x = BfvCiphertextNode("x", level=3)\n'
                 f'      y = BfvCiphertextNode("y", level=3)\n'
                 f'      z = mult_relin(x, y, "z")\n'
                 f'      return x, y, z\n'
                 f'  \n'
-                f'  inputs1 = build_graph()\n'
-                f'  process_custom_task(...)\n'
-                f'  \n'
-                f'  inputs2 = build_graph()  # Create new nodes\n'
-                f'  process_custom_task(...)'
+                f'  x1, y1, z1 = build_graph()\n'
+                f'  process_custom_task(..., fpga_acc=True)\n'
+                f'  x2, y2, z2 = build_graph()\n'
+                f'  process_custom_task(..., fpga_acc=False)'
             )
         if not g_dag.succ[x]:
             raise ValueError(f'Input data node "{x.id}" is not used for any computation.')
 
+    if fpga_acc:
+        # FPGA supports only n = 8192 now
+        if g_param.n != 8192:
+            raise ValueError('FPGA mode only supports n = 8192')
+        kernel_mags = _build_fpga_kernels(all_output_list, all_offline_list)
+    else:
+        kernel_mags = []
+
     for node in g_dag.nodes():
         if isinstance(node, CustomComputeNode):
-            op: CustomComputeNode = node
+            op = node
             if op.index in compute:
                 raise ValueError(f'Same index "{op.index}" for different computation nodes.')
-
-            compute[op.index] = {
-                'id': op.id,
-                'type': op.type,
-                'is_custom': True,
-                'inputs': [y.index for y in g_dag.predecessors(op)],
-                'outputs': [s.index for s in g_dag.successors(op)],
-            }
-            if op.attributes:
-                compute[op.index]['attributes'] = op.attributes
+            compute[op.index] = op.to_json_dict(g_dag)
 
         elif isinstance(node, FheComputeNode):
-            op: FheComputeNode = node
+            op = node
             if op.index in compute:
                 raise ValueError(f'Same index "{op.index}" for different computation nodes.')
-
-            compute[op.index] = {
-                'id': op.id,
-                'type': op.type.value,
-                'inputs': [y.index for y in g_dag.predecessors(op)],
-                'outputs': [s.index for s in g_dag.successors(op)],
-            }
-            if isinstance(op, RotateColUnitNode):
-                compute[op.index]['step'] = op.step
-                if op.lib != Lib.Lattigo:
-                    compute[op.index]['lib'] = op.lib.value
-            elif isinstance(op, RotateRowUnitNode):
-                if op.lib != Lib.Lattigo:
-                    compute[op.index]['lib'] = op.lib.value
-            elif isinstance(op, CmpSumComputeNode) or isinstance(op, CmpacSumComputeNode):
-                compute[op.index]['sum_cnt'] = op.sum_cnt
-                compute[op.index]['pt_type'] = op.pt_type.value
-            if op.compressed_block_info is not None:
-                compute[op.index]['compressed_block_info'] = op.compressed_block_info
+            compute[op.index] = op.to_json_dict(g_dag)
 
         elif isinstance(node, FheDataNode):
-            datum: FheDataNode = node
+            datum = node
             if datum.index in data:
                 raise ValueError(f'Same index "{datum.index}" for different data nodes.')
             if not g_dag.succ[datum]:
@@ -2106,25 +2403,10 @@ def process_custom_task(
                     raise ValueError(
                         f'Data node "{datum.index}" is not used for any computation, nor is it an output data node.'
                     )
-            data[datum.index] = {
-                'id': datum.id,
-                'type': datum.type.value,
-                'level': datum.level,
-                'degree': datum.degree,
-                'is_ntt': datum.is_ntt,
-                'is_mform': datum.is_mform,
-            }
-            if datum.sp_level is not None:
-                data[datum.index]['sp_level'] = datum.sp_level
-            if isinstance(datum, BfvCompressedPlaintextRingtNode):
-                data[datum.index]['is_compressed'] = datum.is_compressed
-            if isinstance(datum, CiphertextNode):
-                data[datum.index]['poly1_rns_sp_decomped'] = datum.poly1_rns_sp_decomped
-            if isinstance(datum, GaloisKeyNode):
-                data[datum.index]['galois_element'] = datum.galois_element
+            data[datum.index] = datum.to_json_dict()
 
         elif isinstance(node, CustomDataNode):
-            datum: CustomDataNode = node
+            datum = node
             if datum.index in data:
                 raise ValueError(f'Same index "{datum.index}" for different data nodes.')
             if not g_dag.succ[datum]:
@@ -2132,18 +2414,11 @@ def process_custom_task(
                     raise ValueError(
                         f'Data node "{datum.index}" is not used for any computation, nor is it an output data node.'
                     )
-            data[datum.index] = {
-                'id': datum.id,
-                'type': datum.type,
-                'is_custom': True,
-            }
-            if datum.attributes:
-                data[datum.index]['attributes'] = datum.attributes
+            data[datum.index] = datum.to_json_dict()
 
+    assert output_instruction_path is not None, 'output_instruction_path must be provided'
     if not os.path.exists(output_instruction_path):
         os.makedirs(output_instruction_path)
-    with open(os.path.join(output_instruction_path, 'mega_ag.json'), 'w', encoding='utf-8') as f:
-        json.dump(mag, f, indent=4)
 
     with open(
         os.path.join(output_instruction_path, 'task_signature.json'),
@@ -2152,17 +2427,28 @@ def process_custom_task(
     ) as f:
         json.dump(interface_json, f, indent=4)
 
-    if fpga_acc:
-        # FPGA supports only n = 8192 now
-        if g_param.n != 8192:
-            raise ValueError('FPGA mode only supports n = 8192')
+    with open(os.path.join(output_instruction_path, 'mega_ag.json'), 'w', encoding='utf-8') as f:
+        json.dump(mag, f, indent=4)
+
+    if kernel_mags:
         try:
             from .fpga_backend import run_fpga_linker
         except ImportError:
             from fpga_backend import run_fpga_linker
-        run_fpga_linker(output_instruction_path)
+        for kernel, sub_mag, sub_sig in kernel_mags:
+            sub_dir = os.path.join(output_instruction_path, str(kernel.index))
+            os.makedirs(sub_dir, exist_ok=True)
+            with open(os.path.join(sub_dir, 'mega_ag.json'), 'w', encoding='utf-8') as f:
+                json.dump(sub_mag, f, indent=4)
+            with open(os.path.join(sub_dir, 'task_signature.json'), 'w', encoding='utf-8') as f:
+                json.dump(sub_sig, f, indent=4)
+            run_fpga_linker(sub_dir)
 
     g_swk_node_dict.clear()
     g_dag.clear()
+    global data_node_count, compute_node_count, random_ids
+    data_node_count = 0
+    compute_node_count = 0
+    random_ids = set()
 
     return mag

@@ -84,7 +84,7 @@ create_abi_export_executor(Algo algorithm, bool heterogeneous_mode = true, int m
                                                             std::any& output, const ComputeNode& self) -> void {
             const DatumNode* input_node = self.input_nodes[0];
             DataType data_type = input_node->datum_type;
-            bool is_external_node = input_node->is_input || input_node->is_output;
+            bool is_external_input_node = input_node->is_input;
 
             std::any input_any = inputs.at(input_node->index);
             std::shared_ptr<void> input_ptr;
@@ -116,7 +116,7 @@ create_abi_export_executor(Algo algorithm, bool heterogeneous_mode = true, int m
                     CCiphertext* c_ct = (CCiphertext*)malloc(sizeof(CCiphertext));
                     export_bfv_ciphertext(ct->get(), c_ct);
 
-                    if (is_external_node) {
+                    if (is_external_input_node) {
                         output = std::shared_ptr<CCiphertext>(c_ct, [input_any](CCiphertext*) {});
                     } else {
                         output = std::shared_ptr<CCiphertext>(c_ct, [input_any](CCiphertext* p) {
@@ -140,7 +140,7 @@ create_abi_export_executor(Algo algorithm, bool heterogeneous_mode = true, int m
                         }
                         CPlaintext* c_pt = (CPlaintext*)malloc(sizeof(CPlaintext));
                         export_bfv_plaintext_ringt(pt->get(), c_pt);
-                        if (is_external_node) {
+                        if (is_external_input_node) {
                             output = std::shared_ptr<CPlaintext>(c_pt, [input_any](CPlaintext*) {});
                         } else {
                             output = std::shared_ptr<CPlaintext>(c_pt, [input_any](CPlaintext* p) {
@@ -161,7 +161,7 @@ create_abi_export_executor(Algo algorithm, bool heterogeneous_mode = true, int m
 
                         CPlaintext* c_pt = (CPlaintext*)malloc(sizeof(CPlaintext));
                         export_bfv_plaintext_mul(pt->get(), c_pt);
-                        if (is_external_node) {
+                        if (is_external_input_node) {
                             output = std::shared_ptr<CPlaintext>(c_pt, [input_any](CPlaintext*) {});
                         } else {
                             output = std::shared_ptr<CPlaintext>(c_pt, [input_any](CPlaintext* p) {
@@ -180,7 +180,7 @@ create_abi_export_executor(Algo algorithm, bool heterogeneous_mode = true, int m
                         }
                         CPlaintext* c_pt = (CPlaintext*)malloc(sizeof(CPlaintext));
                         export_bfv_plaintext(pt->get(), c_pt);
-                        if (is_external_node) {
+                        if (is_external_input_node) {
                             output = std::shared_ptr<CPlaintext>(c_pt, [input_any](CPlaintext*) {});
                         } else {
                             output = std::shared_ptr<CPlaintext>(c_pt, [input_any](CPlaintext* p) {
@@ -199,7 +199,7 @@ create_abi_export_executor(Algo algorithm, bool heterogeneous_mode = true, int m
 
                     CRelinKey* c_rlk = (CRelinKey*)malloc(sizeof(CRelinKey));
                     export_relin_key(rlk->get(), level, c_rlk);
-                    if (is_external_node) {
+                    if (is_external_input_node) {
                         output = std::shared_ptr<CRelinKey>(c_rlk, [input_any](CRelinKey*) {});
                     } else {
                         output = std::shared_ptr<CRelinKey>(c_rlk, [input_any](CRelinKey* p) {
@@ -224,7 +224,7 @@ create_abi_export_executor(Algo algorithm, bool heterogeneous_mode = true, int m
                     set_galois_key_steps(c_glk, &galois_element, 1);
 
                     export_galois_key(glk->get(), level, c_glk);
-                    if (is_external_node) {
+                    if (is_external_input_node) {
                         output = std::shared_ptr<CGaloisKey>(c_glk, [input_any](CGaloisKey*) {});
                     } else {
                         output = std::shared_ptr<CGaloisKey>(c_glk, [input_any](CGaloisKey* p) {
@@ -252,7 +252,7 @@ create_abi_export_executor(Algo algorithm, bool heterogeneous_mode = true, int m
                                                             std::any& output, const ComputeNode& self) -> void {
             const DatumNode* input_node = self.input_nodes[0];
             DataType data_type = input_node->datum_type;
-            bool is_external_node = input_node->is_input || input_node->is_output;
+            bool is_external_input_node = input_node->is_input;
 
             std::any input_any = inputs.at(input_node->index);
             std::shared_ptr<void> input_ptr;
@@ -291,7 +291,7 @@ create_abi_export_executor(Algo algorithm, bool heterogeneous_mode = true, int m
                     }
                     CCiphertext* c_ct = (CCiphertext*)malloc(sizeof(CCiphertext));
                     export_ckks_ciphertext(ct->get(), c_ct);
-                    if (is_external_node) {
+                    if (is_external_input_node) {
                         output = std::shared_ptr<CCiphertext>(c_ct, [input_any](CCiphertext*) {});
                     } else {
                         output = std::shared_ptr<CCiphertext>(c_ct, [input_any](CCiphertext* p) {
@@ -315,7 +315,7 @@ create_abi_export_executor(Algo algorithm, bool heterogeneous_mode = true, int m
                         }
                         CPlaintext* c_pt = (CPlaintext*)malloc(sizeof(CPlaintext));
                         export_ckks_plaintext_ringt(pt->get(), c_pt);
-                        if (is_external_node) {
+                        if (is_external_input_node) {
                             output = std::shared_ptr<CPlaintext>(c_pt, [input_any](CPlaintext*) {});
                         } else {
                             output = std::shared_ptr<CPlaintext>(c_pt, [input_any](CPlaintext* p) {
@@ -336,7 +336,7 @@ create_abi_export_executor(Algo algorithm, bool heterogeneous_mode = true, int m
 
                         CPlaintext* c_pt = (CPlaintext*)malloc(sizeof(CPlaintext));
                         export_ckks_plaintext_mul(pt->get(), c_pt);
-                        if (is_external_node) {
+                        if (is_external_input_node) {
                             output = std::shared_ptr<CPlaintext>(c_pt, [input_any](CPlaintext*) {});
                         } else {
                             output = std::shared_ptr<CPlaintext>(c_pt, [input_any](CPlaintext* p) {
@@ -355,7 +355,7 @@ create_abi_export_executor(Algo algorithm, bool heterogeneous_mode = true, int m
                         }
                         CPlaintext* c_pt = (CPlaintext*)malloc(sizeof(CPlaintext));
                         export_ckks_plaintext(pt->get(), c_pt);
-                        if (is_external_node) {
+                        if (is_external_input_node) {
                             output = std::shared_ptr<CPlaintext>(c_pt, [input_any](CPlaintext*) {});
                         } else {
                             output = std::shared_ptr<CPlaintext>(c_pt, [input_any](CPlaintext* p) {
@@ -374,7 +374,7 @@ create_abi_export_executor(Algo algorithm, bool heterogeneous_mode = true, int m
 
                     CRelinKey* c_rlk = (CRelinKey*)malloc(sizeof(CRelinKey));
                     export_relin_key(rlk->get(), level, c_rlk);
-                    if (is_external_node) {
+                    if (is_external_input_node) {
                         output = std::shared_ptr<CRelinKey>(c_rlk, [input_any](CRelinKey*) {});
                     } else {
                         output = std::shared_ptr<CRelinKey>(c_rlk, [input_any](CRelinKey* p) {
@@ -398,7 +398,7 @@ create_abi_export_executor(Algo algorithm, bool heterogeneous_mode = true, int m
                     set_galois_key_steps(c_glk, &galois_element, 1);
 
                     export_galois_key(glk->get(), level, c_glk);
-                    if (is_external_node) {
+                    if (is_external_input_node) {
                         output = std::shared_ptr<CGaloisKey>(c_glk, [input_any](CGaloisKey*) {});
                     } else {
                         output = std::shared_ptr<CGaloisKey>(c_glk, [input_any](CGaloisKey* p) {
@@ -417,7 +417,7 @@ create_abi_export_executor(Algo algorithm, bool heterogeneous_mode = true, int m
 
                     CKeySwitchKey* c_swk = (CKeySwitchKey*)malloc(sizeof(CKeySwitchKey));
                     export_switching_key(swk->get(), level, sp_level, c_swk);
-                    if (is_external_node) {
+                    if (is_external_input_node) {
                         output = std::shared_ptr<CKeySwitchKey>(c_swk, [input_any](CKeySwitchKey*) {});
                     } else {
                         output = std::shared_ptr<CKeySwitchKey>(c_swk, [input_any](CKeySwitchKey* p) {

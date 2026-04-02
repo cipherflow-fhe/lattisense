@@ -126,13 +126,11 @@ func (d *FpgaDevice) Free() error {
 type FheTaskFpga struct {
 	task_handle    C.fhe_task_handle
 	task_signature map[string]interface{}
-	online_phase   bool
 	algo           C.Algo
 }
 
-func NewFheTaskFpga(project_path string, online_phase bool) (*FheTaskFpga, error) {
+func NewFheTaskFpga(project_path string) (*FheTaskFpga, error) {
 	task := new(FheTaskFpga)
-	task.online_phase = online_phase
 	_, err := os.Stat(project_path)
 	if os.IsNotExist(err) {
 		return nil, fmt.Errorf("%s not exists", project_path)
@@ -172,7 +170,7 @@ func NewFheTaskFpga(project_path string, online_phase bool) (*FheTaskFpga, error
 		return nil, fmt.Errorf("unknown algorithm: %s", algo_str)
 	}
 
-	task.task_handle = C.create_fhe_fpga_task(C.CString(project_path), C.bool(online_phase))
+	task.task_handle = C.create_fhe_fpga_task(C.CString(project_path))
 	if task.task_handle == nil {
 		return nil, fmt.Errorf("load fpga project failed")
 	}
@@ -190,7 +188,7 @@ func NewFheTaskFpga(project_path string, online_phase bool) (*FheTaskFpga, error
 
 func (task FheTaskFpga) Run(param interface{}, rlk *rlwe.RelinearizationKey, glk *rlwe.RotationKeySet, args []GoVectorArgument) error {
 
-	n_int_args := check_signatures(param, rlk, glk, args, task.task_signature, task.online_phase)
+	n_int_args := check_signatures(param, rlk, glk, args, task.task_signature)
 	n_out_args := len(args) - n_int_args
 
 	key_signature := task.task_signature["key"].(map[string]interface{})

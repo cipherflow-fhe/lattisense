@@ -99,7 +99,7 @@ func NewFheTaskGpu(project_path string) (*FheTaskGpu, error) {
 
 func (task FheTaskGpu) Run(param interface{}, rlk *rlwe.RelinearizationKey, glk *rlwe.RotationKeySet, args []GoVectorArgument) error {
 
-	n_in_args := check_signatures(param, rlk, glk, args, task.task_signature, true)
+	n_in_args := check_signatures(param, rlk, glk, args, task.task_signature)
 	n_out_args := len(args) - n_in_args
 
 	check_parameter(param, task.param_json)

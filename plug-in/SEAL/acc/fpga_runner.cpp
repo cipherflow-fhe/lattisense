@@ -87,9 +87,8 @@ FheTaskFpga::~FheTaskFpga() {
     }
 }
 
-FheTaskFpga::FheTaskFpga(const std::string& project_path, bool online_phase) : FheTask{project_path} {
-    _online_phase = online_phase;
-    task_handle = create_fhe_fpga_task(_project_path.c_str(), _online_phase);
+FheTaskFpga::FheTaskFpga(const std::string& project_path) : FheTask{project_path} {
+    task_handle = create_fhe_fpga_task(_project_path.c_str());
     if (task_handle == nullptr) {
         throw std::runtime_error("load fpga project failed.");
     }
@@ -98,13 +97,10 @@ FheTaskFpga::FheTaskFpga(const std::string& project_path, bool online_phase) : F
     bind_abi_executors(key_mf_nbits);
 }
 
-FheTaskFpga::FheTaskFpga(FheTaskFpga&& other) : FheTask{std::move(other)} {
-    std::swap(_online_phase, other._online_phase);
-}
+FheTaskFpga::FheTaskFpga(FheTaskFpga&& other) : FheTask{std::move(other)} {}
 
 void FheTaskFpga::operator=(FheTaskFpga&& other) {
     std::swap(_project_path, other._project_path);
-    std::swap(_online_phase, other._online_phase);
 }
 
 void FheTaskFpga::bind_abi_executors(int mf_nbits) {
@@ -120,7 +116,7 @@ uint64_t FheTaskFpga::run(seal::SEALContext* context,
                           const seal::GaloisKeys* glk,
                           const std::vector<SealVectorArgument>& args) {
     int n_in_args = 0, n_out_args = 0;
-    n_in_args = ::check_signatures(context, *rlk, *glk, args, _task_signature, _online_phase);
+    n_in_args = ::check_signatures(context, *rlk, *glk, args, _task_signature);
     n_out_args = args.size() - n_in_args;
 
     nlohmann::json key_signature = _task_signature["key"];

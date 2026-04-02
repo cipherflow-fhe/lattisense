@@ -30,24 +30,28 @@ FheTaskFpga::~FheTaskFpga() {
     release_fhe_fpga_task(task_handle);
 }
 
-FheTaskFpga::FheTaskFpga(const std::string& project_path, bool online_phase) : FheTask{project_path} {
-    _online_phase = online_phase;
-    task_handle = create_fhe_fpga_task(project_path.c_str(), online_phase);
+FheTaskFpga::FheTaskFpga(const std::string& project_path) : FheTask{project_path} {
+    task_handle = create_fhe_fpga_task(project_path.c_str());
 
     bind_abi_executors();
 }
 
-FheTaskFpga::FheTaskFpga(FheTaskFpga&& other) : FheTask{std::move(other)} {
-    std::swap(_online_phase, other._online_phase);
-}
+FheTaskFpga::FheTaskFpga(FheTaskFpga&& other) : FheTask{std::move(other)} {}
 
 void FheTaskFpga::operator=(FheTaskFpga&& other) {
     FheTask::operator=(std::move(other));
-    std::swap(_online_phase, other._online_phase);
 }
 
 void FheTaskFpga::bind_custom_executors(const std::unordered_map<std::string, ExecutorFunc>& custom_executors) {
-    throw std::runtime_error("FheTaskFpga::bind_custom_executors is not implemented");
+    std::vector<const char*> custom_types;
+    std::vector<void*> executor_ptrs;
+
+    for (const auto& [custom_type, executor] : custom_executors) {
+        custom_types.push_back(custom_type.c_str());
+        executor_ptrs.push_back(reinterpret_cast<void*>(const_cast<ExecutorFunc*>(&executor)));
+    }
+
+    bind_fpga_task_custom_executors(task_handle, custom_types.data(), executor_ptrs.data(), custom_types.size());
 }
 
 void FheTaskFpga::bind_abi_executors() {
@@ -68,7 +72,7 @@ uint64_t FheTaskFpga::run(FheContext* context, const std::vector<CxxVectorArgume
     auto start = std::chrono::high_resolution_clock::now();
 
     int n_in_args = 0, n_out_args = 0;
-    n_in_args = check_signatures(context, cxx_args, _task_signature, _algo, _online_phase);
+    n_in_args = check_signatures(context, cxx_args, _task_signature, _algo);
     n_out_args = cxx_args.size() - n_in_args;
 
     // Check parameter

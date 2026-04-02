@@ -29,7 +29,7 @@ uint64_t FheTaskGpu::run(seal::SEALContext* context,
                          const seal::GaloisKeys* glk,
                          const std::vector<SealVectorArgument>& args) {
     int n_in_args = 0, n_out_args = 0;
-    n_in_args = check_signatures(context, *rlk, *glk, args, _task_signature, true);
+    n_in_args = check_signatures(context, *rlk, *glk, args, _task_signature);
     n_out_args = args.size() - n_in_args;
 
     // Check parameter

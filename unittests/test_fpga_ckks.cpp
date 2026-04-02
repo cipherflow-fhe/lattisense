@@ -59,7 +59,7 @@ TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS cap", "", CkksFpgaTestParams) {
                 z_list.push_back(this->ctx.new_ciphertext(level, this->default_scale));
             string path =
                 fpga_base_path + "/" + this->tag + "/CKKS_" + to_string(this->n_op) + "_cap/level_" + to_string(level);
-            FheTaskFpga proj(path, true);
+            FheTaskFpga proj(path);
             vector<CxxVectorArgument> args = {
                 {"in_x_list", &xv.ciphertexts},
                 {"in_y_list", &yv.plaintexts},
@@ -83,7 +83,7 @@ TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS cac", "", CkksFpgaTestParams) {
                 z_list.push_back(this->ctx.new_ciphertext(level, this->default_scale));
             string path =
                 fpga_base_path + "/" + this->tag + "/CKKS_" + to_string(this->n_op) + "_cac/level_" + to_string(level);
-            FheTaskFpga proj(path, true);
+            FheTaskFpga proj(path);
             vector<CxxVectorArgument> args = {
                 {"in_x_list", &xv.ciphertexts},
                 {"in_y_list", &yv.ciphertexts},
@@ -106,7 +106,7 @@ TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS casc", "", CkksFpgaTestParams) 
                 z_list.push_back(this->ctx.new_ciphertext(level, this->default_scale));
             string path =
                 fpga_base_path + "/" + this->tag + "/CKKS_" + to_string(this->n_op) + "_casc/level_" + to_string(level);
-            FheTaskFpga proj(path, true);
+            FheTaskFpga proj(path);
             vector<CxxVectorArgument> args = {
                 {"in_x_list", &xv.ciphertexts},
                 {"out_z_list", &z_list},
@@ -129,7 +129,7 @@ TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS csp", "", CkksFpgaTestParams) {
                 z_list.push_back(this->ctx.new_ciphertext(level, this->default_scale));
             string path =
                 fpga_base_path + "/" + this->tag + "/CKKS_" + to_string(this->n_op) + "_csp/level_" + to_string(level);
-            FheTaskFpga proj(path, true);
+            FheTaskFpga proj(path);
             vector<CxxVectorArgument> args = {
                 {"in_x_list", &xv.ciphertexts},
                 {"in_y_list", &yv.plaintexts},
@@ -153,7 +153,7 @@ TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS csc", "", CkksFpgaTestParams) {
                 z_list.push_back(this->ctx.new_ciphertext(level, this->default_scale));
             string path =
                 fpga_base_path + "/" + this->tag + "/CKKS_" + to_string(this->n_op) + "_csc/level_" + to_string(level);
-            FheTaskFpga proj(path, true);
+            FheTaskFpga proj(path);
             vector<CxxVectorArgument> args = {
                 {"in_x_list", &xv.ciphertexts},
                 {"in_y_list", &yv.ciphertexts},
@@ -176,7 +176,7 @@ TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS cneg", "", CkksFpgaTestParams) 
                 z_list.push_back(this->ctx.new_ciphertext(level, this->default_scale));
             string path =
                 fpga_base_path + "/" + this->tag + "/CKKS_" + to_string(this->n_op) + "_cneg/level_" + to_string(level);
-            FheTaskFpga proj(path, true);
+            FheTaskFpga proj(path);
             vector<CxxVectorArgument> args = {
                 {"in_x_list", &xv.ciphertexts},
                 {"out_z_list", &z_list},
@@ -199,7 +199,7 @@ TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS cmp_ringt", "", CkksFpgaTestPar
                 z_list.push_back(this->ctx.new_ciphertext(level, this->default_scale * this->default_scale));
             string path = fpga_base_path + "/" + this->tag + "/CKKS_" + to_string(this->n_op) + "_cmp_ringt/level_" +
                           to_string(level);
-            FheTaskFpga proj(path, true);
+            FheTaskFpga proj(path);
             vector<CxxVectorArgument> args = {
                 {"in_x_list", &xv.ciphertexts},
                 {"in_y_list", &yv.plaintexts},
@@ -223,7 +223,7 @@ TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS cmp", "", CkksFpgaTestParams) {
                 z_list.push_back(this->ctx.new_ciphertext(level, this->default_scale * this->default_scale));
             string path =
                 fpga_base_path + "/" + this->tag + "/CKKS_" + to_string(this->n_op) + "_cmp/level_" + to_string(level);
-            FheTaskFpga proj(path, true);
+            FheTaskFpga proj(path);
             vector<CxxVectorArgument> args = {
                 {"in_x_list", &xv.ciphertexts},
                 {"in_y_list", &yv.plaintexts},
@@ -247,7 +247,7 @@ TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS cmp_mul", "", CkksFpgaTestParam
                 z_list.push_back(this->ctx.new_ciphertext(level, this->default_scale * this->default_scale));
             string path = fpga_base_path + "/" + this->tag + "/CKKS_" + to_string(this->n_op) + "_cmp_mul/level_" +
                           to_string(level);
-            FheTaskFpga proj(path, true);
+            FheTaskFpga proj(path);
             vector<CxxVectorArgument> args = {
                 {"in_x_list", &xv.ciphertexts},
                 {"in_y_list", &yv.plaintexts},
@@ -274,7 +274,7 @@ TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS cmp_coeffs_ringt", "", CkksFpga
 
             string path = fpga_base_path + "/" + this->tag + "/CKKS_" + to_string(this->n_op) + "_cmp_ringt/level_" +
                           to_string(level);
-            FheTaskFpga proj(path, true);
+            FheTaskFpga proj(path);
             vector<CxxVectorArgument> args = {
                 {"in_x_list", &xv.ciphertexts},
                 {"in_y_list", &yv.plaintexts},
@@ -306,7 +306,7 @@ TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS cmp_coeffs_mul", "", CkksFpgaTe
 
             string path = fpga_base_path + "/" + this->tag + "/CKKS_" + to_string(this->n_op) + "_cmp_mul/level_" +
                           to_string(level);
-            FheTaskFpga proj(path, true);
+            FheTaskFpga proj(path);
             vector<CxxVectorArgument> args = {
                 {"in_x_list", &xv.ciphertexts},
                 {"in_y_list", &yv.plaintexts},
@@ -344,7 +344,7 @@ TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS ct_pt_ringt_mac", "", CkksFpgaT
 
             string path =
                 fpga_base_path + "/" + this->tag + "/CKKS_cmpac_ringt/level_" + to_string(level) + "_m_" + to_string(m);
-            FheTaskFpga proj(path, true);
+            FheTaskFpga proj(path);
             vector<CxxVectorArgument> args = {
                 {"in_c_list", &cv.ciphertexts},
                 {"in_p_list", &pv.plaintexts},
@@ -371,7 +371,7 @@ TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS cmc", "", CkksFpgaTestParams) {
                 z_list.push_back(this->ctx.new_ciphertext3(level, this->default_scale * this->default_scale));
             string path =
                 fpga_base_path + "/" + this->tag + "/CKKS_" + to_string(this->n_op) + "_cmc/level_" + to_string(level);
-            FheTaskFpga proj(path, true);
+            FheTaskFpga proj(path);
             vector<CxxVectorArgument> args = {
                 {"in_x_list", &xv.ciphertexts},
                 {"in_y_list", &yv.ciphertexts},
@@ -397,7 +397,7 @@ TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS cmc_relin", "", CkksFpgaTestPar
                 z_list.push_back(this->ctx.new_ciphertext(level, this->default_scale * this->default_scale));
             string path = fpga_base_path + "/" + this->tag + "/CKKS_" + to_string(this->n_op) + "_cmc_relin/level_" +
                           to_string(level);
-            FheTaskFpga proj(path, true);
+            FheTaskFpga proj(path);
             vector<CxxVectorArgument> args = {
                 {"in_x_list", &xv.ciphertexts},
                 {"in_y_list", &yv.ciphertexts},
@@ -422,7 +422,7 @@ TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS cmc_relin_rescale", "", CkksFpg
                 z_list.push_back(this->ctx.new_ciphertext(level - 1, out_scale));
             string path = fpga_base_path + "/" + this->tag + "/CKKS_" + to_string(this->n_op) +
                           "_cmc_relin_rescale/level_" + to_string(level);
-            FheTaskFpga proj(path, true);
+            FheTaskFpga proj(path);
             vector<CxxVectorArgument> args = {
                 {"in_x_list", &xv.ciphertexts},
                 {"in_y_list", &yv.ciphertexts},
@@ -445,7 +445,7 @@ TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS csqr", "", CkksFpgaTestParams) 
                 z_list.push_back(this->ctx.new_ciphertext3(level, this->default_scale * this->default_scale));
             string path =
                 fpga_base_path + "/" + this->tag + "/CKKS_" + to_string(this->n_op) + "_csqr/level_" + to_string(level);
-            FheTaskFpga proj(path, true);
+            FheTaskFpga proj(path);
             vector<CxxVectorArgument> args = {
                 {"in_x_list", &xv.ciphertexts},
                 {"out_z_list", &z_list},
@@ -469,7 +469,7 @@ TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS csqr_relin", "", CkksFpgaTestPa
                 z_list.push_back(this->ctx.new_ciphertext(level, this->default_scale * this->default_scale));
             string path = fpga_base_path + "/" + this->tag + "/CKKS_" + to_string(this->n_op) + "_csqr_relin/level_" +
                           to_string(level);
-            FheTaskFpga proj(path, true);
+            FheTaskFpga proj(path);
             vector<CxxVectorArgument> args = {
                 {"in_x_list", &xv.ciphertexts},
                 {"out_z_list", &z_list},
@@ -492,7 +492,7 @@ TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS csqr_relin_rescale", "", CkksFp
                 z_list.push_back(this->ctx.new_ciphertext(level - 1, out_scale));
             string path = fpga_base_path + "/" + this->tag + "/CKKS_" + to_string(this->n_op) +
                           "_csqr_relin_rescale/level_" + to_string(level);
-            FheTaskFpga proj(path, true);
+            FheTaskFpga proj(path);
             vector<CxxVectorArgument> args = {
                 {"in_x_list", &xv.ciphertexts},
                 {"out_z_list", &z_list},
@@ -514,7 +514,7 @@ TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS rescale", "", CkksFpgaTestParam
                 z_list.push_back(this->ctx.new_ciphertext(level - 1, this->default_scale));
             string path = fpga_base_path + "/" + this->tag + "/CKKS_" + to_string(this->n_op) + "_rescale/level_" +
                           to_string(level);
-            FheTaskFpga proj(path, true);
+            FheTaskFpga proj(path);
             vector<CxxVectorArgument> args = {
                 {"in_x_list", &xv.ciphertexts},
                 {"out_y_list", &z_list},
@@ -537,7 +537,7 @@ TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS drop_level", "", CkksFpgaTestPa
                 z_list.push_back(this->ctx.new_ciphertext(level - drop_level, this->default_scale));
             string path = fpga_base_path + "/" + this->tag + "/CKKS_" + to_string(this->n_op) + "_drop_level/level_" +
                           to_string(level) + "/drop_" + to_string(drop_level);
-            FheTaskFpga proj(path, true);
+            FheTaskFpga proj(path);
             vector<CxxVectorArgument> args = {
                 {"in_x_list", &xv.ciphertexts},
                 {"out_y_list", &z_list},
@@ -566,7 +566,7 @@ TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS rotate_col", "", CkksFpgaTestPa
                     y_list[i].push_back(this->ctx.new_ciphertext(level, this->default_scale));
             string path = fpga_base_path + "/" + this->tag + "/CKKS_" + to_string(this->n_op) + "_rotate_col/level_" +
                           to_string(level) + "/" + steps_str;
-            FheTaskFpga proj(path, true);
+            FheTaskFpga proj(path);
             vector<CxxVectorArgument> args = {
                 {"arg_x", &xv.ciphertexts},
                 {"arg_y", &y_list},
@@ -600,7 +600,7 @@ TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS advanced_rotate_col", "", CkksF
                     y_list[i].push_back(this->ctx.new_ciphertext(level, this->default_scale));
             string path = fpga_base_path + "/" + this->tag + "/CKKS_" + to_string(this->n_op) +
                           "_advanced_rotate_col/level_" + to_string(level) + "/steps_" + steps_str;
-            FheTaskFpga proj(path, true);
+            FheTaskFpga proj(path);
             vector<CxxVectorArgument> args = {
                 {"arg_x", &xv.ciphertexts},
                 {"arg_y", &y_list},
@@ -626,7 +626,7 @@ TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS rotate_row", "", CkksFpgaTestPa
                 y_list.push_back(this->ctx.new_ciphertext(level, this->default_scale));
             string path = fpga_base_path + "/" + this->tag + "/CKKS_" + to_string(this->n_op) + "_rotate_row/level_" +
                           to_string(level);
-            FheTaskFpga proj(path, true);
+            FheTaskFpga proj(path);
             vector<CxxVectorArgument> args = {
                 {"arg_x", &xv.ciphertexts},
                 {"arg_y", &y_list},
@@ -652,7 +652,7 @@ TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS n_poly", "", CkksFpgaTestParams
         y_list.push_back(this->ctx.new_ciphertext(2, this->default_scale * this->default_scale));
 
         string path = fpga_base_path + "/" + this->tag + "/CKKS_n_poly/level_4";
-        FheTaskFpga proj(path, true);
+        FheTaskFpga proj(path);
         vector<CxxVectorArgument> args = {
             {"x", &xv.ciphertexts},
             {"coeff0", &coeff0v.plaintexts},
