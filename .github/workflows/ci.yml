@@ -142,8 +142,7 @@ jobs:
           docker run --rm lattisense:latest bash -c "
             cd /workspace/project_template
             python3 bfv_mult.py
-            mkdir -p build && cd build
-            cmake .. && make && cd ..
+            cmake -B build && cmake --build build && cd ..
             ./build/my_fhe_app
           "
 

@@ -230,7 +230,7 @@ cmake --build build -j$(nproc)
 cmake_minimum_required(VERSION 3.13)
 project(my_fhe_app)
 
-set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED TRUE)
 
 find_package(LattiSense REQUIRED)
@@ -248,9 +248,8 @@ For more see `examples/project_template/` for a complete standalone project exam
 When building from source, you can build and run the internal examples:
 
 ```bash
-mkdir build && cd build
-cmake .. -DLATTISENSE_BUILD_EXAMPLES=ON
-make -j$(nproc)
+cmake -B build -DLATTISENSE_BUILD_EXAMPLES=ON
+cmake --build build -j$(nproc)
 
 # Generate computation graph
 cd build/examples/bfv_mult_cpu
@@ -264,17 +263,16 @@ python3 bfv_mult_cpu.py
 
 ```bash
 # Build with tests enabled
-mkdir build && cd build
-cmake .. -DLATTISENSE_BUILD_TESTS=ON
-make -j$(nproc)
+cmake -B build -DLATTISENSE_BUILD_TESTS=ON
+cmake --build build -j$(nproc)
 
 # Generate test data
-cd ../unittests
+cd unittests
 python3 test_cpu_bfv.py
 python3 test_cpu_ckks.py
 
 # Run tests
-cd ../build/unittests
+cd build/unittests
 ./test_lattigo       # underlying operators tests
 ./test_cpu_bfv       # BFV CPU tests
 ./test_cpu_ckks      # CKKS CPU tests
