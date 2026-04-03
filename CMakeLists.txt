@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.13)
+cmake_minimum_required(VERSION 3.26.4)
 
 project(lattisense
     LANGUAGES C CXX ASM
@@ -12,18 +12,18 @@ set(LATTISENSE_ROOT_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 # Dependency Checking #
 #######################
 
-# Check C++ compiler version
+# Check C++ compiler version (C++17 required)
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-    if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS "10.0")
+    if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS "9.0")
         message(FATAL_ERROR
-            "GCC version >= 10.0 is required for C++20 support.\n"
+            "GCC version >= 9.0 is required for C++17 support.\n"
             "Current version: ${CMAKE_CXX_COMPILER_VERSION}\n"
             "Please upgrade your compiler or set CMAKE_CXX_COMPILER to a newer version.")
     endif()
 elseif(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
-    if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS "11.0")
+    if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS "9.0")
         message(FATAL_ERROR
-            "Clang version >= 11.0 is required for C++20 support.\n"
+            "Clang version >= 9.0 is required for C++17 support.\n"
             "Current version: ${CMAKE_CXX_COMPILER_VERSION}\n"
             "Please upgrade your compiler or set CMAKE_CXX_COMPILER to a newer version.")
     endif()
@@ -70,7 +70,7 @@ if(LATTISENSE_ENABLE_GPU)
     if(NOT CUDAToolkit_FOUND)
         message(FATAL_ERROR
             "CUDA toolkit is required when LATTISENSE_ENABLE_GPU=ON.\n"
-            "Please install CUDA toolkit >= 12.0.")
+            "Please install CUDA toolkit >=11.4.")
     endif()
 
     if(NOT LATTISENSE_CUDA_ARCH)
@@ -140,7 +140,7 @@ endif()
 # set(CMAKE_C_COMPILER "/usr/local/bin/gcc")
 # set(CMAKE_CXX_COMPILER "/usr/local/bin/g++")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -maes")
-set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED TRUE)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
