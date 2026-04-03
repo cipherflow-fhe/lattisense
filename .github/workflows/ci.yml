@@ -45,42 +45,40 @@ jobs:
           nvidia-smi --query-gpu=name --format=csv,noheader
           python3 --version
 
-      - name: Configure git mirrors for China
-        run: |
-          git config --global url."https://gitee.com/nvidia_mirror/cccl.git".insteadOf "https://github.com/NVIDIA/cccl.git"
-
-      - name: Build HEonGPU (cached)
+      - name: Restore HEonGPU cache
         run: |
           HEONGPU_COMMIT=$(git -C HEonGPU rev-parse HEAD)
-          CACHE_DIR="/opt/heongpu-cache/${HEONGPU_COMMIT}"
+          CUDA_ARCH=86
+          CACHE_DIR="/opt/heongpu-cache/${HEONGPU_COMMIT}-arch${CUDA_ARCH}"
           if [ -d "${CACHE_DIR}/install/lib" ]; then
-            echo "Using cached HEonGPU build (${HEONGPU_COMMIT:0:8})"
+            echo "Using cached HEonGPU (${HEONGPU_COMMIT:0:8}, arch=${CUDA_ARCH})"
             cp -a "${CACHE_DIR}/install" HEonGPU/install
             cp -a "${CACHE_DIR}/build" HEonGPU/build
           else
-            echo "Building HEonGPU from scratch"
-            cd HEonGPU
-            cmake -S . -B build \
-              -DCMAKE_CUDA_ARCHITECTURES=86 \
-              -DCMAKE_CUDA_COMPILER=/usr/local/cuda/bin/nvcc \
-              -DCMAKE_INSTALL_PREFIX=$(pwd)/install
-            cmake --build build -j$(nproc)
-            cmake --install build
-            cd ..
+            echo "No cache found, HEonGPU will be built automatically during cmake configure"
+          fi
+
+      - name: Build SDK (CPU + GPU)
+        run: |
+          cmake -B build \
+            -DLATTISENSE_BUILD_TESTS=ON \
+            -DLATTISENSE_ENABLE_GPU=ON \
+            -DLATTISENSE_CUDA_ARCH=86 \
+            -DHEONGPU_CCCL_GIT_URL=https://gitee.com/nvidia_mirror/cccl.git
+          cmake --build build -j$(nproc)
+
+      - name: Save HEonGPU cache
+        run: |
+          HEONGPU_COMMIT=$(git -C HEonGPU rev-parse HEAD)
+          CUDA_ARCH=86
+          CACHE_DIR="/opt/heongpu-cache/${HEONGPU_COMMIT}-arch${CUDA_ARCH}"
+          if [ ! -d "${CACHE_DIR}/install/lib" ] && [ -d "HEonGPU/install/lib" ]; then
+            echo "Saving HEonGPU build to cache"
             mkdir -p "${CACHE_DIR}"
             cp -a HEonGPU/install "${CACHE_DIR}/"
             cp -a HEonGPU/build "${CACHE_DIR}/"
             ls -dt /opt/heongpu-cache/*/ 2>/dev/null | tail -n +4 | xargs rm -rf 2>/dev/null || true
           fi
-
-      - name: Build SDK (CPU + GPU)
-        run: |
-          mkdir -p build && cd build
-          cmake .. \
-            -DLATTISENSE_BUILD_TESTS=ON \
-            -DLATTISENSE_ENABLE_GPU=ON \
-            -DLATTISENSE_CUDA_ARCH=86
-          make -j$(nproc)
 
       - name: Generate test data
         run: |
