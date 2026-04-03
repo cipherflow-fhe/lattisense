@@ -101,27 +101,97 @@ if(LATTISENSE_ENABLE_GPU)
         DESCRIPTION "FHE SDK Version 2.0"
     )
 
-    # Check if HEonGPU is installed
-    set(HEONGPU_INSTALL_DIR "${LATTISENSE_ROOT_DIR}/HEonGPU/install")
-    set(HEONGPU_BUILD_DIR "${LATTISENSE_ROOT_DIR}/HEonGPU/build")
+    # ── HEonGPU integration ──────────────────────────────────────────────
+    set(HEONGPU_SOURCE_DIR "${LATTISENSE_ROOT_DIR}/HEonGPU")
+    set(HEONGPU_BUILD_DIR  "${HEONGPU_SOURCE_DIR}/build")
+    set(HEONGPU_INSTALL_DIR "${HEONGPU_SOURCE_DIR}/install")
 
     if(NOT EXISTS "${HEONGPU_INSTALL_DIR}/lib")
-        message(FATAL_ERROR
-            "HEonGPU not found at ${HEONGPU_INSTALL_DIR}\n"
-            "\n"
-            "GPU support requires HEonGPU to be built first. Please run:\n"
-            "\n"
-            "  cd ${LATTISENSE_ROOT_DIR}/HEonGPU\n"
-            "  cmake -S . -B build \\\n"
-            "    -DCMAKE_CUDA_ARCHITECTURES=${LATTISENSE_CUDA_ARCH} \\\n"
-            "    -DCMAKE_CUDA_COMPILER=/usr/local/cuda/bin/nvcc \\\n"
-            "    -DCMAKE_INSTALL_PREFIX=\$(pwd)/install\n"
-            "  cmake --build build -j\$(nproc)\n"
-            "  cmake --install build\n"
-            "\n"
-            "Then re-run cmake with -DLATTISENSE_ENABLE_GPU=ON -DLATTISENSE_CUDA_ARCH=${LATTISENSE_CUDA_ARCH}")
+        message(STATUS "HEonGPU not found at ${HEONGPU_INSTALL_DIR}, building automatically...")
+
+        # Determine parallel jobs
+        include(ProcessorCount)
+        ProcessorCount(NPROC)
+        if(NPROC EQUAL 0)
+            set(NPROC 4)
+        endif()
+
+        # Step 1: configure
+        # Forward CPM_SOURCE_CACHE so HEonGPU's dependencies (CCCL, etc.)
+        # are cached across rebuilds.
+        set(_heongpu_extra_args)
+        if(DEFINED ENV{CPM_SOURCE_CACHE})
+            list(APPEND _heongpu_extra_args "-DCPM_SOURCE_CACHE=$ENV{CPM_SOURCE_CACHE}")
+        elseif(DEFINED CPM_SOURCE_CACHE)
+            list(APPEND _heongpu_extra_args "-DCPM_SOURCE_CACHE=${CPM_SOURCE_CACHE}")
+        endif()
+
+        # Generate a rapids-cmake override file to use a CCCL mirror if specified.
+        # Usage: cmake -DHEONGPU_CCCL_GIT_URL=https://gitee.com/nvidia_mirror/cccl.git ...
+        if(DEFINED HEONGPU_CCCL_GIT_URL)
+            set(_override_json [=[{"packages":{"CCCL":{"git_url":"@HEONGPU_CCCL_GIT_URL@"}}}]=])
+            string(REPLACE "@HEONGPU_CCCL_GIT_URL@" "${HEONGPU_CCCL_GIT_URL}" _override_json "${_override_json}")
+            set(_override_file "${HEONGPU_BUILD_DIR}/cccl_override.json")
+            file(WRITE "${_override_file}" "${_override_json}")
+            list(APPEND _heongpu_extra_args "-DRAPIDS_CMAKE_CPM_OVERRIDE_VERSION_FILE=${_override_file}")
+            message(STATUS "[HEonGPU] Using CCCL mirror: ${HEONGPU_CCCL_GIT_URL}")
+        endif()
+
+        message(STATUS "[HEonGPU] Configuring...")
+        execute_process(
+            COMMAND ${CMAKE_COMMAND}
+                -S ${HEONGPU_SOURCE_DIR}
+                -B ${HEONGPU_BUILD_DIR}
+                -DCMAKE_CUDA_ARCHITECTURES=${LATTISENSE_CUDA_ARCH}
+                -DCMAKE_CUDA_COMPILER=${CMAKE_CUDA_COMPILER}
+                -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
+                -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
+                -DCMAKE_INSTALL_PREFIX=${HEONGPU_INSTALL_DIR}
+                -DCMAKE_BUILD_TYPE=Release
+                -DHEonGPU_BUILD_TESTS=OFF
+                -DHEonGPU_BUILD_EXAMPLES=OFF
+                -DHEonGPU_BUILD_BENCHMARKS=OFF
+                -Wno-dev
+                ${_heongpu_extra_args}
+            RESULT_VARIABLE heongpu_config_result
+            COMMAND_ECHO STDOUT
+        )
+        if(NOT heongpu_config_result EQUAL 0)
+            message(FATAL_ERROR "[HEonGPU] Configure failed (exit ${heongpu_config_result})")
+        endif()
+        message(STATUS "[HEonGPU] Configure done.")
+
+        # Step 2: build
+        message(STATUS "[HEonGPU] Building (parallel ${NPROC})...")
+        execute_process(
+            COMMAND ${CMAKE_COMMAND}
+                --build ${HEONGPU_BUILD_DIR}
+                --parallel ${NPROC}
+            RESULT_VARIABLE heongpu_build_result
+            COMMAND_ECHO STDOUT
+        )
+        if(NOT heongpu_build_result EQUAL 0)
+            message(FATAL_ERROR "[HEonGPU] Build failed (exit ${heongpu_build_result})")
+        endif()
+        message(STATUS "[HEonGPU] Build done.")
+
+        # Step 3: install
+        message(STATUS "[HEonGPU] Installing to ${HEONGPU_INSTALL_DIR}...")
+        execute_process(
+            COMMAND ${CMAKE_COMMAND}
+                --install ${HEONGPU_BUILD_DIR}
+            RESULT_VARIABLE heongpu_install_result
+            COMMAND_ECHO STDOUT
+        )
+        if(NOT heongpu_install_result EQUAL 0)
+            message(FATAL_ERROR "[HEonGPU] Install failed (exit ${heongpu_install_result})")
+        endif()
+        message(STATUS "[HEonGPU] Install done.")
+    else()
+        message(STATUS "Found existing HEonGPU installation at ${HEONGPU_INSTALL_DIR}")
     endif()
 
+    # ── find HEonGPU and its dependencies ────────────────────────────────
     list(APPEND CMAKE_PREFIX_PATH "${HEONGPU_INSTALL_DIR}")
     # Add CCCL from HEonGPU build directory
     if(EXISTS "${HEONGPU_BUILD_DIR}/_deps/cccl-src/lib/cmake/cccl")
