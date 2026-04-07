@@ -32,14 +32,13 @@ namespace fhe_ops_lib {
 class TaskProgressBar {
 public:
     explicit TaskProgressBar(size_t total)
-        : total_(total),
-          bar_(indicators::BlockProgressBar{
-              indicators::option::BarWidth{60},
-              indicators::option::MaxProgress{total},
-              indicators::option::ShowElapsedTime{true},
-              indicators::option::ShowRemainingTime{true},
-              indicators::option::Stream{std::cerr},
-          }),
+        : total_(total), bar_(indicators::BlockProgressBar{
+                             indicators::option::BarWidth{60},
+                             indicators::option::MaxProgress{total},
+                             indicators::option::ShowElapsedTime{true},
+                             indicators::option::ShowRemainingTime{true},
+                             indicators::option::Stream{std::cerr},
+                         }),
           last_update_(std::chrono::steady_clock::now() - std::chrono::milliseconds(10)) {}
 
     // Rate-limited update: redraws at most once per 100 ms.
