@@ -2019,64 +2019,6 @@ def _build_fpga_kernels(
 
     result: list[tuple[FpgaKernelNode, dict, dict]] = []
 
-    # Build global offline kernel if there are offline inputs.
-    # Creates FPGA-resident output nodes (copies with new indices) and rewires g_dag so that
-    # online kernels consume those outputs instead of the original offline data nodes.
-    # if all_offline_list:
-    #     import copy
-    #     offline_kernel = FpgaKernelNode()
-
-    #     # Map: original offline node -> new FPGA-resident output node
-    #     offline_output_map: dict[FheDataNode, FheDataNode] = {}
-    #     for dn in all_offline_list:
-    #         if isinstance(dn, FheDataNode):
-    #             fpga_node = copy.copy(dn)
-    #             fpga_node.index = gen_data_node_index()
-    #             fpga_node.id = dn.id + '_fpga'
-    #             offline_output_map[dn] = fpga_node
-    #             g_dag.add_node(fpga_node)
-
-    #     # Collect original successors before modifying the graph, to avoid rewiring
-    #     # the dn → offline_kernel edge we're about to add (which would create a cycle).
-    #     original_succs_map: dict[FheDataNode, list] = {
-    #         dn: [
-    #             succ for succ in g_dag.successors(dn)
-    #             if isinstance(succ, (FheComputeNode, CustomComputeNode))
-    #         ]
-    #         for dn in offline_output_map
-    #     }
-
-    #     # Wire: offline_data → offline_kernel → fpga_node
-    #     # Rewire: edges offline_data → online_compute become fpga_node → online_compute
-    #     for dn, fpga_node in offline_output_map.items():
-    #         g_dag.add_edge(dn, offline_kernel)
-    #         g_dag.add_edge(offline_kernel, fpga_node)
-    #         for succ in original_succs_map[dn]:
-    #             g_dag.remove_edge(dn, succ)
-    #             g_dag.add_edge(fpga_node, succ)
-
-    #     offline_input_data = [dn for dn in all_offline_list if isinstance(dn, FheDataNode)]
-    #     offline_output_data = list(offline_output_map.values())
-    #     all_offline_data = offline_input_data + offline_output_data
-
-    #     sub_mag_offline = {
-    #         'name': f'Kernel {offline_kernel.index}',
-    #         'algorithm': g_param.algo.value,
-    #         'parameter': parameter,
-    #         'data': {dn.index: dn.to_json_dict() for dn in all_offline_data},
-    #         'compute': {offline_kernel.index: offline_kernel.to_json_dict(g_dag)},
-    #         'inputs': [dn.index for dn in offline_input_data],
-    #         'outputs': [dn.index for dn in offline_output_data],
-    #         'offline_inputs': [dn.index for dn in offline_input_data],
-    #     }
-    #     sub_sig_offline = {
-    #         'algorithm': g_param.algo.value,
-    #         'key': {'rlk': -1, 'glk': {}},
-    #         'online': [],
-    #         'offline': [],
-    #     }
-    #     result.append((offline_kernel, sub_mag_offline, sub_sig_offline))
-
     node_partition: dict = {}
 
     for node in nx.topological_sort(g_dag):
@@ -2178,7 +2120,7 @@ def _build_fpga_kernels(
             'name': f'Kernel {kernel.index}',
             'algorithm': g_param.algo.value,
             'parameter': parameter,
-            'data': {dn.index: dn.to_json_dict() for dn in partition_data},
+            'data': {dn.index: dn.to_json_dict() for dn in nx.topological_sort(g_dag) if dn in partition_data},
             'compute': {cn.index: cn.to_json_dict(g_dag) for cn in nx.topological_sort(g_dag) if cn in compute_set},
             'inputs': [dn.index for dn in inputs],
             'outputs': [dn.index for dn in outputs],

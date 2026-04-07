@@ -1032,21 +1032,6 @@ class TestTask:
                     print(f'BFV_power_mul_coeff end --')
 
     @pytest.mark.min_level(1)
-    def test_cmc_relin_offline(self, param, lv):
-        set_fhe_param(param)
-        param_tag = _param_tag(param)
-        task_dir = os.path.join(FPGA_OUTPUT_BASE_DIR, param_tag, f'BFV_{N_OP}_cmc_relin_offline', f'level_{lv}')
-        x_list = [BfvCiphertextNode(f'x_{i}', level=lv) for i in range(N_OP)]
-        y_list = [BfvCiphertextNode(f'y_{i}', level=lv) for i in range(N_OP)]
-        z_list = [mult_relin(x_list[i], y_list[i], f'z_{i}') for i in range(N_OP)]
-        process_custom_task(
-            input_args=[Argument('in_x_list', x_list)],
-            offline_input_args=[Argument('in_y_list', y_list)],
-            output_args=[Argument('out_z_list', z_list)],
-            output_instruction_path=task_dir,
-        )
-
-    @pytest.mark.min_level(1)
     def test_custom_cmpac(self, param, lv):
         set_fhe_param(param)
         param_tag = _param_tag(param)

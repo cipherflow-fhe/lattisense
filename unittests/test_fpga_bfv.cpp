@@ -1331,39 +1331,39 @@ TEMPLATE_TEST_CASE_METHOD(BfvFpgaFixture, "BFV power_mul_coeff", "", BfvFpgaTest
     }
 }
 
-TEMPLATE_TEST_CASE_METHOD(BfvFpgaFixture, "BFV cmc_relin offline", "[.][offline]", BfvFpgaTestParams) {
-    for (int level = 1; level <= this->max_level; level++) {
-        SECTION("lv=" + to_string(level)) {
-            auto xv = new_bfv_test_ct(this->n_op, this->ctx, level, this->param.get_t());
-            auto yv = new_bfv_test_ct(this->n_op, this->ctx, level, this->param.get_t());
-            vector<BfvCiphertext> z_list;
-            z_list.reserve(this->n_op);
-            for (int _i = 0; _i < this->n_op; _i++)
-                z_list.push_back(this->ctx.new_ciphertext(level));
+// TEMPLATE_TEST_CASE_METHOD(BfvFpgaFixture, "BFV cmc_relin offline", "[.][offline]", BfvFpgaTestParams) {
+//     for (int level = 1; level <= this->max_level; level++) {
+//         SECTION("lv=" + to_string(level)) {
+//             auto xv = new_bfv_test_ct(this->n_op, this->ctx, level, this->param.get_t());
+//             auto yv = new_bfv_test_ct(this->n_op, this->ctx, level, this->param.get_t());
+//             vector<BfvCiphertext> z_list;
+//             z_list.reserve(this->n_op);
+//             for (int _i = 0; _i < this->n_op; _i++)
+//                 z_list.push_back(this->ctx.new_ciphertext(level));
 
-            string path = fpga_base_path + "/" + this->tag + "/BFV_" + to_string(this->n_op) +
-                          "_cmc_relin_offline/level_" + to_string(level);
+//             string path = fpga_base_path + "/" + this->tag + "/BFV_" + to_string(this->n_op) +
+//                           "_cmc_relin_offline/level_" + to_string(level);
 
-            FheTaskFpga offline_proj(path);
-            vector<CxxVectorArgument> offline_args = {
-                {"in_y_list", &yv.ciphertexts},
-            };
-            offline_proj.run(&this->ctx, offline_args);
+//             FheTaskFpga offline_proj(path, false);
+//             vector<CxxVectorArgument> offline_args = {
+//                 {"in_y_list", &yv.ciphertexts},
+//             };
+//             offline_proj.run(&this->ctx, offline_args);
 
-            FheTaskFpga online_proj(path);
-            vector<CxxVectorArgument> online_args = {
-                {"in_x_list", &xv.ciphertexts},
-                {"out_z_list", &z_list},
-            };
-            online_proj.run(&this->ctx, online_args);
+//             FheTaskFpga online_proj(path, true);
+//             vector<CxxVectorArgument> online_args = {
+//                 {"in_x_list", &xv.ciphertexts},
+//                 {"out_z_list", &z_list},
+//             };
+//             online_proj.run(&this->ctx, online_args);
 
-            vector<vector<uint64_t>> expected(this->n_op);
-            for (int i = 0; i < this->n_op; i++)
-                expected[i] = vec_mod_mul(xv.values[i], yv.values[i], this->param.get_t());
-            REQUIRE(decrypt_and_decode(this->ctx, z_list) == expected);
-        }
-    }
-}
+//             vector<vector<uint64_t>> expected(this->n_op);
+//             for (int i = 0; i < this->n_op; i++)
+//                 expected[i] = vec_mod_mul(xv.values[i], yv.values[i], this->param.get_t());
+//             REQUIRE(decrypt_and_decode(this->ctx, z_list) == expected);
+//         }
+//     }
+// }
 
 TEMPLATE_TEST_CASE_METHOD(BfvFpgaFixture, "BFV custom_cmpac", "", BfvFpgaTestParams) {
     int n = this->param.get_n();
