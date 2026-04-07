@@ -14,7 +14,9 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include <chrono>
 #include <iostream>
+#include <string>
 #include <fstream>
 #include <unordered_map>
 #include <vector>
@@ -26,6 +28,7 @@
 #include <set>
 #include <memory>
 #include <algorithm>
+#include <optional>
 #include <HEonGPU-1.1/heongpu.hpp>
 
 #include "nlohmann/json.hpp"
@@ -35,6 +38,7 @@
 #include "../wrapper.h"
 #include "../mega_ag.h"
 #include "../../fhe_ops_lib/fhe_lib_v2.h"
+#include "../../fhe_ops_lib/utils.h"
 
 extern "C" {
 #include "../../fhe_ops_lib/fhe_types_v2.h"
@@ -382,7 +386,10 @@ void transfer_output_c2h(const NodeIndex& output_index,
 }
 
 template <heongpu::Scheme SchemeType>
-void _run_mega_ag(gsl::span<CArgument> input_args, gsl::span<CArgument> output_args, const MegaAG& mega_ag) {
+void _run_mega_ag(gsl::span<CArgument> input_args,
+                  gsl::span<CArgument> output_args,
+                  const MegaAG& mega_ag,
+                  bool show_progress_bar) {
     std::unique_ptr<heongpu::HEContext<SchemeType>> context;
     std::unique_ptr<heongpu::HEArithmeticOperator<SchemeType>> operators;
 
@@ -425,6 +432,10 @@ void _run_mega_ag(gsl::span<CArgument> input_args, gsl::span<CArgument> output_a
     std::atomic<size_t> total_tasks(mega_ag.computes.size());
     std::atomic<size_t> completed_tasks(0);
     std::condition_variable completion_cv;
+
+    std::optional<fhe_ops_lib::TaskProgressBar> bar;
+    if (show_progress_bar)
+        bar.emplace(total_tasks.load());
     std::mutex completion_mutex;
     std::queue<NodeIndex> task_queue;
 
@@ -532,9 +543,12 @@ void _run_mega_ag(gsl::span<CArgument> input_args, gsl::span<CArgument> output_a
                 transfer_output_c2h<SchemeType>(output.index, *output.ptr, output_args, output_indices);
             } else {
                 // Check if all computations are done
-                if (completed_tasks.load() >= total_tasks) {
+                size_t n_completed = completed_tasks.load();
+                if (n_completed >= total_tasks) {
                     break;
                 }
+                if (bar)
+                    bar->update(n_completed);
                 // Brief sleep to avoid busy waiting
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));
             }
@@ -674,6 +688,8 @@ void _run_mega_ag(gsl::span<CArgument> input_args, gsl::span<CArgument> output_a
     pool.wait();
     data_export_thread.join();
     data_import_thread.join();
+    if (bar)
+        bar->finalize();
 
     // Cleanup events asynchronously in thread pool - one event per thread
     for (auto& pair : data_ready_events) {
@@ -705,10 +721,15 @@ public:
 
     ~FheGpuTask() {}
 
-    int run(gsl::span<CArgument> input_args, gsl::span<CArgument> output_args, Algo algo) {
+    int
+    run(gsl::span<CArgument> input_args, gsl::span<CArgument> output_args, Algo algo, bool show_progress_bar = true) {
         switch (algo) {
-            case Algo::ALGO_BFV: _run_mega_ag<heongpu::Scheme::BFV>(input_args, output_args, mega_ag_); break;
-            case Algo::ALGO_CKKS: _run_mega_ag<heongpu::Scheme::CKKS>(input_args, output_args, mega_ag_); break;
+            case Algo::ALGO_BFV:
+                _run_mega_ag<heongpu::Scheme::BFV>(input_args, output_args, mega_ag_, show_progress_bar);
+                break;
+            case Algo::ALGO_CKKS:
+                _run_mega_ag<heongpu::Scheme::CKKS>(input_args, output_args, mega_ag_, show_progress_bar);
+                break;
             default: throw std::invalid_argument("algo not supported"); break;
         }
 

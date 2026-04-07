@@ -22,6 +22,7 @@
 
 #include "../mega_ag.h"
 #include "../../fhe_ops_lib/fhe_lib_v2.h"
+#include "../../fhe_ops_lib/utils.h"
 #include "../../lib/thread_pool/BS_thread_pool.hpp"
 #include "../../lib/gsl/span"
 
@@ -38,6 +39,7 @@ extern "C" {
 #include <iostream>
 #include <any>
 #include <memory>
+#include <optional>
 
 namespace cpu_wrapper {
 
@@ -144,7 +146,10 @@ void init_context(const nlohmann::json& param_json, std::unique_ptr<TContext>& c
 }
 
 template <HEScheme SchemeType, typename TContext>
-void _run_mega_ag_impl(gsl::span<CArgument> input_args, gsl::span<CArgument> output_args, const MegaAG& mega_ag) {
+void _run_mega_ag_impl(gsl::span<CArgument> input_args,
+                       gsl::span<CArgument> output_args,
+                       const MegaAG& mega_ag,
+                       bool show_progress_bar) {
     std::unique_ptr<TContext> context;
     init_context<SchemeType, TContext>(mega_ag.parameter, context);
 
@@ -172,6 +177,10 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args, gsl::span<CArgument> out
     std::atomic<size_t> total_tasks(mega_ag.computes.size());
     std::atomic<size_t> completed_tasks(0);
     std::condition_variable completion_cv;
+
+    std::optional<TaskProgressBar> bar;
+    if (show_progress_bar)
+        bar.emplace(total_tasks.load());
     std::mutex completion_mutex;
     std::queue<NodeIndex> task_queue;
     std::set<NodeIndex> queued_computes;
@@ -273,12 +282,17 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args, gsl::span<CArgument> out
         if (has_task) {
             submit_task(next_task);
         } else {
-            if (completed_tasks.load() >= total_tasks) {
+            size_t n_completed = completed_tasks.load();
+            if (n_completed >= total_tasks) {
                 break;
             }
+            if (bar)
+                bar->update(n_completed);
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
     }
+    if (bar)
+        bar->finalize();
 
     // Wait for all tasks to complete
     {
@@ -305,23 +319,26 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args, gsl::span<CArgument> out
 }
 
 template <HEScheme SchemeType>
-void _run_mega_ag(gsl::span<CArgument> input_args, gsl::span<CArgument> output_args, const MegaAG& mega_ag) {
+void _run_mega_ag(gsl::span<CArgument> input_args,
+                  gsl::span<CArgument> output_args,
+                  const MegaAG& mega_ag,
+                  bool show_progress_bar) {
     // Determine TContext based on SchemeType and bootstrap parameters
     if constexpr (SchemeType == HEScheme::CKKS) {
         // Check if bootstrap parameters exist
         if (mega_ag.parameter.contains("btp_output_level")) {
             // Use CkksBtpContext for bootstrap
             using TContext = CkksBtpContext;
-            _run_mega_ag_impl<SchemeType, TContext>(input_args, output_args, mega_ag);
+            _run_mega_ag_impl<SchemeType, TContext>(input_args, output_args, mega_ag, show_progress_bar);
         } else {
             // Use regular CkksContext
             using TContext = CkksContext;
-            _run_mega_ag_impl<SchemeType, TContext>(input_args, output_args, mega_ag);
+            _run_mega_ag_impl<SchemeType, TContext>(input_args, output_args, mega_ag, show_progress_bar);
         }
     } else {
         // BFV always uses BfvContext
         using TContext = BfvContext;
-        _run_mega_ag_impl<SchemeType, TContext>(input_args, output_args, mega_ag);
+        _run_mega_ag_impl<SchemeType, TContext>(input_args, output_args, mega_ag, show_progress_bar);
     }
 }
 
@@ -332,10 +349,15 @@ public:
 
     ~FheCpuTask() {}
 
-    int run(gsl::span<CArgument> input_args, gsl::span<CArgument> output_args, Algo algo) {
+    int
+    run(gsl::span<CArgument> input_args, gsl::span<CArgument> output_args, Algo algo, bool show_progress_bar = true) {
         switch (algo) {
-            case Algo::ALGO_BFV: _run_mega_ag<HEScheme::BFV>(input_args, output_args, mega_ag_); break;
-            case Algo::ALGO_CKKS: _run_mega_ag<HEScheme::CKKS>(input_args, output_args, mega_ag_); break;
+            case Algo::ALGO_BFV:
+                _run_mega_ag<HEScheme::BFV>(input_args, output_args, mega_ag_, show_progress_bar);
+                break;
+            case Algo::ALGO_CKKS:
+                _run_mega_ag<HEScheme::CKKS>(input_args, output_args, mega_ag_, show_progress_bar);
+                break;
             default: throw std::invalid_argument("algo not supported"); break;
         }
 
