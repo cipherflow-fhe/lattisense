@@ -39,7 +39,8 @@ jobs:
 
       - name: Install FPGA linker dependencies
         run: |
-          pip3 install -r backends/lattisense-fpga/lattisense-fpga-linker/requirements.txt
+          pip3 install -i https://pypi.tuna.tsinghua.edu.cn/simple \
+            -r backends/lattisense-fpga/lattisense-fpga-linker/requirements.txt
 
       - name: Verify prerequisites
         run: |
