@@ -38,6 +38,7 @@ def ckks_mult():
         input_args=[Argument('x', x), Argument('y', y)],
         output_args=[Argument('z', z)],
         output_instruction_path='project',
+        fpga_acc=False,
     )
 
 

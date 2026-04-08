@@ -226,6 +226,7 @@ def gen_conv_benchmark(n_in_channel, n_out_channel, input_shape, kernel_shape, s
         ],
         output_args=[Argument('output', y)],
         output_instruction_path=output_path,
+        fpga_acc=False,
     )
 
     print(f'Generated: {output_path}')
