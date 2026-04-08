@@ -8,13 +8,26 @@ on:
     branches: [main, refactor/mega-ag-heterogeneous]
   workflow_dispatch:
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
   build-and-test:
-    runs-on: ubuntu-22.04
+    runs-on: [self-hosted, linux, gpu]
+    defaults:
+      run:
+        shell: bash
+    container:
+      image: localhost:5000/lattisense-ci:latest
+      options: --gpus all
+      volumes:
+        - /opt/heongpu-cache:/opt/heongpu-cache
+        - /opt/go-mod-cache:/root/go/pkg/mod
     timeout-minutes: 60
 
     steps:
@@ -22,44 +35,88 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
-          token: ${{ secrets.PRIVATE_REPO_ACCESS_TOKEN }}
 
-      - name: Install dependencies
+      - name: Verify prerequisites
         run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential cmake python3 python3-pip
-          pip3 install networkx pytest
+          g++ --version | head -1
+          cmake --version | head -1
+          go version
+          nvcc --version | tail -1
+          nvidia-smi --query-gpu=name --format=csv,noheader
+          python3 --version
 
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.24.0'
-
-      - name: Build SDK
+      - name: Restore HEonGPU cache
         run: |
-          mkdir -p build && cd build
-          cmake .. -DLATTISENSE_BUILD_TESTS=ON -DLATTISENSE_ENABLE_FPGA=ON
-          make -j$(nproc)
+          HEONGPU_COMMIT=$(git -C backends/HEonGPU rev-parse HEAD)
+          CUDA_ARCH=86
+          CACHE_DIR="/opt/heongpu-cache/${HEONGPU_COMMIT}-arch${CUDA_ARCH}"
+          if [ -d "${CACHE_DIR}/install/lib" ]; then
+            echo "Using cached HEonGPU (${HEONGPU_COMMIT:0:8}, arch=${CUDA_ARCH})"
+            cp -a "${CACHE_DIR}/install" backends/HEonGPU/install
+            cp -a "${CACHE_DIR}/build" backends/HEonGPU/build
+          else
+            echo "No cache found, HEonGPU will be built automatically during cmake configure"
+          fi
+
+      - name: Build SDK (CPU + GPU)
+        run: |
+          cmake -B build \
+            -DLATTISENSE_BUILD_TESTS=ON \
+            -DLATTISENSE_ENABLE_GPU=ON \
+            -DLATTISENSE_CUDA_ARCH=86 \
+            -DHEONGPU_CCCL_GIT_URL=https://gitee.com/nvidia_mirror/cccl.git
+          cmake --build build -j$(nproc)
+
+      - name: Save HEonGPU cache
+        run: |
+          HEONGPU_COMMIT=$(git -C backends/HEonGPU rev-parse HEAD)
+          CUDA_ARCH=86
+          CACHE_DIR="/opt/heongpu-cache/${HEONGPU_COMMIT}-arch${CUDA_ARCH}"
+          if [ ! -d "${CACHE_DIR}/install/lib" ] && [ -d "backends/HEonGPU/install/lib" ]; then
+            echo "Saving HEonGPU build to cache"
+            mkdir -p "${CACHE_DIR}"
+            cp -a backends/HEonGPU/install "${CACHE_DIR}/"
+            cp -a backends/HEonGPU/build "${CACHE_DIR}/"
+            ls -dt /opt/heongpu-cache/*/ 2>/dev/null | tail -n +4 | xargs rm -rf 2>/dev/null || true
+          fi
 
       - name: Generate test data
         run: |
           cd unittests
-          export PYTHONPATH=${{ github.workspace }}/build/unittests:${{ github.workspace }}:$PYTHONPATH
-          pytest test_cpu_bfv.py -v
-          pytest test_cpu_ckks.py -v
+          export PYTHONPATH=$GITHUB_WORKSPACE/build/unittests:$GITHUB_WORKSPACE:$PYTHONPATH
+          python3 test_cpu_bfv.py
+          python3 test_cpu_ckks.py
+          python3 test_gpu_bfv.py
+          python3 test_gpu_ckks.py
 
-      - name: Run tests
-        timeout-minutes: 30
+      - name: Run CPU tests
+        timeout-minutes: 20
         run: |
           cd build/unittests
-          export LD_LIBRARY_PATH=${{ github.workspace }}/build/lib:$LD_LIBRARY_PATH
+          export LD_LIBRARY_PATH=$GITHUB_WORKSPACE/build/lib:$LD_LIBRARY_PATH
           ./test_lattigo
           ./test_mp_lattigo
           ./test_cpu_bfv
           ./test_cpu_ckks
 
+      - name: Run GPU tests
+        timeout-minutes: 20
+        run: |
+          cd build/unittests
+          export LD_LIBRARY_PATH=$GITHUB_WORKSPACE/build/lib:$GITHUB_WORKSPACE/backends/HEonGPU/install/lib:$LD_LIBRARY_PATH
+          ./test_gpu_bfv
+          ./test_gpu_ckks
+
   build-docker:
-    runs-on: ubuntu-22.04
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+    runs-on: [self-hosted, linux, gpu]
+    defaults:
+      run:
+        shell: bash
+    container:
+      image: localhost:5000/lattisense-ci:latest
+      volumes:
+        - /var/run/docker.sock:/var/run/docker.sock
     needs: build-and-test
     timeout-minutes: 60
     permissions:
@@ -71,37 +128,13 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
-          token: ${{ secrets.PRIVATE_REPO_ACCESS_TOKEN }}
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
 
       - name: Log in to GitHub Container Registry
         if: github.event_name != 'pull_request'
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Extract metadata for Docker
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin
 
       - name: Build Docker image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          load: true
-          tags: lattisense:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+        run: docker build -t lattisense:latest .
 
       - name: Verify Docker image
         timeout-minutes: 10
@@ -109,18 +142,24 @@ jobs:
           docker run --rm lattisense:latest bash -c "
             cd /workspace/project_template
             python3 bfv_mult.py
-            mkdir -p build && cd build
-            cmake .. && make && cd ..
+            cmake -B build && cmake --build build && cd ..
             ./build/my_fhe_app
           "
 
-      - name: Push Docker image
+      - name: Tag and push Docker image
         if: github.event_name != 'pull_request'
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+        run: |
+          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
+          docker tag lattisense:latest "${IMAGE}:latest"
+          # Tag with version if this is a tag push
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            VERSION="${{ github.ref_name }}"
+            docker tag lattisense:latest "${IMAGE}:${VERSION}"
+            docker push "${IMAGE}:${VERSION}"
+          fi
+          docker push "${IMAGE}:latest"
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker image prune -f

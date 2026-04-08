@@ -122,7 +122,7 @@ The container includes the pre-built SDK, compilation toolchain, and project tem
 | CPU / Memory | 8 cores / 16 GB | Recommended minimum configuration |
 | OS | Linux / WSL2 | Operating system requirement |
 | CMake | >= 3.13 | Build system |
-| C++ Compiler | GCC 10+ / Clang 11+ | C++20 support required |
+| C++ Compiler | GCC 9+ / Clang 9+ | C++17 support required |
 | Go | >= 1.18 | For building Lattigo crypto library |
 | Python | >= 3.10 | For computation graph compiler |
 | networkx | (Python package) | Computation graph compiler dependency |
@@ -131,8 +131,8 @@ The container includes the pre-built SDK, compilation toolchain, and project tem
 
 | Dependency | Version | Description |
 |------------|---------|-------------|
-| CUDA Toolkit | >= 12.0 | GPU compute support |
-| HEonGPU | 1.1 | GPU acceleration library (requires pre-build) |
+| CUDA Toolkit | >= 11.4 | GPU compute support |
+| HEonGPU | 1.1 | GPU acceleration library (auto-built during cmake configure) |
 
 #### 1. Clone Repository
 
@@ -150,22 +150,21 @@ pip install -r requirements.txt
 #### 3. Build SDK (CPU Version)
 
 ```bash
-mkdir build && cd build
-cmake ..
-make -j$(nproc)
+cmake -B build
+cmake --build build -j$(nproc)
 ```
 
 #### 4. Install
 
 ```bash
 # Install to custom directory
-cmake .. -DCMAKE_INSTALL_PREFIX=$(pwd)/../install
-make install
+cmake -B build -DCMAKE_INSTALL_PREFIX=$(pwd)/install
+cmake --build build --target install
 
 # Or install to system (requires sudo)
-cmake ..
-make
-sudo make install
+cmake -B build
+cmake --build build
+sudo cmake --install build
 ```
 
 #### Build Options
@@ -182,29 +181,22 @@ sudo make install
 
 Example:
 ```bash
-cmake .. -DCMAKE_INSTALL_PREFIX=$(pwd)/../install -DLATTISENSE_BUILD_EXAMPLES=ON
-cmake .. -DLATTISENSE_ENABLE_GPU=ON -DLATTISENSE_CUDA_ARCH=89
+cmake -B build -DCMAKE_INSTALL_PREFIX=$(pwd)/install -DLATTISENSE_BUILD_EXAMPLES=ON
+cmake -B build -DLATTISENSE_ENABLE_GPU=ON -DLATTISENSE_CUDA_ARCH=89
 ```
 
-To enable GPU acceleration, first build and install HEonGPU:
+To enable GPU acceleration, simply pass the GPU flags — HEonGPU is built automatically:
 
 ```bash
-# 1. Build HEonGPU
-cd HEonGPU
-mkdir build && cd build
-cmake .. \
-  -DCMAKE_CUDA_ARCHITECTURES=<arch> \
-  -DCMAKE_CUDA_COMPILER=<path/to/cuda>/bin/nvcc \
-  -DCMAKE_INSTALL_PREFIX=<path/to/HEonGPU>/install
-make -j$(nproc)
-make install
-
-# 2. Return to SDK directory and build with GPU support
-cd ../..
-mkdir build && cd build
-cmake .. -DLATTISENSE_ENABLE_GPU=ON -DLATTISENSE_CUDA_ARCH=<arch>
-make -j$(nproc)
+cmake -B build -DLATTISENSE_ENABLE_GPU=ON -DLATTISENSE_CUDA_ARCH=<arch>
+cmake --build build -j$(nproc)
 ```
+
+> **Slow CCCL download?** Use a mirror:
+> ```bash
+> cmake -B build -DLATTISENSE_ENABLE_GPU=ON -DLATTISENSE_CUDA_ARCH=<arch> \
+>   -DHEONGPU_CCCL_GIT_URL=https://gitee.com/nvidia_mirror/cccl.git
+> ```
 
 > **Note**: Set `LATTISENSE_CUDA_ARCH` (and the matching `CMAKE_CUDA_ARCHITECTURES` for HEonGPU) according to your GPU (see [CUDA GPUs](https://developer.nvidia.com/cuda-gpus) for reference):
 > - RTX 30xx series: 86
@@ -238,7 +230,7 @@ make -j$(nproc)
 cmake_minimum_required(VERSION 3.13)
 project(my_fhe_app)
 
-set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED TRUE)
 
 find_package(LattiSense REQUIRED)
@@ -256,9 +248,8 @@ For more see `examples/project_template/` for a complete standalone project exam
 When building from source, you can build and run the internal examples:
 
 ```bash
-mkdir build && cd build
-cmake .. -DLATTISENSE_BUILD_EXAMPLES=ON
-make -j$(nproc)
+cmake -B build -DLATTISENSE_BUILD_EXAMPLES=ON
+cmake --build build -j$(nproc)
 
 # Generate computation graph
 cd build/examples/bfv_mult_cpu
@@ -272,17 +263,16 @@ python3 bfv_mult_cpu.py
 
 ```bash
 # Build with tests enabled
-mkdir build && cd build
-cmake .. -DLATTISENSE_BUILD_TESTS=ON
-make -j$(nproc)
+cmake -B build -DLATTISENSE_BUILD_TESTS=ON
+cmake --build build -j$(nproc)
 
 # Generate test data
-cd ../unittests
+cd unittests
 python3 test_cpu_bfv.py
 python3 test_cpu_ckks.py
 
 # Run tests
-cd ../build/unittests
+cd build/unittests
 ./test_lattigo       # underlying operators tests
 ./test_cpu_bfv       # BFV CPU tests
 ./test_cpu_ckks      # CKKS CPU tests
