@@ -60,6 +60,9 @@ jobs:
             echo "Using cached HEonGPU (${HEONGPU_COMMIT:0:8}, arch=${CUDA_ARCH})"
             cp -a "${CACHE_DIR}/install" backends/HEonGPU/install
             cp -a "${CACHE_DIR}/build" backends/HEonGPU/build
+            # Fix absolute paths from old cache (HEonGPU/ → backends/HEonGPU/)
+            find backends/HEonGPU/install -name '*.cmake' -exec sed -i \
+              "s|${GITHUB_WORKSPACE}/HEonGPU/|${GITHUB_WORKSPACE}/backends/HEonGPU/|g" {} +
           else
             echo "No cache found, HEonGPU will be built automatically during cmake configure"
           fi
