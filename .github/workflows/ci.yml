@@ -35,6 +35,11 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
+          token: ${{ secrets.PRIVATE_REPO_ACCESS_TOKEN }}
+
+      - name: Install FPGA linker dependencies
+        run: |
+          pip3 install -r backends/lattisense-fpga/lattisense-fpga-linker/requirements.txt
 
       - name: Verify prerequisites
         run: |
@@ -58,11 +63,12 @@ jobs:
             echo "No cache found, HEonGPU will be built automatically during cmake configure"
           fi
 
-      - name: Build SDK (CPU + GPU)
+      - name: Build SDK (CPU + GPU + FPGA)
         run: |
           cmake -B build \
             -DLATTISENSE_BUILD_TESTS=ON \
             -DLATTISENSE_ENABLE_GPU=ON \
+            -DLATTISENSE_ENABLE_FPGA=ON \
             -DLATTISENSE_CUDA_ARCH=86 \
             -DHEONGPU_CCCL_GIT_URL=https://gitee.com/nvidia_mirror/cccl.git
           cmake --build build -j$(nproc)
@@ -80,7 +86,7 @@ jobs:
             ls -dt /opt/heongpu-cache/*/ 2>/dev/null | tail -n +4 | xargs rm -rf 2>/dev/null || true
           fi
 
-      - name: Generate test data
+      - name: Generate CPU/GPU test data
         run: |
           cd unittests
           export PYTHONPATH=$GITHUB_WORKSPACE/build/unittests:$GITHUB_WORKSPACE:$PYTHONPATH
@@ -88,6 +94,13 @@ jobs:
           python3 test_cpu_ckks.py
           python3 test_gpu_bfv.py
           python3 test_gpu_ckks.py
+
+      - name: Generate FPGA test data
+        run: |
+          cd unittests
+          export PYTHONPATH=$GITHUB_WORKSPACE/build/unittests:$GITHUB_WORKSPACE:$PYTHONPATH
+          python3 test_fpga_bfv.py
+          python3 test_fpga_ckks.py
 
       - name: Run CPU tests
         timeout-minutes: 20
@@ -106,6 +119,14 @@ jobs:
           export LD_LIBRARY_PATH=$GITHUB_WORKSPACE/build/lib:$GITHUB_WORKSPACE/backends/HEonGPU/install/lib:$LD_LIBRARY_PATH
           ./test_gpu_bfv
           ./test_gpu_ckks
+
+      - name: Run FPGA tests
+        timeout-minutes: 20
+        run: |
+          cd build/unittests
+          export LD_LIBRARY_PATH=$GITHUB_WORKSPACE/build/lib:$LD_LIBRARY_PATH
+          ./test_fpga_bfv
+          ./test_fpga_ckks
 
   build-docker:
     if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
