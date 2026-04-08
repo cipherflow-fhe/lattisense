@@ -94,17 +94,17 @@ jobs:
         run: |
           cd unittests
           export PYTHONPATH=$GITHUB_WORKSPACE/build/unittests:$GITHUB_WORKSPACE:$PYTHONPATH
-          python3 test_cpu_bfv.py
-          python3 test_cpu_ckks.py
-          python3 test_gpu_bfv.py
-          python3 test_gpu_ckks.py
+          python3 -m pytest test_cpu_bfv.py -v
+          python3 -m pytest test_cpu_ckks.py -v
+          python3 -m pytest test_gpu_bfv.py -v
+          python3 -m pytest test_gpu_ckks.py -v
 
       - name: Generate FPGA test data
         run: |
           cd unittests
           export PYTHONPATH=$GITHUB_WORKSPACE/build/unittests:$GITHUB_WORKSPACE:$PYTHONPATH
-          python3 test_fpga_bfv.py
-          python3 test_fpga_ckks.py
+          python3 -m pytest test_fpga_bfv.py -v
+          python3 -m pytest test_fpga_ckks.py -v
 
       - name: Run CPU tests
         timeout-minutes: 20
