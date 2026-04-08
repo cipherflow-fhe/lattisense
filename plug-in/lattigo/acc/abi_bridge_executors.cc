@@ -83,7 +83,7 @@ extern "C" void* create_lattigo_abi_export_executor(int algo, int mf_nbits, int 
         }
 
         DataType data_type = input_node->datum_type;
-        bool is_external_node = input_node->is_input || input_node->is_output;
+        bool is_external_input_node = input_node->is_input;
 
         int level = input_node->fhe_prop->level;
         bool is_ringt = input_node->fhe_prop->p.has_value() && input_node->fhe_prop->p->is_ringt;
@@ -106,7 +106,7 @@ extern "C" void* create_lattigo_abi_export_executor(int algo, int mf_nbits, int 
                 else
                     ExportLattigoCkksCiphertext(input_handle, c_ct);
 
-                if (is_external_node) {
+                if (is_external_input_node) {
                     output = std::shared_ptr<CCiphertext>(c_ct, [input_sptr](CCiphertext*) {});
                 } else {
                     output = std::shared_ptr<CCiphertext>(c_ct, [input_sptr](CCiphertext* p) {
@@ -127,7 +127,7 @@ extern "C" void* create_lattigo_abi_export_executor(int algo, int mf_nbits, int 
                 else
                     ExportLattigoCkksPlaintext(input_handle, c_pt);
 
-                if (is_external_node) {
+                if (is_external_input_node) {
                     output = std::shared_ptr<CPlaintext>(c_pt, [input_sptr](CPlaintext*) {});
                 } else {
                     output = std::shared_ptr<CPlaintext>(c_pt, [input_sptr](CPlaintext* p) {

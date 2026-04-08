@@ -43,10 +43,7 @@ const std::unordered_map<std::string, OperationType> str_to_operation_type = {
     {"cmp_sum", OperationType::MAC_WO_PARTIAL_SUM},
     {"cmpac_sum", OperationType::MAC_W_PARTIAL_SUM},
     {"bootstrap", OperationType::BOOTSTRAP},
-    {"to_ntt", OperationType::TO_NTT},
-    {"to_inv_ntt", OperationType::TO_INVNTT},
-    {"to_mf", OperationType::TO_MFORM},
-    {"to_mul", OperationType::TO_MUL},
+    {"fpga_kernel", OperationType::FPGA_KERNEL},
 };
 
 // =============================================================================
@@ -308,10 +305,8 @@ MegaAG MegaAG::from_json(const std::string& json_path, Processor processor) {
 }
 
 void MegaAG::apply_processor_layout() {
-    if (processor == Processor::GPU) {
-        insert_gpu_abi_bridge_nodes();
-    } else if (processor == Processor::FPGA) {
-        insert_fpga_abi_bridge_nodes();
+    if (processor == Processor::GPU || processor == Processor::FPGA) {
+        insert_backend_abi_bridge_nodes();
     } else if (processor == Processor::CPU) {
         insert_cpu_abi_bridge_nodes();
     }
@@ -320,8 +315,11 @@ void MegaAG::apply_processor_layout() {
         if (processor == Processor::CPU) {
             compute_node.on_cpu = true;
         } else if (processor == Processor::FPGA) {
-            compute_node.on_cpu =
-                !(compute_node.custom_prop.has_value() && compute_node.custom_prop->type == "fpga_run");
+            if (compute_node.custom_prop.has_value()) {
+                compute_node.on_cpu = true;
+            } else if (compute_node.fhe_prop.has_value()) {
+                compute_node.on_cpu = (compute_node.fhe_prop->op_type != OperationType::FPGA_KERNEL);
+            }
         } else if (processor == Processor::GPU) {
             if (compute_node.custom_prop.has_value()) {
                 compute_node.on_cpu = true;
@@ -396,7 +394,9 @@ void MegaAG::rebuild_bridge_relationships(std::initializer_list<OperationType> b
     }
 }
 
-void MegaAG::insert_gpu_abi_bridge_nodes() {
+void MegaAG::insert_backend_abi_bridge_nodes() {
+    const std::string backend = (processor == Processor::GPU) ? "gpu" : "fpga";
+
     auto [next_data_index, next_compute_index] = get_next_indices();
 
     // Collect all data indices to process (to avoid iterator invalidation)
@@ -413,22 +413,22 @@ void MegaAG::insert_gpu_abi_bridge_nodes() {
         bool is_native = true;  // Default for inputs
         if (!data_node.is_input) {
             ComputeNode* producer = data_node.predecessors[0];
-            is_native = producer->custom_prop.has_value();  // Custom produces Handle, FHE produces GPU
+            is_native = producer->custom_prop.has_value();  // Custom produces Handle, backend produces device data
         }
 
         // Group consumers by their type
-        std::vector<ComputeNode*> fhe_consumers;
+        std::vector<ComputeNode*> backend_consumers;
         std::vector<ComputeNode*> custom_consumers;
 
         for (auto* successor : data_node.successors) {
             if (successor->custom_prop.has_value()) {
                 custom_consumers.push_back(successor);
             } else {
-                fhe_consumers.push_back(successor);
+                backend_consumers.push_back(successor);
             }
         }
 
-        // Case 0: Custom DATA input node → EXPORT_TO_ABI only (runs on CPU, not sent to GPU)
+        // Case 0: Custom DATA input node → EXPORT_TO_ABI only (runs on CPU, not sent to backend)
         // custom_input → EXPORT_TO_ABI → c_struct (shared_ptr<CustomData>) → custom consumers
         if (data_node.is_input && data_node.custom_prop.has_value()) {
             NodeIndex c_struct_idx = next_data_index++;
@@ -441,45 +441,49 @@ void MegaAG::insert_gpu_abi_bridge_nodes() {
             continue;
         }
 
-        // Case 1: Native is Handle, but has FHE consumers → need H2D conversion
-        // handle → EXPORT_TO_ABI → c_struct → LOAD_TO_BACKEND → gpu_data → FHE consumers
-        if (is_native && !fhe_consumers.empty()) {
+        // Case 1: Native is Handle, but has backend consumers → need H2D conversion
+        // handle → EXPORT_TO_ABI → c_struct → LOAD_TO_BACKEND → backend_data → backend consumers
+        if (is_native && !backend_consumers.empty()) {
             NodeIndex c_struct_idx = next_data_index++;
             data.emplace(c_struct_idx, make_data_node(data_node, c_struct_idx, data_node.id + "_c_struct_h2d"));
 
             make_bridge_compute_node(*this, next_compute_index++, "export_to_abi_" + std::to_string(data_idx),
                                      OperationType::EXPORT_TO_ABI, &data_node, &data.at(c_struct_idx));
 
-            NodeIndex gpu_data_idx = next_data_index++;
-            data.emplace(gpu_data_idx, make_data_node(data.at(c_struct_idx), gpu_data_idx, data_node.id + "_gpu"));
+            NodeIndex backend_data_idx = next_data_index++;
+            data.emplace(backend_data_idx,
+                         make_data_node(data.at(c_struct_idx), backend_data_idx, data_node.id + "_" + backend));
 
-            make_bridge_compute_node(*this, next_compute_index++, "load_to_gpu_" + std::to_string(data_idx),
-                                     OperationType::LOAD_TO_BACKEND, &data.at(c_struct_idx), &data.at(gpu_data_idx));
+            make_bridge_compute_node(*this, next_compute_index++, "load_to_" + backend + "_" + std::to_string(data_idx),
+                                     OperationType::LOAD_TO_BACKEND, &data.at(c_struct_idx),
+                                     &data.at(backend_data_idx));
 
-            // Redirect FHE consumers to consume gpu_data instead of data_node
-            DatumNode& gpu_data = data.at(gpu_data_idx);
-            for (auto* consumer : fhe_consumers) {
+            // Redirect backend consumers to consume backend_data instead of data_node
+            DatumNode& backend_data = data.at(backend_data_idx);
+            for (auto* consumer : backend_consumers) {
                 for (auto& input_ptr : consumer->input_nodes) {
                     if (input_ptr == &data_node)
-                        input_ptr = &gpu_data;
+                        input_ptr = &backend_data;
                 }
-                gpu_data.successors.push_back(consumer);
+                backend_data.successors.push_back(consumer);
             }
             data_node.successors.clear();
         }
 
-        // Case 2: Native is GPU, but has Custom consumers (or is output) → need D2H conversion
-        // gpu_data → STORE_FROM_BACKEND → c_struct → IMPORT_FROM_ABI → handle (output/custom)
+        // Case 2: Native is backend data, but has Custom consumers (or is output) → need D2H conversion
+        // backend_data → STORE_FROM_BACKEND → c_struct → IMPORT_FROM_ABI → handle (output/custom)
         if (!is_native && (!custom_consumers.empty() || data_node.is_output)) {
-            NodeIndex gpu_data_idx = next_data_index++;
-            data.emplace(gpu_data_idx, make_data_node(data_node, gpu_data_idx, data_node.id + "_gpu", false, false));
+            NodeIndex backend_data_idx = next_data_index++;
+            data.emplace(backend_data_idx,
+                         make_data_node(data_node, backend_data_idx, data_node.id + "_" + backend, false, false));
 
             NodeIndex c_struct_idx = next_data_index++;
             data.emplace(c_struct_idx,
                          make_data_node(data_node, c_struct_idx, data_node.id + "_c_struct_d2h", false, false));
 
-            make_bridge_compute_node(*this, next_compute_index++, "store_from_gpu_" + std::to_string(data_idx),
-                                     OperationType::STORE_FROM_BACKEND, &data.at(gpu_data_idx), &data.at(c_struct_idx));
+            make_bridge_compute_node(
+                *this, next_compute_index++, "store_from_" + backend + "_" + std::to_string(data_idx),
+                OperationType::STORE_FROM_BACKEND, &data.at(backend_data_idx), &data.at(c_struct_idx));
 
             ComputeNode& import_node =
                 make_bridge_compute_node(*this, next_compute_index++, "import_from_abi_" + std::to_string(data_idx),
@@ -506,16 +510,16 @@ void MegaAG::insert_gpu_abi_bridge_nodes() {
                 }
             }
 
-            // Redirect FHE producers and FHE consumers from data_node to gpu_data
-            redirect_producers(data_node, data.at(gpu_data_idx));
+            // Redirect backend producers and backend consumers from data_node to backend_data
+            redirect_producers(data_node, data.at(backend_data_idx));
 
-            DatumNode& gpu_data = data.at(gpu_data_idx);
-            for (auto* consumer : fhe_consumers) {
+            DatumNode& backend_data = data.at(backend_data_idx);
+            for (auto* consumer : backend_consumers) {
                 for (auto& input_ptr : consumer->input_nodes) {
                     if (input_ptr == &data_node)
-                        input_ptr = &gpu_data;
+                        input_ptr = &backend_data;
                 }
-                gpu_data.successors.push_back(consumer);
+                backend_data.successors.push_back(consumer);
             }
             data_node.successors.clear();
         }
@@ -546,121 +550,6 @@ void MegaAG::insert_gpu_abi_bridge_nodes() {
     // Rebuild predecessor and successor relationships for ABI bridge nodes
     rebuild_bridge_relationships({OperationType::EXPORT_TO_ABI, OperationType::IMPORT_FROM_ABI,
                                   OperationType::LOAD_TO_BACKEND, OperationType::STORE_FROM_BACKEND});
-}
-
-void MegaAG::insert_fpga_abi_bridge_nodes() {
-    auto [next_data_index, next_compute_index] = get_next_indices();
-
-    // Step 1: Remove all original FHE compute nodes and replace with a single
-    //         composite FPGA_RUN node.
-    //
-    // The composite node's inputs  = inputs  (original input handle nodes)
-    // The composite node's outputs = outputs (original output handle nodes)
-    //
-    // After the composite node is created, we insert the ABI/backend bridge
-    // nodes around it:
-    //   input side:  handle → EXPORT_TO_ABI → c_struct → LOAD_TO_BACKEND → fpga_data
-    //   output side: fpga_data → STORE_FROM_BACKEND → c_struct → IMPORT_FROM_ABI → handle
-
-    // Collect and remove all original FHE compute nodes
-    std::vector<NodeIndex> fhe_compute_indices;
-    for (const auto& [idx, compute] : computes) {
-        if (compute.fhe_prop.has_value()) {
-            fhe_compute_indices.push_back(idx);
-        }
-    }
-    for (NodeIndex idx : fhe_compute_indices) {
-        computes.erase(idx);
-    }
-
-    // Clear all successor/predecessor links on data nodes that pointed to
-    // the now-removed FHE compute nodes.
-    for (auto& [idx, data_node] : data) {
-        data_node.successors.clear();
-        data_node.predecessors.clear();
-    }
-
-    // Create the single composite FPGA_RUN compute node.
-    // We use a dedicated custom type string "fpga_run" so the wrapper can bind
-    // the run_project executor to it.
-    NodeIndex fpga_run_idx = next_compute_index++;
-    {
-        ComputeNode fpga_run_node;
-        fpga_run_node.index = fpga_run_idx;
-        fpga_run_node.id = "fpga_run";
-        ComputeNode::CustomProperty cp;
-        cp.type = "fpga_run";
-        fpga_run_node.custom_prop = cp;
-        for (NodeIndex input_idx : inputs) {
-            fpga_run_node.input_nodes.push_back(&data.at(input_idx));
-        }
-        for (NodeIndex output_idx : outputs) {
-            fpga_run_node.output_nodes.push_back(&data.at(output_idx));
-        }
-        computes.emplace(fpga_run_idx, std::move(fpga_run_node));
-    }
-
-    // Step 2: Insert EXPORT_TO_ABI + LOAD_TO_BACKEND on the input side.
-    // handle → EXPORT_TO_ABI → c_struct → LOAD_TO_BACKEND → fpga_data
-    // fpga_data becomes the new input_node for fpga_run.
-    for (NodeIndex input_idx : inputs) {
-        DatumNode& input_node = data.at(input_idx);
-
-        NodeIndex c_struct_idx = next_data_index++;
-        data.emplace(c_struct_idx, make_data_node(input_node, c_struct_idx, input_node.id + "_c_struct", false));
-
-        make_bridge_compute_node(*this, next_compute_index++, "export_to_abi_" + std::to_string(input_idx),
-                                 OperationType::EXPORT_TO_ABI, &input_node, &data.at(c_struct_idx));
-
-        NodeIndex fpga_data_idx = next_data_index++;
-        data.emplace(fpga_data_idx, make_data_node(data.at(c_struct_idx), fpga_data_idx, input_node.id + "_fpga"));
-
-        make_bridge_compute_node(*this, next_compute_index++, "load_to_fpga_" + std::to_string(input_idx),
-                                 OperationType::LOAD_TO_BACKEND, &data.at(c_struct_idx), &data.at(fpga_data_idx));
-
-        // Redirect fpga_run's input pointer: handle → fpga_data
-        for (auto& in_ptr : computes.at(fpga_run_idx).input_nodes) {
-            if (in_ptr == &input_node)
-                in_ptr = &data.at(fpga_data_idx);
-        }
-    }
-
-    // Step 3: Insert STORE_FROM_BACKEND + IMPORT_FROM_ABI on the output side.
-    // fpga_data → STORE_FROM_BACKEND → c_struct → IMPORT_FROM_ABI → handle
-    // fpga_data becomes the new output_node for fpga_run.
-    for (NodeIndex output_idx : outputs) {
-        DatumNode& output_node = data.at(output_idx);
-
-        NodeIndex fpga_data_idx = next_data_index++;
-        data.emplace(fpga_data_idx, make_data_node(output_node, fpga_data_idx, output_node.id + "_fpga", false, false));
-
-        NodeIndex c_struct_idx = next_data_index++;
-        data.emplace(c_struct_idx,
-                     make_data_node(output_node, c_struct_idx, output_node.id + "_c_struct", false, false));
-
-        make_bridge_compute_node(*this, next_compute_index++, "store_from_fpga_" + std::to_string(output_idx),
-                                 OperationType::STORE_FROM_BACKEND, &data.at(fpga_data_idx), &data.at(c_struct_idx));
-
-        make_bridge_compute_node(*this, next_compute_index++, "import_from_abi_" + std::to_string(output_idx),
-                                 OperationType::IMPORT_FROM_ABI, &data.at(c_struct_idx), &output_node);
-
-        // Redirect fpga_run's output pointer: handle → fpga_data
-        for (auto& out_ptr : computes.at(fpga_run_idx).output_nodes) {
-            if (out_ptr == &output_node)
-                out_ptr = &data.at(fpga_data_idx);
-        }
-    }
-
-    // Step 4: Rebuild all successor/predecessor relationships for every
-    //         compute node now in the graph (bridge nodes + fpga_run).
-    for (auto& [compute_index, compute_node] : computes) {
-        for (auto* input_node : compute_node.input_nodes) {
-            input_node->successors.push_back(&compute_node);
-        }
-        for (auto* output_node : compute_node.output_nodes) {
-            output_node->predecessors.push_back(&compute_node);
-        }
-    }
 }
 
 void MegaAG::insert_cpu_abi_bridge_nodes() {

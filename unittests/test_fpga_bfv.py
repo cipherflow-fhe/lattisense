@@ -1031,6 +1031,137 @@ class TestTask:
                     )
                     print(f'BFV_power_mul_coeff end --')
 
+    @pytest.mark.min_level(1)
+    def test_custom_cmpac(self, param, lv):
+        set_fhe_param(param)
+        param_tag = _param_tag(param)
+        task_dir = os.path.join(FPGA_OUTPUT_BASE_DIR, param_tag, f'BFV_custom_cmpac', f'level_{lv}')
+        x_list = [BfvCiphertextNode(f'x_{i}', level=lv) for i in range(7)]
+        y_list = [CustomDataNode(type='msg', id=f'y_{i}', attributes={'level': 0}) for i in range(7)]
+        y_list.append(CustomDataNode(f'y_7'))
+
+        mult_results = []
+        for i in range(7):
+            encoded_y_ringt = BfvPlaintextRingtNode(f'encoded_y_ringt_{i}')
+            custom_compute(inputs=[y_list[i]], output=encoded_y_ringt, type='encode_ringt')
+            mult_results.append(mult(x_list[i], encoded_y_ringt, f'mult_{i}'))
+
+        result = mult_results[0]
+        for i in range(1, 7):
+            result = add(result, mult_results[i], f'partial_sum_{i}')
+
+        encoded_y_last = BfvPlaintextNode(f'encoded_y_last', level=result.level)
+        custom_compute(
+            inputs=[y_list[7]],
+            output=encoded_y_last,
+            type='encode',
+            attributes={'level': result.level},
+        )
+        final_result = add(result, encoded_y_last, 'z_final')
+
+        process_custom_task(
+            input_args=[Argument('in_x_list', x_list), Argument('in_y_list', y_list)],
+            offline_input_args=[],
+            output_args=[Argument('out_z_list', final_result)],
+            output_instruction_path=task_dir,
+        )
+
+    @pytest.mark.min_level(1)
+    def test_custom_compute_at_start(self, param, lv):
+        set_fhe_param(param)
+        param_tag = _param_tag(param)
+        task_dir = os.path.join(FPGA_OUTPUT_BASE_DIR, param_tag, 'BFV_custom_compute_at_start', f'level_{lv}')
+        x_list = [BfvCiphertextNode(f'x_{i}', level=lv) for i in range(7)]
+        y_list = [CustomDataNode(type='msg', id=f'y_{i}', attributes={'level': 0}) for i in range(7)]
+        y_list.append(CustomDataNode(f'y_7'))
+
+        mult_results = []
+        for i in range(7):
+            encoded_y_ringt = BfvPlaintextRingtNode(f'encoded_y_ringt_{i}')
+            custom_compute(
+                inputs=[y_list[i]],
+                output=encoded_y_ringt,
+                type='encode_ringt',
+            )
+            mult_results.append(mult(x_list[i], encoded_y_ringt, f'mult_{i}'))
+
+        result = mult_results[0]
+        for i in range(1, 7):
+            result = add(result, mult_results[i], f'partial_sum_{i}')
+
+        encoded_y_last = BfvPlaintextNode(f'encoded_y_last', level=result.level)
+        custom_compute(
+            inputs=[y_list[7]],
+            output=encoded_y_last,
+            type='encode',
+            attributes={'level': result.level},
+        )
+        final_result = add(result, encoded_y_last, 'z_final')
+
+        process_custom_task(
+            input_args=[Argument('in_x_list', x_list), Argument('in_y_list', y_list)],
+            offline_input_args=[],
+            output_args=[Argument('out_z_list', final_result)],
+            output_instruction_path=task_dir,
+        )
+
+    @pytest.mark.min_level(1)
+    def test_custom_compute_at_end(self, param, lv):
+        set_fhe_param(param)
+        param_tag = _param_tag(param)
+        task_dir = os.path.join(FPGA_OUTPUT_BASE_DIR, param_tag, f'BFV_custom_compute_at_end', f'level_{lv}')
+        x_list = [BfvCiphertextNode(f'x_{i}', level=lv) for i in range(N_OP)]
+        y_list = [BfvCiphertextNode(f'y_{i}', level=lv) for i in range(N_OP)]
+
+        m_list = [relin(mult(x_list[i], y_list[i], f'x_mult_y_{i}'), f'm_{i}') for i in range(N_OP)]
+        z_list = []
+        for i in range(N_OP):
+            zi = BfvCiphertextNode(f'z_{i}', level=x_list[i].level)
+            custom_compute(
+                inputs=[m_list[i]],
+                output=zi,
+                type='custom_add',
+            )
+            z_list.append(zi)
+
+        process_custom_task(
+            input_args=[Argument('in_x_list', x_list), Argument('in_y_list', y_list)],
+            offline_input_args=[],
+            output_args=[Argument('out_z_list', z_list)],
+            output_instruction_path=task_dir,
+        )
+
+    @pytest.mark.min_level(1)
+    def test_custom_compute_in_middle(self, param, lv):
+        set_fhe_param(param)
+        param_tag = _param_tag(param)
+        task_dir = os.path.join(FPGA_OUTPUT_BASE_DIR, param_tag, f'BFV_custom_compute_in_middle', f'level_{lv}')
+        x_list = [BfvCiphertextNode(f'x_{i}', level=lv) for i in range(N_OP)]
+        y_list = [BfvCiphertextNode(f'y_{i}', level=lv) for i in range(N_OP)]
+
+        m_list = [relin(mult(x_list[i], y_list[i], f'x_mult_y_{i}'), f'm_{i}') for i in range(N_OP)]
+        z_list = []
+        for i in range(N_OP):
+            zi = BfvCiphertextNode(f'z_{i}', level=x_list[i].level)
+            custom_compute(
+                inputs=[m_list[i]],
+                output=zi,
+                type='custom_add',
+            )
+            zi = rotate_cols(zi, -990, f'rotated_z_{i}')[0]
+            z_list.append(zi)
+
+        z_sum = z_list[0]
+        for i in range(1, len(z_list)):
+            z_sum = add(z_sum, z_list[i], f'z_sum_{i}')
+
+        process_custom_task(
+            input_args=[Argument('in_x_list', x_list), Argument('in_y_list', y_list)],
+            offline_input_args=[],
+            output_args=[Argument('out_z_list', z_sum)],
+            output_instruction_path=task_dir,
+        )
+
 
 class TestPow2T:
     """Tests for power-of-2 plaintext modulus (t = 1<<10)."""

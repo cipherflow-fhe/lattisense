@@ -70,11 +70,16 @@ int run_fhe_gpu_task(fhe_task_handle handle,
 
 // ========== FPGA Task Functions ==========
 
-fhe_task_handle create_fhe_fpga_task(const char* project_path, bool online_phase);
+fhe_task_handle create_fhe_fpga_task(const char* project_path);
 
 void release_fhe_fpga_task(fhe_task_handle handle);
 
 void bind_fpga_task_abi_bridge_executors(fhe_task_handle handle, void* abi_export_executor, void* abi_import_executor);
+
+void bind_fpga_task_custom_executors(fhe_task_handle handle,
+                                     const char** custom_types,
+                                     void** executors,
+                                     uint64_t n_executors);
 
 int run_fhe_fpga_task(fhe_task_handle handle,
                       CArgument* input_args,

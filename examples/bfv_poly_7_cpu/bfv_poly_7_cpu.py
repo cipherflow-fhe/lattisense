@@ -56,6 +56,7 @@ def bfv_poly_7():
         input_args=[Argument('x', x), Argument('a0', a0), Argument('a', a)],
         output_args=[Argument('y', y)],
         output_instruction_path='project',
+        fpga_acc=False,
     )
 
 

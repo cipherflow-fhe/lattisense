@@ -130,7 +130,7 @@ protected:
 
 class FheTaskFpga : public FheTask {
 public:
-    FheTaskFpga(const std::string& project_path, bool online_phase = true);
+    FheTaskFpga(const std::string& project_path);
 
     FheTaskFpga(const FheTaskFpga& other) = delete;
 
@@ -147,9 +147,6 @@ public:
 
 protected:
     void bind_abi_executors() override;
-
-private:
-    bool _online_phase = true;
 };
 
 }  // namespace lattisense

@@ -56,6 +56,7 @@ def ckks_logistic_regression():
         ],
         output_args=[Argument('y', y)],
         output_instruction_path='project',
+        fpga_acc=False,
     )
 
 

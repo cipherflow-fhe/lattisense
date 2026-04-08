@@ -63,6 +63,7 @@ def ckks_euclidean_distance(
         ],
         output_args=[Argument('d', distance)],
         output_instruction_path='project',
+        fpga_acc=False,
     )
 
 

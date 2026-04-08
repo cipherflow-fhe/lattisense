@@ -188,8 +188,7 @@ inline int check_signatures(seal::SEALContext* context,
                             const seal::RelinKeys& rlk,
                             const seal::GaloisKeys& glk,
                             const std::vector<SealVectorArgument>& seal_args,
-                            const nlohmann::json& task_sig_json,
-                            bool online_phase) {
+                            const nlohmann::json& task_sig_json) {
     int algo;
     if (context->key_context_data()->parms().scheme() == seal::scheme_type::bfv) {
         algo = 0;
@@ -207,8 +206,9 @@ inline int check_signatures(seal::SEALContext* context,
 
     check_key_signatures(rlk, glk, task_sig_json["key"]);
 
-    auto data_sig_json = online_phase ? task_sig_json["online"].get<std::vector<nlohmann::json>>() :
-                                        task_sig_json["offline"].get<std::vector<nlohmann::json>>();
+    const auto& offline = task_sig_json["offline"];
+    auto data_sig_json = offline.empty() ? task_sig_json["online"].get<std::vector<nlohmann::json>>() :
+                                           offline.get<std::vector<nlohmann::json>>();
 
     int n_in_args = 0;
 

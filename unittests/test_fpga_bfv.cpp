@@ -45,7 +45,7 @@ TEMPLATE_TEST_CASE_METHOD(BfvFpgaFixture, "BFV cac level error", "", BfvFpgaTest
 
         string path =
             fpga_base_path + "/" + this->tag + "/BFV_" + to_string(this->n_op) + "_cac/level_" + to_string(level);
-        FheTaskFpga proj(path, true);
+        FheTaskFpga proj(path);
         vector<CxxVectorArgument> args = {
             {"in_x_list", &xv.ciphertexts},
             {"in_y_list", &yv.ciphertexts},
@@ -67,7 +67,7 @@ TEMPLATE_TEST_CASE_METHOD(BfvFpgaFixture, "BFV cap", "", BfvFpgaTestParams) {
                 z_list.push_back(this->ctx.new_ciphertext(level));
             string path =
                 fpga_base_path + "/" + this->tag + "/BFV_" + to_string(this->n_op) + "_cap/level_" + to_string(level);
-            FheTaskFpga proj(path, true);
+            FheTaskFpga proj(path);
             vector<CxxVectorArgument> args = {
                 {"in_x_list", &xv.ciphertexts},
                 {"in_y_list", &yv.plaintexts},
@@ -93,7 +93,7 @@ TEMPLATE_TEST_CASE_METHOD(BfvFpgaFixture, "BFV cac", "", BfvFpgaTestParams) {
                 z_list.push_back(this->ctx.new_ciphertext(level));
             string path =
                 fpga_base_path + "/" + this->tag + "/BFV_" + to_string(this->n_op) + "_cac/level_" + to_string(level);
-            FheTaskFpga proj(path, true);
+            FheTaskFpga proj(path);
             vector<CxxVectorArgument> args = {
                 {"in_x_list", &xv.ciphertexts},
                 {"in_y_list", &yv.ciphertexts},
@@ -118,7 +118,7 @@ TEMPLATE_TEST_CASE_METHOD(BfvFpgaFixture, "BFV casc", "", BfvFpgaTestParams) {
                 z_list.push_back(this->ctx.new_ciphertext(level));
             string path =
                 fpga_base_path + "/" + this->tag + "/BFV_" + to_string(this->n_op) + "_casc/level_" + to_string(level);
-            FheTaskFpga proj(path, true);
+            FheTaskFpga proj(path);
             vector<CxxVectorArgument> args = {
                 {"in_x_list", &xv.ciphertexts},
                 {"out_z_list", &z_list},
@@ -143,7 +143,7 @@ TEMPLATE_TEST_CASE_METHOD(BfvFpgaFixture, "BFV csp", "", BfvFpgaTestParams) {
                 z_list.push_back(this->ctx.new_ciphertext(level));
             string path =
                 fpga_base_path + "/" + this->tag + "/BFV_" + to_string(this->n_op) + "_csp/level_" + to_string(level);
-            FheTaskFpga proj(path, true);
+            FheTaskFpga proj(path);
             vector<CxxVectorArgument> args = {
                 {"in_x_list", &xv.ciphertexts},
                 {"in_y_list", &yv.plaintexts},
@@ -169,7 +169,7 @@ TEMPLATE_TEST_CASE_METHOD(BfvFpgaFixture, "BFV csc", "", BfvFpgaTestParams) {
                 z_list.push_back(this->ctx.new_ciphertext(level));
             string path =
                 fpga_base_path + "/" + this->tag + "/BFV_" + to_string(this->n_op) + "_csc/level_" + to_string(level);
-            FheTaskFpga proj(path, true);
+            FheTaskFpga proj(path);
             vector<CxxVectorArgument> args = {
                 {"in_x_list", &xv.ciphertexts},
                 {"in_y_list", &yv.ciphertexts},
@@ -194,7 +194,7 @@ TEMPLATE_TEST_CASE_METHOD(BfvFpgaFixture, "BFV cneg", "", BfvFpgaTestParams) {
                 z_list.push_back(this->ctx.new_ciphertext(level));
             string path =
                 fpga_base_path + "/" + this->tag + "/BFV_" + to_string(this->n_op) + "_cneg/level_" + to_string(level);
-            FheTaskFpga proj(path, true);
+            FheTaskFpga proj(path);
             vector<CxxVectorArgument> args = {
                 {"in_x_list", &xv.ciphertexts},
                 {"out_z_list", &z_list},
@@ -219,7 +219,7 @@ TEMPLATE_TEST_CASE_METHOD(BfvFpgaFixture, "BFV cmp_ringt", "", BfvFpgaTestParams
                 z_list.push_back(this->ctx.new_ciphertext(level));
             string path = fpga_base_path + "/" + this->tag + "/BFV_" + to_string(this->n_op) + "_cmp_ringt/level_" +
                           to_string(level);
-            FheTaskFpga proj(path, true);
+            FheTaskFpga proj(path);
             vector<CxxVectorArgument> args = {
                 {"in_x_list", &xv.ciphertexts},
                 {"in_y_list", &yv.plaintexts},
@@ -245,7 +245,7 @@ TEMPLATE_TEST_CASE_METHOD(BfvFpgaFixture, "BFV cmp", "", BfvFpgaTestParams) {
                 z_list.push_back(this->ctx.new_ciphertext(level));
             string path =
                 fpga_base_path + "/" + this->tag + "/BFV_" + to_string(this->n_op) + "_cmp/level_" + to_string(level);
-            FheTaskFpga proj(path, true);
+            FheTaskFpga proj(path);
             vector<CxxVectorArgument> args = {
                 {"in_x_list", &xv.ciphertexts},
                 {"in_y_list", &yv.plaintexts},
@@ -271,7 +271,7 @@ TEMPLATE_TEST_CASE_METHOD(BfvFpgaFixture, "BFV cmp_mul", "", BfvFpgaTestParams) 
                 z_list.push_back(this->ctx.new_ciphertext(level));
             string path = fpga_base_path + "/" + this->tag + "/BFV_" + to_string(this->n_op) + "_cmp_mul/level_" +
                           to_string(level);
-            FheTaskFpga proj(path, true);
+            FheTaskFpga proj(path);
             vector<CxxVectorArgument> args = {
                 {"in_x_list", &xv.ciphertexts},
                 {"in_y_list", &yv.plaintexts},
@@ -299,7 +299,7 @@ TEMPLATE_TEST_CASE_METHOD(BfvFpgaFixture, "BFV cmp_coeffs_ringt", "", BfvFpgaTes
             }
             string path = fpga_base_path + "/" + this->tag + "/BFV_" + to_string(this->n_op) + "_cmp_ringt/level_" +
                           to_string(level);
-            FheTaskFpga proj(path, true);
+            FheTaskFpga proj(path);
             vector<CxxVectorArgument> args = {
                 {"in_x_list", &xv.ciphertexts},
                 {"in_y_list", &yv.plaintexts},
@@ -328,7 +328,7 @@ TEMPLATE_TEST_CASE_METHOD(BfvFpgaFixture, "BFV power-of-2-t cmp_coeffs_ringt", "
             }
             string path = fpga_base_path + "/" + this->tag + "/BFV_" + to_string(this->n_op) + "_cmp_ringt/level_" +
                           to_string(level);
-            FheTaskFpga proj(path, true);
+            FheTaskFpga proj(path);
             vector<CxxVectorArgument> args = {
                 {"in_x_list", &xv.ciphertexts},
                 {"in_y_list", &yv.plaintexts},
@@ -357,7 +357,7 @@ TEMPLATE_TEST_CASE_METHOD(BfvFpgaFixture, "BFV cmp_coeffs_mul", "", BfvFpgaTestP
             }
             string path = fpga_base_path + "/" + this->tag + "/BFV_" + to_string(this->n_op) + "_cmp_mul/level_" +
                           to_string(level);
-            FheTaskFpga proj(path, true);
+            FheTaskFpga proj(path);
             vector<CxxVectorArgument> args = {
                 {"in_x_list", &xv.ciphertexts},
                 {"in_y_list", &yv.plaintexts},
@@ -384,7 +384,7 @@ TEMPLATE_TEST_CASE_METHOD(BfvFpgaFixture, "BFV ct_mul_mult_pt_ringt", "[.]", Bfv
                 z_list.push_back(this->ctx.new_ciphertext(level));
             string path = fpga_base_path + "/" + this->tag + "/BFV_" + to_string(this->n_op) +
                           "_cmp_ct-mul_pt-ringt/level_" + to_string(level);
-            FheTaskFpga proj(path, true);
+            FheTaskFpga proj(path);
             vector<CxxVectorArgument> args = {
                 {"in_x_list", &xv.ciphertexts},
                 {"in_y_list", &yv.plaintexts},
@@ -410,7 +410,7 @@ TEMPLATE_TEST_CASE_METHOD(BfvFpgaFixture, "BFV ct_ntt_mult_pt_ringt", "[.]", Bfv
                 z_list.push_back(this->ctx.new_ciphertext(level));
             string path = fpga_base_path + "/" + this->tag + "/BFV_" + to_string(this->n_op) +
                           "_cmp_ct-ntt_pt-ringt/level_" + to_string(level);
-            FheTaskFpga proj(path, true);
+            FheTaskFpga proj(path);
             vector<CxxVectorArgument> args = {
                 {"in_x_list", &xv.ciphertexts},
                 {"in_y_list", &yv.plaintexts},
@@ -436,7 +436,7 @@ TEMPLATE_TEST_CASE_METHOD(BfvFpgaFixture, "BFV cmc", "", BfvFpgaTestParams) {
                 z_list.push_back(this->ctx.new_ciphertext3(level));
             string path =
                 fpga_base_path + "/" + this->tag + "/BFV_" + to_string(this->n_op) + "_cmc/level_" + to_string(level);
-            FheTaskFpga proj(path, true);
+            FheTaskFpga proj(path);
             vector<CxxVectorArgument> args = {
                 {"in_x_list", &xv.ciphertexts},
                 {"in_y_list", &yv.ciphertexts},
@@ -462,7 +462,7 @@ TEMPLATE_TEST_CASE_METHOD(BfvFpgaFixture, "BFV cmc_relin", "", BfvFpgaTestParams
                 z_list.push_back(this->ctx.new_ciphertext(level));
             string path = fpga_base_path + "/" + this->tag + "/BFV_" + to_string(this->n_op) + "_cmc_relin/level_" +
                           to_string(level);
-            FheTaskFpga proj(path, true);
+            FheTaskFpga proj(path);
             vector<CxxVectorArgument> args = {
                 {"in_x_list", &xv.ciphertexts},
                 {"in_y_list", &yv.ciphertexts},
@@ -488,7 +488,7 @@ TEMPLATE_TEST_CASE_METHOD(BfvFpgaFixture, "BFV cmc_relin_rescale", "", BfvFpgaTe
                 z_list.push_back(this->ctx.new_ciphertext(level - 1));
             string path = fpga_base_path + "/" + this->tag + "/BFV_" + to_string(this->n_op) +
                           "_cmc_relin_rescale/level_" + to_string(level);
-            FheTaskFpga proj(path, true);
+            FheTaskFpga proj(path);
             vector<CxxVectorArgument> args = {
                 {"in_x_list", &xv.ciphertexts},
                 {"in_y_list", &yv.ciphertexts},
@@ -513,7 +513,7 @@ TEMPLATE_TEST_CASE_METHOD(BfvFpgaFixture, "BFV csqr", "", BfvFpgaTestParams) {
                 z_list.push_back(this->ctx.new_ciphertext3(level));
             string path =
                 fpga_base_path + "/" + this->tag + "/BFV_" + to_string(this->n_op) + "_csqr/level_" + to_string(level);
-            FheTaskFpga proj(path, true);
+            FheTaskFpga proj(path);
             vector<CxxVectorArgument> args = {
                 {"in_x_list", &xv.ciphertexts},
                 {"out_z_list", &z_list},
@@ -537,7 +537,7 @@ TEMPLATE_TEST_CASE_METHOD(BfvFpgaFixture, "BFV csqr_relin", "", BfvFpgaTestParam
                 z_list.push_back(this->ctx.new_ciphertext(level));
             string path = fpga_base_path + "/" + this->tag + "/BFV_" + to_string(this->n_op) + "_csqr_relin/level_" +
                           to_string(level);
-            FheTaskFpga proj(path, true);
+            FheTaskFpga proj(path);
             vector<CxxVectorArgument> args = {
                 {"in_x_list", &xv.ciphertexts},
                 {"out_z_list", &z_list},
@@ -561,7 +561,7 @@ TEMPLATE_TEST_CASE_METHOD(BfvFpgaFixture, "BFV csqr_relin_rescale", "", BfvFpgaT
                 z_list.push_back(this->ctx.new_ciphertext(level - 1));
             string path = fpga_base_path + "/" + this->tag + "/BFV_" + to_string(this->n_op) +
                           "_csqr_relin_rescale/level_" + to_string(level);
-            FheTaskFpga proj(path, true);
+            FheTaskFpga proj(path);
             vector<CxxVectorArgument> args = {
                 {"in_x_list", &xv.ciphertexts},
                 {"out_z_list", &z_list},
@@ -592,7 +592,7 @@ TEMPLATE_TEST_CASE_METHOD(BfvFpgaFixture, "BFV rotate_col", "", BfvFpgaTestParam
                     y_list[i].push_back(this->ctx.new_ciphertext(level));
             string path = fpga_base_path + "/" + this->tag + "/BFV_" + to_string(this->n_op) + "_rotate_col/level_" +
                           to_string(level) + "/" + steps_str;
-            FheTaskFpga proj(path, true);
+            FheTaskFpga proj(path);
             vector<CxxVectorArgument> args = {
                 {"arg_x", &xv.ciphertexts},
                 {"arg_y", &y_list},
@@ -629,7 +629,7 @@ TEMPLATE_TEST_CASE_METHOD(BfvFpgaFixture, "BFV advanced_rotate_col", "", BfvFpga
                     y_list[i].push_back(this->ctx.new_ciphertext(level));
             string path = fpga_base_path + "/" + this->tag + "/BFV_" + to_string(this->n_op) +
                           "_advanced_rotate_col/level_" + to_string(level) + "/steps_" + steps_str;
-            FheTaskFpga proj(path, true);
+            FheTaskFpga proj(path);
             vector<CxxVectorArgument> args = {
                 {"arg_x", &xv.ciphertexts},
                 {"arg_y", &y_list},
@@ -666,7 +666,7 @@ TEMPLATE_TEST_CASE_METHOD(BfvFpgaFixture, "BFV advanced_rotate_col_imul", "[.]",
                     y_list[i].push_back(this->ctx.new_ciphertext(level));
             string path = fpga_base_path + "/" + this->tag + "/BFV_" + to_string(this->n_op) +
                           "_advanced_rotate_col_imul/level_" + to_string(level) + "/steps_" + steps_str;
-            FheTaskFpga proj(path, true);
+            FheTaskFpga proj(path);
             vector<CxxVectorArgument> args = {
                 {"arg_x", &xv.ciphertexts},
                 {"arg_y", &y_list},
@@ -703,7 +703,7 @@ TEMPLATE_TEST_CASE_METHOD(BfvFpgaFixture, "BFV advanced_rotate_col_imul_ontt", "
                     y_list[i].push_back(this->ctx.new_ciphertext(level));
             string path = fpga_base_path + "/" + this->tag + "/BFV_" + to_string(this->n_op) +
                           "_advanced_rotate_col_imul_ontt/level_" + to_string(level) + "/steps_" + steps_str;
-            FheTaskFpga proj(path, true);
+            FheTaskFpga proj(path);
             vector<CxxVectorArgument> args = {
                 {"arg_x", &xv.ciphertexts},
                 {"arg_y", &y_list},
@@ -740,7 +740,7 @@ TEMPLATE_TEST_CASE_METHOD(BfvFpgaFixture, "BFV advanced_rotate_col_intt_ontt", "
                     y_list[i].push_back(this->ctx.new_ciphertext(level));
             string path = fpga_base_path + "/" + this->tag + "/BFV_" + to_string(this->n_op) +
                           "_advanced_rotate_col_intt_ontt/level_" + to_string(level) + "/steps_" + steps_str;
-            FheTaskFpga proj(path, true);
+            FheTaskFpga proj(path);
             vector<CxxVectorArgument> args = {
                 {"arg_x", &xv.ciphertexts},
                 {"arg_y", &y_list},
@@ -769,7 +769,7 @@ TEMPLATE_TEST_CASE_METHOD(BfvFpgaFixture, "BFV rotate_row", "", BfvFpgaTestParam
                 y_list.push_back(this->ctx.new_ciphertext(level));
             string path = fpga_base_path + "/" + this->tag + "/BFV_" + to_string(this->n_op) + "_rotate_row/level_" +
                           to_string(level);
-            FheTaskFpga proj(path, true);
+            FheTaskFpga proj(path);
             vector<CxxVectorArgument> args = {
                 {"arg_x", &xv.ciphertexts},
                 {"arg_y", &y_list},
@@ -794,7 +794,7 @@ TEMPLATE_TEST_CASE_METHOD(BfvFpgaFixture, "BFV rescale", "", BfvFpgaTestParams) 
                 y_list.push_back(this->ctx.new_ciphertext(level - 1));
             string path = fpga_base_path + "/" + this->tag + "/BFV_" + to_string(this->n_op) + "_rescale/level_" +
                           to_string(level);
-            FheTaskFpga proj(path, true);
+            FheTaskFpga proj(path);
             vector<CxxVectorArgument> args = {
                 {"in_x_list", &xv.ciphertexts},
                 {"out_y_list", &y_list},
@@ -821,7 +821,7 @@ TEMPLATE_TEST_CASE_METHOD(BfvFpgaFixture, "BFV ctc_ctc_0", "", BfvFpgaTestParams
         for (int _i = 0; _i < 5; _i++)
             z_list.push_back(this->ctx.new_ciphertext(3));
 
-        FheTaskFpga proj(fpga_base_path + "/" + this->tag + "/BFV_ctc_ctc_0/level_3", true);
+        FheTaskFpga proj(fpga_base_path + "/" + this->tag + "/BFV_ctc_ctc_0/level_3");
         vector<CxxVectorArgument> args = {
             {"in_x_list", &xv.ciphertexts},
             {"in_y_list", &yv.ciphertexts},
@@ -851,7 +851,7 @@ TEMPLATE_TEST_CASE_METHOD(BfvFpgaFixture, "BFV ctc_ctc_1", "", BfvFpgaTestParams
         for (int _i = 0; _i < 4; _i++)
             z_list.push_back(this->ctx.new_ciphertext(3));
 
-        FheTaskFpga proj(fpga_base_path + "/" + this->tag + "/BFV_ctc_ctc_1/level_3", true);
+        FheTaskFpga proj(fpga_base_path + "/" + this->tag + "/BFV_ctc_ctc_1/level_3");
         vector<CxxVectorArgument> args = {
             {"in_x_list", &xv.ciphertexts},
             {"in_y_list", &yv.ciphertexts},
@@ -883,7 +883,7 @@ TEMPLATE_TEST_CASE_METHOD(BfvFpgaFixture, "BFV 1_square_square", "", BfvFpgaTest
         for (int _i = 0; _i < 1; _i++)
             z_list.push_back(this->ctx.new_ciphertext(3));
 
-        FheTaskFpga proj(fpga_base_path + "/" + this->tag + "/BFV_1_square_square/level_3", true);
+        FheTaskFpga proj(fpga_base_path + "/" + this->tag + "/BFV_1_square_square/level_3");
         vector<CxxVectorArgument> args = {
             {"in_x_list", &xv.ciphertexts},
             {"out_z_list", &z_list},
@@ -911,7 +911,7 @@ TEMPLATE_TEST_CASE_METHOD(BfvFpgaFixture, "BFV 1_ctc_rotate_cac", "", BfvFpgaTes
         for (int _i = 0; _i < 1; _i++)
             z_list.push_back(this->ctx.new_ciphertext(3));
 
-        FheTaskFpga proj(fpga_base_path + "/" + this->tag + "/BFV_1_ctc_rotate_cac/level_3", true);
+        FheTaskFpga proj(fpga_base_path + "/" + this->tag + "/BFV_1_ctc_rotate_cac/level_3");
         vector<CxxVectorArgument> args = {
             {"in_x_list", &xv.ciphertexts},
             {"in_y_list", &yv.ciphertexts},
@@ -933,7 +933,7 @@ TEMPLATE_TEST_CASE_METHOD(BfvFpgaFixture, "BFV double", "", BfvFpgaTestParams) {
         for (int _i = 0; _i < 2; _i++)
             z_list.push_back(this->ctx.new_ciphertext(1));
 
-        FheTaskFpga proj(fpga_base_path + "/" + this->tag + "/BFV_1_double", true);
+        FheTaskFpga proj(fpga_base_path + "/" + this->tag + "/BFV_1_double");
         vector<CxxVectorArgument> args = {
             {"in_x_list", &xv.ciphertexts},
             {"out_z_list", &z_list},
@@ -958,7 +958,7 @@ TEMPLATE_TEST_CASE_METHOD(BfvFpgaFixture, "BFV braid", "", BfvFpgaTestParams) {
         for (int _i = 0; _i < 4; _i++)
             z_list.push_back(this->ctx.new_ciphertext(3));
 
-        FheTaskFpga proj(fpga_base_path + "/" + this->tag + "/BFV_braid", true);
+        FheTaskFpga proj(fpga_base_path + "/" + this->tag + "/BFV_braid");
         vector<CxxVectorArgument> args = {
             {"in_list", &xv.ciphertexts},
             {"out_list", &z_list},
@@ -988,7 +988,7 @@ TEMPLATE_TEST_CASE_METHOD(BfvFpgaFixture, "BFV poly", "", BfvFpgaTestParams) {
         for (int _i = 0; _i < 4; _i++)
             z_list.push_back(this->ctx.new_ciphertext(3));
 
-        FheTaskFpga proj(fpga_base_path + "/" + this->tag + "/BFV_n_poly/level_3", true);
+        FheTaskFpga proj(fpga_base_path + "/" + this->tag + "/BFV_n_poly/level_3");
         vector<CxxVectorArgument> args = {
             {"in_x_list", &xv.ciphertexts},
             {"in_a_list", &av.ciphertexts},
@@ -1035,7 +1035,7 @@ TEMPLATE_TEST_CASE_METHOD(BfvFpgaFixture, "BFV poly_2", "", BfvFpgaTestParams) {
         }
         z_list.push_back(this->ctx.new_ciphertext(5));
 
-        FheTaskFpga proj(fpga_base_path + "/" + this->tag + "/BFV_poly_2/level_5", true);
+        FheTaskFpga proj(fpga_base_path + "/" + this->tag + "/BFV_poly_2/level_5");
         vector<CxxVectorArgument> args = {
             {"in_x", &x_list},
             {"in_coeffs", &coeffs_list},
@@ -1058,7 +1058,7 @@ TEMPLATE_TEST_CASE_METHOD(BfvFpgaFixture, "BFV ct_pt_ringt_mac", "", BfvFpgaTest
                 z_list.push_back(this->ctx.new_ciphertext(1));
 
             string path = fpga_base_path + "/" + this->tag + "/BFV_cmpac/level_1_m_" + to_string(m);
-            FheTaskFpga proj(path, true);
+            FheTaskFpga proj(path);
             vector<CxxVectorArgument> args = {
                 {"in_c_list", &cv.ciphertexts},
                 {"in_p_list", &pv.plaintexts},
@@ -1087,7 +1087,7 @@ TEMPLATE_TEST_CASE_METHOD(BfvFpgaFixture, "BFV ct_pt_ringt_mac 1", "", BfvFpgaTe
                 z_list.push_back(this->ctx.new_ciphertext(1));
 
             string path = fpga_base_path + "/" + this->tag + "/BFV_cmpac_1/level_1_m_" + to_string(m);
-            FheTaskFpga proj(path, true);
+            FheTaskFpga proj(path);
             vector<CxxVectorArgument> args = {
                 {"in_c_list", &cv.ciphertexts},
                 {"in_p_list", &pv.plaintexts},
@@ -1116,7 +1116,7 @@ TEMPLATE_TEST_CASE_METHOD(BfvFpgaFixture, "BFV ct_mul_pt_mac", "[.]", BfvFpgaTes
                 z_list.push_back(this->ctx.new_ciphertext(1));
 
             string path = fpga_base_path + "/" + this->tag + "/BFV_cmpac_mul/level_1_m_" + to_string(m);
-            FheTaskFpga proj(path, true);
+            FheTaskFpga proj(path);
             vector<CxxVectorArgument> args = {
                 {"in_c_list", &cv.ciphertexts},
                 {"in_p_list", &pv.plaintexts},
@@ -1145,7 +1145,7 @@ TEMPLATE_TEST_CASE_METHOD(BfvFpgaFixture, "BFV ct_ntt_pt_mac", "[.]", BfvFpgaTes
                 z_list.push_back(this->ctx.new_ciphertext(1));
 
             string path = fpga_base_path + "/" + this->tag + "/BFV_cmpac_ntt/level_1_m_" + to_string(m);
-            FheTaskFpga proj(path, true);
+            FheTaskFpga proj(path);
             vector<CxxVectorArgument> args = {
                 {"in_c_list", &cv.ciphertexts},
                 {"in_p_list", &pv.plaintexts},
@@ -1199,7 +1199,7 @@ TEMPLATE_TEST_CASE_METHOD(BfvFpgaFixture, "BFV power_dag", "", BfvFpgaTestParams
                     x_max_power_list.push_back(this->ctx.new_ciphertext(1));
 
                 string path = fpga_base_path + "/" + this->tag + "/BFV_power_dag/" + task_power_str;
-                FheTaskFpga proj(path, true);
+                FheTaskFpga proj(path);
                 vector<CxxVectorArgument> args = {
                     CxxVectorArgument{"in_x_list", &x_source_power_list},
                     CxxVectorArgument{"out_z_list", &x_max_power_list},
@@ -1313,7 +1313,7 @@ TEMPLATE_TEST_CASE_METHOD(BfvFpgaFixture, "BFV power_mul_coeff", "", BfvFpgaTest
                 string path = fpga_base_path + "/" + this->tag + "/BFV_power_mul_coeff/" + task_power_str + "/" +
                               to_string(lane_cipher_size[0]) + "_" + to_string(lane_cipher_size[1]) + "_" +
                               to_string(lane_cipher_size[2]);
-                FheTaskFpga proj(path, true);
+                FheTaskFpga proj(path);
                 vector<CxxVectorArgument> args = {
                     CxxVectorArgument{"in_c_list", &c_max_power_list},
                     CxxVectorArgument{"in_p0_list", &p0_list},
@@ -1331,7 +1331,168 @@ TEMPLATE_TEST_CASE_METHOD(BfvFpgaFixture, "BFV power_mul_coeff", "", BfvFpgaTest
     }
 }
 
-TEMPLATE_TEST_CASE_METHOD(BfvFpgaFixture, "BFV cmc_relin offline", "[.][offline]", BfvFpgaTestParams) {
+// TEMPLATE_TEST_CASE_METHOD(BfvFpgaFixture, "BFV cmc_relin offline", "[.][offline]", BfvFpgaTestParams) {
+//     for (int level = 1; level <= this->max_level; level++) {
+//         SECTION("lv=" + to_string(level)) {
+//             auto xv = new_bfv_test_ct(this->n_op, this->ctx, level, this->param.get_t());
+//             auto yv = new_bfv_test_ct(this->n_op, this->ctx, level, this->param.get_t());
+//             vector<BfvCiphertext> z_list;
+//             z_list.reserve(this->n_op);
+//             for (int _i = 0; _i < this->n_op; _i++)
+//                 z_list.push_back(this->ctx.new_ciphertext(level));
+
+//             string path = fpga_base_path + "/" + this->tag + "/BFV_" + to_string(this->n_op) +
+//                           "_cmc_relin_offline/level_" + to_string(level);
+
+//             FheTaskFpga offline_proj(path, false);
+//             vector<CxxVectorArgument> offline_args = {
+//                 {"in_y_list", &yv.ciphertexts},
+//             };
+//             offline_proj.run(&this->ctx, offline_args);
+
+//             FheTaskFpga online_proj(path, true);
+//             vector<CxxVectorArgument> online_args = {
+//                 {"in_x_list", &xv.ciphertexts},
+//                 {"out_z_list", &z_list},
+//             };
+//             online_proj.run(&this->ctx, online_args);
+
+//             vector<vector<uint64_t>> expected(this->n_op);
+//             for (int i = 0; i < this->n_op; i++)
+//                 expected[i] = vec_mod_mul(xv.values[i], yv.values[i], this->param.get_t());
+//             REQUIRE(decrypt_and_decode(this->ctx, z_list) == expected);
+//         }
+//     }
+// }
+
+TEMPLATE_TEST_CASE_METHOD(BfvFpgaFixture, "BFV custom_cmpac", "", BfvFpgaTestParams) {
+    int n = this->param.get_n();
+
+    // y_vals[0..6]: multiplied with x ciphertexts; y_vals[7]: added as constant term
+    vector<vector<uint64_t>> y_vals(8);
+    for (int i = 0; i < 8; i++)
+        y_vals[i] = rand_values(n, this->param.get_t());
+
+    for (int level = 1; level <= this->max_level; level++) {
+        SECTION("lv=" + to_string(level)) {
+            auto xv = new_bfv_test_ct(7, this->ctx, level, this->param.get_t());
+
+            vector<CustomData> y_list;
+            for (int i = 0; i < 8; i++)
+                y_list.push_back(CustomData(y_vals[i]));
+            vector<BfvCiphertext> z_list;
+            z_list.reserve(1);
+            for (int _i = 0; _i < 1; _i++)
+                z_list.push_back(this->ctx.new_ciphertext(level));
+
+            string path = fpga_base_path + "/" + this->tag + "/BFV_custom_cmpac/level_" + to_string(level);
+            FheTaskFpga fpga_project(path);
+
+            std::unordered_map<std::string, ExecutorFunc> custom_executors;
+            custom_executors["encode_ringt"] = [this](ExecutionContext& exec_ctx,
+                                                      const std::unordered_map<NodeIndex, std::any>& inputs,
+                                                      std::any& output, const ComputeNode& self) -> void {
+                auto* bfv_ctx = exec_ctx.get_arithmetic_context<BfvContext>();
+                auto input_node_idx = self.input_nodes[0]->index;
+                auto input_handle_ptr = std::any_cast<std::shared_ptr<CustomData>>(inputs.at(input_node_idx));
+                auto* msg_vec = input_handle_ptr->get_typed_data<std::vector<uint64_t>>();
+                output = std::make_shared<BfvPlaintextRingt>(bfv_ctx->encode_ringt(*msg_vec));
+            };
+            custom_executors["encode"] = [this](ExecutionContext& exec_ctx,
+                                                const std::unordered_map<NodeIndex, std::any>& inputs, std::any& output,
+                                                const ComputeNode& self) -> void {
+                auto* bfv_ctx = exec_ctx.get_arithmetic_context<BfvContext>();
+                if (!self.custom_prop.has_value())
+                    throw std::runtime_error("Custom property not found for encode operation");
+                int encode_level = self.custom_prop->attributes["level"].get<int>();
+                auto input_node_idx = self.input_nodes[0]->index;
+                auto input_handle_ptr = std::any_cast<std::shared_ptr<CustomData>>(inputs.at(input_node_idx));
+                auto* msg_vec = input_handle_ptr->get_typed_data<std::vector<uint64_t>>();
+                output = std::make_shared<BfvPlaintext>(bfv_ctx->encode(*msg_vec, encode_level));
+            };
+
+            fpga_project.bind_custom_executors(custom_executors);
+            vector<CxxVectorArgument> cxx_args = {
+                CxxVectorArgument{"in_x_list", &xv.ciphertexts},
+                CxxVectorArgument{"in_y_list", &y_list},
+                CxxVectorArgument{"out_z_list", &z_list},
+            };
+            fpga_project.run(&this->ctx, cxx_args);
+
+            // z[k] = (sum_i(x[i][k] * y[i][k]) + y[7][k]) % t
+            vector<uint64_t> expected(n, 0);
+            for (int i = 0; i < 7; i++)
+                expected = vec_mod_add(expected, vec_mod_mul(xv.values[i], y_vals[i], this->param.get_t()),
+                                       this->param.get_t());
+            expected = vec_mod_add(expected, y_vals[7], this->param.get_t());
+            REQUIRE(decrypt_and_decode(this->ctx, z_list[0]) == expected);
+        }
+    }
+}
+
+TEMPLATE_TEST_CASE_METHOD(BfvFpgaFixture, "BFV custom_compute_at_start", "", BfvFpgaTestParams) {
+    int n = this->param.get_n();
+
+    vector<vector<uint64_t>> y_vals(8);
+    for (int i = 0; i < 8; i++)
+        y_vals[i] = rand_values(n, this->param.get_t());
+
+    for (int level = 1; level <= this->max_level; level++) {
+        SECTION("lv=" + to_string(level)) {
+            auto xv = new_bfv_test_ct(7, this->ctx, level, this->param.get_t());
+
+            vector<CustomData> y_list;
+            for (int i = 0; i < 8; i++)
+                y_list.push_back(CustomData(y_vals[i]));
+            vector<BfvCiphertext> z_list;
+            z_list.push_back(this->ctx.new_ciphertext(level));
+
+            string path = fpga_base_path + "/" + this->tag + "/BFV_custom_compute_at_start/level_" + to_string(level);
+            FheTaskFpga fpga_project(path);
+
+            std::unordered_map<std::string, ExecutorFunc> custom_executors;
+            custom_executors["encode_ringt"] = [this](ExecutionContext& exec_ctx,
+                                                      const std::unordered_map<NodeIndex, std::any>& inputs,
+                                                      std::any& output, const ComputeNode& self) -> void {
+                auto* bfv_ctx = exec_ctx.get_arithmetic_context<BfvContext>();
+                auto input_node_idx = self.input_nodes[0]->index;
+                auto input_handle_ptr = std::any_cast<std::shared_ptr<CustomData>>(inputs.at(input_node_idx));
+                auto* msg_vec = input_handle_ptr->get_typed_data<std::vector<uint64_t>>();
+                output = std::make_shared<BfvPlaintextRingt>(bfv_ctx->encode_ringt(*msg_vec));
+            };
+            custom_executors["encode"] = [this](ExecutionContext& exec_ctx,
+                                                const std::unordered_map<NodeIndex, std::any>& inputs, std::any& output,
+                                                const ComputeNode& self) -> void {
+                auto* bfv_ctx = exec_ctx.get_arithmetic_context<BfvContext>();
+                if (!self.custom_prop.has_value())
+                    throw std::runtime_error("Custom property not found for encode operation");
+                int encode_level = self.custom_prop->attributes["level"].get<int>();
+                auto input_node_idx = self.input_nodes[0]->index;
+                auto input_handle_ptr = std::any_cast<std::shared_ptr<CustomData>>(inputs.at(input_node_idx));
+                auto* msg_vec = input_handle_ptr->get_typed_data<std::vector<uint64_t>>();
+                output = std::make_shared<BfvPlaintext>(bfv_ctx->encode(*msg_vec, encode_level));
+            };
+
+            fpga_project.bind_custom_executors(custom_executors);
+            vector<CxxVectorArgument> cxx_args = {
+                CxxVectorArgument{"in_x_list", &xv.ciphertexts},
+                CxxVectorArgument{"in_y_list", &y_list},
+                CxxVectorArgument{"out_z_list", &z_list},
+            };
+            fpga_project.run(&this->ctx, cxx_args);
+
+            // z[k] = (sum_i(x[i][k] * y[i][k]) + y[7][k]) % t
+            vector<uint64_t> expected(n, 0);
+            for (int i = 0; i < 7; i++)
+                expected = vec_mod_add(expected, vec_mod_mul(xv.values[i], y_vals[i], this->param.get_t()),
+                                       this->param.get_t());
+            expected = vec_mod_add(expected, y_vals[7], this->param.get_t());
+            REQUIRE(decrypt_and_decode(this->ctx, z_list[0]) == expected);
+        }
+    }
+}
+
+TEMPLATE_TEST_CASE_METHOD(BfvFpgaFixture, "BFV custom_compute_at_end", "", BfvFpgaTestParams) {
     for (int level = 1; level <= this->max_level; level++) {
         SECTION("lv=" + to_string(level)) {
             auto xv = new_bfv_test_ct(this->n_op, this->ctx, level, this->param.get_t());
@@ -1341,26 +1502,81 @@ TEMPLATE_TEST_CASE_METHOD(BfvFpgaFixture, "BFV cmc_relin offline", "[.][offline]
             for (int _i = 0; _i < this->n_op; _i++)
                 z_list.push_back(this->ctx.new_ciphertext(level));
 
-            string path = fpga_base_path + "/" + this->tag + "/BFV_" + to_string(this->n_op) + "_cmc_relin/level_" +
-                          to_string(level);
+            string path = fpga_base_path + "/" + this->tag + "/BFV_custom_compute_at_end/level_" + to_string(level);
+            FheTaskFpga fpga_project(path);
 
-            FheTaskFpga offline_proj(path, false);
-            vector<CxxVectorArgument> offline_args = {
-                {"in_y_list", &yv.ciphertexts},
+            std::unordered_map<std::string, ExecutorFunc> custom_executors;
+            custom_executors["custom_add"] = [this](ExecutionContext& exec_ctx,
+                                                    const std::unordered_map<NodeIndex, std::any>& inputs,
+                                                    std::any& output, const ComputeNode& self) -> void {
+                auto* bfv_ctx = exec_ctx.get_arithmetic_context<BfvContext>();
+                auto input_node_idx = self.input_nodes[0]->index;
+                auto input_ptr = std::any_cast<std::shared_ptr<BfvCiphertext>>(inputs.at(input_node_idx));
+                output = std::make_shared<BfvCiphertext>(bfv_ctx->add(*input_ptr, *input_ptr));
             };
-            offline_proj.run(&this->ctx, offline_args);
+            fpga_project.bind_custom_executors(custom_executors);
 
-            FheTaskFpga online_proj(path, true);
-            vector<CxxVectorArgument> online_args = {
-                {"in_x_list", &xv.ciphertexts},
-                {"out_z_list", &z_list},
+            vector<CxxVectorArgument> cxx_args = {
+                CxxVectorArgument{"in_x_list", &xv.ciphertexts},
+                CxxVectorArgument{"in_y_list", &yv.ciphertexts},
+                CxxVectorArgument{"out_z_list", &z_list},
             };
-            online_proj.run(&this->ctx, online_args);
+            fpga_project.run(&this->ctx, cxx_args);
 
+            // custom_add doubles the cmc result: z[i] = 2 * x[i] * y[i]
             vector<vector<uint64_t>> expected(this->n_op);
-            for (int i = 0; i < this->n_op; i++)
-                expected[i] = vec_mod_mul(xv.values[i], yv.values[i], this->param.get_t());
+            for (int i = 0; i < this->n_op; i++) {
+                auto prod = vec_mod_mul(xv.values[i], yv.values[i], this->param.get_t());
+                expected[i] = vec_mod_add(prod, prod, this->param.get_t());
+            }
             REQUIRE(decrypt_and_decode(this->ctx, z_list) == expected);
+        }
+    }
+}
+
+TEMPLATE_TEST_CASE_METHOD(BfvFpgaFixture, "BFV custom_compute_in_middle", "", BfvFpgaTestParams) {
+    this->ctx.gen_rotation_keys();
+    int step = -990;
+
+    for (int level = 2; level <= this->max_level; level++) {
+        SECTION("lv=" + to_string(level)) {
+            auto xv = new_bfv_test_ct(this->n_op, this->ctx, level, this->param.get_t());
+            auto yv = new_bfv_test_ct(this->n_op, this->ctx, level, this->param.get_t());
+            vector<BfvCiphertext> z_list;
+            z_list.reserve(1);
+            for (int _i = 0; _i < 1; _i++)
+                z_list.push_back(this->ctx.new_ciphertext(level));
+
+            string path = fpga_base_path + "/" + this->tag + "/BFV_custom_compute_in_middle/level_" + to_string(level);
+            FheTaskFpga fpga_project(path);
+
+            std::unordered_map<std::string, ExecutorFunc> custom_executors;
+            custom_executors["custom_add"] = [this](ExecutionContext& exec_ctx,
+                                                    const std::unordered_map<NodeIndex, std::any>& inputs,
+                                                    std::any& output, const ComputeNode& self) -> void {
+                auto* bfv_ctx = exec_ctx.get_arithmetic_context<BfvContext>();
+                auto input_node_idx = self.input_nodes[0]->index;
+                auto input_ptr = std::any_cast<std::shared_ptr<BfvCiphertext>>(inputs.at(input_node_idx));
+                output = std::make_shared<BfvCiphertext>(bfv_ctx->add(*input_ptr, *input_ptr));
+            };
+            fpga_project.bind_custom_executors(custom_executors);
+
+            vector<CxxVectorArgument> cxx_args = {
+                CxxVectorArgument{"in_x_list", &xv.ciphertexts},
+                CxxVectorArgument{"in_y_list", &yv.ciphertexts},
+                CxxVectorArgument{"out_z_list", &z_list},
+            };
+            fpga_project.run(&this->ctx, cxx_args);
+
+            // For each i: doubled = 2*x[i]*y[i], then rotate_col by step, then sum
+            int n = this->param.get_n();
+            vector<uint64_t> expected(n, 0);
+            for (int i = 0; i < this->n_op; i++) {
+                auto prod = vec_mod_mul(xv.values[i], yv.values[i], this->param.get_t());
+                auto doubled = vec_mod_add(prod, prod, this->param.get_t());
+                expected = vec_mod_add(expected, vec_rotate_col(doubled, step), this->param.get_t());
+            }
+            REQUIRE(decrypt_and_decode(this->ctx, z_list[0]) == expected);
         }
     }
 }

@@ -36,6 +36,7 @@ def bfv_mult_relin():
         input_args=[Argument('xs', xs), Argument('ys', ys)],
         output_args=[Argument('zs', zs)],
         output_instruction_path='bfv_mult_relin',
+        fpga_acc=False,
     )
 
 
@@ -53,6 +54,7 @@ def ckks_mult_relin():
         input_args=[Argument('xs', xs), Argument('ys', ys)],
         output_args=[Argument('zs', zs)],
         output_instruction_path='ckks_mult_relin',
+        fpga_acc=False,
     )
 
 
@@ -69,6 +71,7 @@ def bfv_rotate_col():
         input_args=[Argument('xs', xs)],
         output_args=[Argument('ys', ys)],
         output_instruction_path='bfv_rotate_col',
+        fpga_acc=False,
     )
 
 

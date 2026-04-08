@@ -87,7 +87,7 @@ func testBfvFpgaCtAddPt(tc *testBfvContext, t *testing.T) {
 				acc.NewGoVectorArgument("out_z_list", ciphertext),
 			}
 			project_path := fmt.Sprintf("%s/BFV_%d_cap/level_%d", bfv_fpga_base_path, tc.n_op, lvl)
-			project, err := acc.NewFheTaskFpga(project_path, true)
+			project, err := acc.NewFheTaskFpga(project_path)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -128,7 +128,7 @@ func testBfvFpgaCtAddCt(tc *testBfvContext, t *testing.T) {
 				acc.NewGoVectorArgument("out_z_list", ciphertext),
 			}
 			project_path := fmt.Sprintf("%s/BFV_%d_cac/level_%d", bfv_fpga_base_path, tc.n_op, lvl)
-			project, err := acc.NewFheTaskFpga(project_path, true)
+			project, err := acc.NewFheTaskFpga(project_path)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -168,7 +168,7 @@ func testBfvFpgaCtMulPtRt(tc *testBfvContext, t *testing.T) {
 				acc.NewGoVectorArgument("out_z_list", ciphertext),
 			}
 			project_path := fmt.Sprintf("%s/BFV_%d_cmp_ringt/level_%d", bfv_fpga_base_path, tc.n_op, lvl)
-			project, err := acc.NewFheTaskFpga(project_path, true)
+			project, err := acc.NewFheTaskFpga(project_path)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -208,7 +208,7 @@ func testBfvFpgaCtMulPt(tc *testBfvContext, t *testing.T) {
 				acc.NewGoVectorArgument("out_z_list", ciphertext),
 			}
 			project_path := fmt.Sprintf("%s/BFV_%d_cmp/level_%d", bfv_fpga_base_path, tc.n_op, lvl)
-			project, err := acc.NewFheTaskFpga(project_path, true)
+			project, err := acc.NewFheTaskFpga(project_path)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -248,7 +248,7 @@ func testBfvFpgaCtMulPtMul(tc *testBfvContext, t *testing.T) {
 				acc.NewGoVectorArgument("out_z_list", ciphertext),
 			}
 			project_path := fmt.Sprintf("%s/BFV_%d_cmp_mul/level_%d", bfv_fpga_base_path, tc.n_op, lvl)
-			project, err := acc.NewFheTaskFpga(project_path, true)
+			project, err := acc.NewFheTaskFpga(project_path)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -294,7 +294,7 @@ func testBfvFpgaCtMulCtRelin(tc *testBfvContext, t *testing.T) {
 				acc.NewGoVectorArgument("out_z_list", ciphertext),
 			}
 			project_path := fmt.Sprintf("%s/BFV_%d_cmc_relin/level_%d", bfv_fpga_base_path, tc.n_op, lvl)
-			project, err := acc.NewFheTaskFpga(project_path, true)
+			project, err := acc.NewFheTaskFpga(project_path)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -338,7 +338,7 @@ func testBfvFpgaCtSquareRelin(tc *testBfvContext, t *testing.T) {
 				acc.NewGoVectorArgument("out_z_list", ciphertext),
 			}
 			project_path := fmt.Sprintf("%s/BFV_%d_csqr_relin/level_%d", bfv_fpga_base_path, tc.n_op, lvl)
-			project, err := acc.NewFheTaskFpga(project_path, true)
+			project, err := acc.NewFheTaskFpga(project_path)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -390,7 +390,7 @@ func testBfvFpgaCtRotateCol(tc *testBfvContext, t *testing.T) {
 			}
 			steps_str += ""
 			project_path := fmt.Sprintf("%s/BFV_%d_advanced_rotate_col/level_%d/steps_%s", bfv_fpga_base_path, tc.n_op, lvl, steps_str)
-			project, err := acc.NewFheTaskFpga(project_path, true)
+			project, err := acc.NewFheTaskFpga(project_path)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -433,7 +433,7 @@ func testBfvFpgaCtRotateRow(tc *testBfvContext, t *testing.T) {
 			}
 
 			project_path := fmt.Sprintf("%s/BFV_%d_rotate_row/level_%d/", bfv_fpga_base_path, tc.n_op, lvl)
-			project, err := acc.NewFheTaskFpga(project_path, true)
+			project, err := acc.NewFheTaskFpga(project_path)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -471,7 +471,7 @@ func testBfvFpgaCtRescale(tc *testBfvContext, t *testing.T) {
 				acc.NewGoVectorArgument("out_y_list", ciphertext),
 			}
 			project_path := fmt.Sprintf("%s/BFV_%d_rescale/level_%d", bfv_fpga_base_path, tc.n_op, lvl)
-			project, err := acc.NewFheTaskFpga(project_path, true)
+			project, err := acc.NewFheTaskFpga(project_path)
 			if err != nil {
 				t.Fatal(err)
 			}

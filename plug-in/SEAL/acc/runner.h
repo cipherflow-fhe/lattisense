@@ -74,7 +74,7 @@ class FheTaskFpga : public FheTask {
 public:
     using FheTask::FheTask;
 
-    FheTaskFpga(const std::string& project_path, bool online_phase = true);
+    FheTaskFpga(const std::string& project_path);
 
     FheTaskFpga(const FheTaskFpga& other) = delete;
 
@@ -93,7 +93,6 @@ public:
 
 private:
     void bind_abi_executors(int mf_nbits);
-    bool _online_phase = true;
 };
 
 class FpgaDevice {
