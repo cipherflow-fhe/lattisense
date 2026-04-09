@@ -117,6 +117,11 @@ void init_gpu_context(const nlohmann::json& param_json,
 
 template <heongpu::Scheme SchemeType, typename TContext>
 void _run_mega_ag_impl(gsl::span<CArgument> input_args, gsl::span<CArgument> output_args, const MegaAG& mega_ag) {
+    // cudaSetDevice is thread-local; new threads in the pool default to device 0.
+    // Use the compile-time configured device ID so all worker threads bind to the same device.
+    constexpr int device_id = LATTISENSE_GPU_DEVICE_ID;
+    CHECK(cudaSetDevice(device_id));
+
     // Initialize GPU context and operators for GPU FHE operations
     std::unique_ptr<heongpu::HEContext<SchemeType>> context;
     std::unique_ptr<heongpu::HEArithmeticOperator<SchemeType>> operators;
@@ -177,10 +182,11 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args, gsl::span<CArgument> out
                               std::unordered_map<NodeIndex, std::atomic<int>>& data_ref_counts) {
             const BS::priority_t pool_priority = mega_ag.computes.at(task_index).priority;
             gpu_pool.detach_task(
-                [task_index, pool_priority, &gpu_pool, &mega_ag, &m_mutex, &task_queue, &queued_computes,
+                [task_index, pool_priority, device_id, &gpu_pool, &mega_ag, &m_mutex, &task_queue, &queued_computes,
                  &completed_tasks, &total_tasks, &completion_cv, &completion_mutex, &available_data, &operators,
                  &data_ready_events, &stream_options, &streams, &context, &galois_key, &galois_key_mutex,
                  &data_ref_counts, &all_galois_elts]() {
+                    CHECK(cudaSetDevice(device_id));
                     auto stream_id = BS::this_thread::get_index().value();
 
                     const ComputeNode& compute_node = mega_ag.computes.at(task_index);
@@ -295,8 +301,9 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args, gsl::span<CArgument> out
                     }
 
                     gpu_pool.detach_task(
-                        [compute_node, output_event, has_output_event, &mega_ag, &m_mutex, &available_data,
+                        [compute_node, output_event, has_output_event, device_id, &mega_ag, &m_mutex, &available_data,
                          &data_ref_counts]() {
+                            CHECK(cudaSetDevice(device_id));
                             // Wait for GPU computation to complete if event exists
                             if (has_output_event) {
                                 CHECK(cudaEventSynchronize(output_event));
@@ -371,7 +378,7 @@ public:
     FheGpuTask(const std::string& project_path) {
         mega_ag_ = MegaAG::load(project_path + "/mega_ag.json", Processor::GPU);
 
-        cudaSetDevice(0);
+        cudaSetDevice(LATTISENSE_GPU_DEVICE_ID);
 
         // Warm up the CUDA context, so that the computation time measurment is more accurate.
         heongpu::HEContext<heongpu::Scheme::BFV> context(heongpu::keyswitching_type::KEYSWITCHING_METHOD_II,

@@ -133,7 +133,10 @@ if(LATTISENSE_ENABLE_GPU)
     find_package(HEonGPU REQUIRED)
     set(CMAKE_CUDA_FLAGS_DEBUG "${CMAKE_CUDA_FLAGS_DEBUG} -g")
     set(CMAKE_CUDA_FLAGS_RELEASE "${CMAKE_CUDA_FLAGS_RELEASE} -O3")
-    message(STATUS "GPU support enabled with HEonGPU (CUDA arch: ${LATTISENSE_CUDA_ARCH})")
+
+    set(LATTISENSE_GPU_DEVICE_ID 0 CACHE STRING
+        "CUDA device ID to use for GPU FHE operations (default: 0)")
+    message(STATUS "GPU support enabled with HEonGPU (CUDA arch: ${LATTISENSE_CUDA_ARCH}, device: ${LATTISENSE_GPU_DEVICE_ID})")
 endif()
 
 # standard
