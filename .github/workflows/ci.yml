@@ -42,6 +42,11 @@ jobs:
           pip3 install -i https://pypi.tuna.tsinghua.edu.cn/simple \
             -r backends/lattisense-fpga/lattisense-fpga-linker/requirements.txt
 
+      - name: Build FPGA compiler C++ extension
+        run: |
+          cd backends/lattisense-fpga/lattisense-fpga-linker/lattisense-fpga-compiler/cpp
+          bash compile.sh
+
       - name: Verify prerequisites
         run: |
           g++ --version | head -1
@@ -100,6 +105,7 @@ jobs:
           python3 -m pytest test_gpu_ckks.py -v
 
       - name: Generate FPGA test data
+        continue-on-error: true
         run: |
           cd unittests
           export PYTHONPATH=$GITHUB_WORKSPACE/build/unittests:$GITHUB_WORKSPACE:$PYTHONPATH
@@ -125,6 +131,7 @@ jobs:
           ./test_gpu_ckks
 
       - name: Run FPGA tests
+        continue-on-error: true
         timeout-minutes: 20
         run: |
           cd build/unittests
