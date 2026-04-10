@@ -43,6 +43,9 @@ extern "C" {
 // #define LOG_PARALLEL
 
 namespace cxx_sdk_v2 {
+
+const int CPU_MFORM_BITS = 64;
+
 FheTaskCpu::FheTaskCpu(const std::string& project_path) : FheTask{project_path} {
     task_handle = create_fhe_cpu_task(project_path.c_str());
     _heterogeneous_mode = false;  // CPU mode uses homogeneous computation
@@ -67,9 +70,9 @@ uint64_t FheTaskCpu::run(FheContext* context, const std::vector<CxxVectorArgumen
 
     new_args(n_in_args, n_out_args);
 
-    export_cxx_arguments(cxx_args, input_args, output_args, param, -1, _heterogeneous_mode);
+    export_cxx_arguments(cxx_args, input_args, output_args, param, CPU_MFORM_BITS, _heterogeneous_mode);
 
-    export_public_key_arguments(key_signature, input_args, context, -1, _heterogeneous_mode);
+    export_public_key_arguments(key_signature, input_args, context, CPU_MFORM_BITS, _heterogeneous_mode);
 
     // Call CPU runner
     int ret = run_fhe_cpu_task(task_handle, input_args.data(), input_args.size(), output_args.data(),

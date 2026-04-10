@@ -182,37 +182,28 @@ _export_plaintext_muls(const std::vector<Handle*>& src, CPlaintext* dest, const 
     }
 }
 
-inline void _export_relin_key(const Handle& src, CRelinKey* dest, int level, const Parameter& param, int mf_nbits) {
+inline void _set_relin_key_n_mform_bits(const Handle& src, const Parameter& param, int mf_nbits) {
     if (typeid(param) == typeid(BfvParameter)) {
         set_bfv_rlk_n_mform_bits(param.get(), src.get(), mf_nbits);
     } else if (typeid(param) == typeid(CkksParameter)) {
         set_ckks_rlk_n_mform_bits(param.get(), src.get(), mf_nbits);
     }
-    export_relin_key(src.get(), level, dest);
 }
 
-inline void _export_galois_key(const Handle& src, CGaloisKey* dest, int level, const Parameter& param, int mf_nbits) {
+inline void _set_galois_key_n_mform_bits(const Handle& src, const Parameter& param, int mf_nbits) {
     if (typeid(param) == typeid(BfvParameter)) {
         set_bfv_glk_n_mform_bits(param.get(), src.get(), mf_nbits);
     } else if (typeid(param) == typeid(CkksParameter)) {
         set_ckks_glk_n_mform_bits(param.get(), src.get(), mf_nbits);
     }
-
-    export_galois_key(src.get(), level, dest);
 }
 
-inline void _export_switching_key(const Handle& src,
-                                  CKeySwitchKey* dest,
-                                  int level,
-                                  int sp_level,
-                                  const Parameter& param,
-                                  int mf_nbits) {
+inline void _set_switching_key_n_mform_bits(const Handle& src, const Parameter& param, int mf_nbits) {
     if (typeid(param) == typeid(BfvParameter)) {
         throw std::runtime_error("BFV does not support switching key export");
     } else if (typeid(param) == typeid(CkksParameter)) {
         set_ckks_swk_n_mform_bits(param.get(), src.get(), mf_nbits);
     }
-    export_switching_key(src.get(), level, sp_level, dest);
 }
 
 inline CArgument
@@ -292,6 +283,8 @@ inline void export_public_key_arguments(nlohmann::json& key_signature,
         rlk_arg.size = 1;
         rlk_arg.level = rlk_level;
 
+        _set_relin_key_n_mform_bits(rlk, context->get_parameter(), mf_nbits);
+
         if (!is_heterogeneous) {
             static RelinKey saved_rlk;
             static std::vector<Handle*> rlk_handle_vec(1);
@@ -302,7 +295,7 @@ inline void export_public_key_arguments(nlohmann::json& key_signature,
         } else {
             rlk_arg.data = (CRelinKey*)malloc(sizeof(CRelinKey) * rlk_arg.size);
             input_args.push_back(rlk_arg);
-            _export_relin_key(rlk, &((CRelinKey*)(rlk_arg.data))[0], rlk_level, context->get_parameter(), mf_nbits);
+            export_relin_key(rlk.get(), rlk_level, &((CRelinKey*)(rlk_arg.data))[0]);
         }
     }
     if (!key_signature["glk"].empty()) {
@@ -322,6 +315,8 @@ inline void export_public_key_arguments(nlohmann::json& key_signature,
         glk_arg.size = 1;
         glk_arg.level = glk_level;
 
+        _set_galois_key_n_mform_bits(glk, context->get_parameter(), mf_nbits);
+
         if (!is_heterogeneous) {
             static GaloisKey saved_glk;
             static std::vector<Handle*> glk_handle_vec(1);
@@ -334,7 +329,7 @@ inline void export_public_key_arguments(nlohmann::json& key_signature,
             set_galois_key_steps(&c_glk[0], galois_elements.data(), galois_elements.size());
             glk_arg.data = c_glk;
             input_args.push_back(glk_arg);
-            _export_galois_key(glk, &((CGaloisKey*)(glk_arg.data))[0], glk_level, context->get_parameter(), mf_nbits);
+            export_galois_key(glk.get(), glk_level, &((CGaloisKey*)(glk_arg.data))[0]);
         }
     }
     if (key_signature.contains("ckks_btp_swk")) {
@@ -356,6 +351,8 @@ inline void export_public_key_arguments(nlohmann::json& key_signature,
             swk_dts_arg.size = 1;
             swk_dts_arg.level = level;
 
+            _set_switching_key_n_mform_bits(swk_dts, context->get_parameter(), mf_nbits);
+
             if (!is_heterogeneous) {
                 static KeySwitchKey saved_swk_dts;
                 static std::vector<Handle*> swk_dts_handle_vec(1);
@@ -366,8 +363,7 @@ inline void export_public_key_arguments(nlohmann::json& key_signature,
             } else {
                 swk_dts_arg.data = (CKeySwitchKey*)malloc(sizeof(CKeySwitchKey) * swk_dts_arg.size);
                 input_args.push_back(swk_dts_arg);
-                _export_switching_key(swk_dts, &((CKeySwitchKey*)(swk_dts_arg.data))[0], level, sp_level,
-                                      context->get_parameter(), mf_nbits);
+                export_switching_key(swk_dts.get(), level, sp_level, &((CKeySwitchKey*)(swk_dts_arg.data))[0]);
             }
         }
 
@@ -383,6 +379,8 @@ inline void export_public_key_arguments(nlohmann::json& key_signature,
             swk_std_arg.size = 1;
             swk_std_arg.level = level;
 
+            _set_switching_key_n_mform_bits(swk_std, context->get_parameter(), mf_nbits);
+
             if (!is_heterogeneous) {
                 // CPU mode: need to save the swk object itself
                 static KeySwitchKey saved_swk_std;
@@ -394,8 +392,7 @@ inline void export_public_key_arguments(nlohmann::json& key_signature,
             } else {
                 swk_std_arg.data = (CKeySwitchKey*)malloc(sizeof(CKeySwitchKey) * swk_std_arg.size);
                 input_args.push_back(swk_std_arg);
-                _export_switching_key(swk_std, &((CKeySwitchKey*)(swk_std_arg.data))[0], level, sp_level,
-                                      context->get_parameter(), mf_nbits);
+                export_switching_key(swk_std.get(), level, sp_level, &((CKeySwitchKey*)(swk_std_arg.data))[0]);
             }
         }
     }
