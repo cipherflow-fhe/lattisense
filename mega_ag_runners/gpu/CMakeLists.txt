@@ -2,7 +2,10 @@ add_library(gpu_mega_ag_runner_obj OBJECT
     gpu_wrapper.cu
     mega_ag_executors_gpu.cu
 )
-target_compile_definitions(gpu_mega_ag_runner_obj PRIVATE LATTISENSE_ENABLE_GPU)
+target_compile_definitions(gpu_mega_ag_runner_obj PRIVATE
+    LATTISENSE_ENABLE_GPU
+    LATTISENSE_GPU_DEVICE=${LATTISENSE_GPU_DEVICE}
+)
 target_include_directories(gpu_mega_ag_runner_obj PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/..
     ${CMAKE_CURRENT_SOURCE_DIR}/../../lib/

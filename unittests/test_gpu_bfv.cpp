@@ -786,7 +786,7 @@ TEMPLATE_TEST_CASE_METHOD(BfvFixture, "BFV ct_pt_ringt_mac", "", BfvTestDefaultP
     }
 }
 
-TEMPLATE_TEST_CASE_METHOD(BfvFixture, "BFV power_dag", "", BfvTestDefaultParams) {
+TEMPLATE_TEST_CASE_METHOD(BfvFixture, "BFV power_dag", "[.]", BfvTestDefaultParams) {
     vector<int> source_power{1, 7, 18, 62, 104, 244, 259};
     int max_power = 1137;
 
@@ -838,7 +838,7 @@ TEMPLATE_TEST_CASE_METHOD(BfvFixture, "BFV power_dag", "", BfvTestDefaultParams)
     }
 }
 
-TEMPLATE_TEST_CASE_METHOD(BfvFixture, "BFV power_mul_coeff", "", BfvTestDefaultParams) {
+TEMPLATE_TEST_CASE_METHOD(BfvFixture, "BFV power_mul_coeff", "[.]", BfvTestDefaultParams) {
     vector<int> source_power{1, 7, 18, 62, 104, 244, 259};
     int max_power = 1137;
     vector<int> lane_cipher_size{2, 1, 5};
