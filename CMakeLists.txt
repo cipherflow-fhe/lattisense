@@ -268,10 +268,32 @@ message(STATUS "LATTISENSE_BUILD_TESTS: ${LATTISENSE_BUILD_TESTS}")
 
 include_directories(${LATTISENSE_ROOT_DIR}/lib ${LATTISENSE_ROOT_DIR}/common)
 
-add_custom_target(go_libs
-    COMMAND cd ${LATTISENSE_ROOT_DIR}/fhe_ops_lib/lattigo/go_sdk && bash build.sh
+set(GO_SDK_DIR ${LATTISENSE_ROOT_DIR}/fhe_ops_lib/lattigo/go_sdk)
+set(LIBLATTIGO_A   ${GO_SDK_DIR}/liblattigo.a)
+set(LIBLATTIGO_SO  ${GO_SDK_DIR}/liblattigo.so)
+set(LIBLATTIGO_H   ${GO_SDK_DIR}/liblattigo.h)
+# Sanitized copy of liblattigo.h with cgo #line virtual-filename directives stripped.
+# NVCC's -MD dep scanner emits those virtual names (e.g. "cgo-builtin-export-prolog")
+# as Make prerequisites; because they don't exist as files, Make treats them as always
+# out-of-date, rebuilding all .cu files on every invocation.  The sanitized copy keeps
+# all declarations intact but replaces offending #line markers with blank lines.
+set(LIBLATTIGO_H_SANITIZED ${GO_SDK_DIR}/liblattigo_sanitized.h)
+
+add_custom_command(
+    OUTPUT ${LIBLATTIGO_A} ${LIBLATTIGO_SO} ${LIBLATTIGO_H_SANITIZED}
+    COMMAND bash build.sh
+    COMMAND ${CMAKE_COMMAND} -P ${GO_SDK_DIR}/strip_cgo_line.cmake
+    WORKING_DIRECTORY ${GO_SDK_DIR}
+    DEPENDS
+        ${GO_SDK_DIR}/main.go
+        ${GO_SDK_DIR}/bootstrap.go
+        ${GO_SDK_DIR}/c_struct_import_export.go
+        ${GO_SDK_DIR}/conversion.go
+        ${GO_SDK_DIR}/multiparty.go
     COMMENT "Building Go dynamic libraries"
 )
+
+add_custom_target(go_libs DEPENDS ${LIBLATTIGO_A} ${LIBLATTIGO_SO} ${LIBLATTIGO_H_SANITIZED})
 
 add_subdirectory(fhe_ops_lib)
 add_dependencies(fhe_ops_lib go_libs)
