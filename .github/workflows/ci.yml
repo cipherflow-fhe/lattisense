@@ -37,6 +37,17 @@ jobs:
           submodules: recursive
           token: ${{ secrets.PRIVATE_REPO_ACCESS_TOKEN }}
 
+      - name: Init FPGA submodules (CI only)
+        env:
+          TOKEN: ${{ secrets.PRIVATE_REPO_ACCESS_TOKEN }}
+        run: |
+          git config --global url."https://x-access-token:${TOKEN}@github.com/".insteadOf "https://github.com/"
+          git -c submodule."backends/lattisense-fpga/lattisense-fpga-runtime".update=checkout \
+              -c submodule."backends/lattisense-fpga/lattisense-fpga-linker".update=checkout \
+              submodule update --init --recursive \
+              backends/lattisense-fpga/lattisense-fpga-runtime \
+              backends/lattisense-fpga/lattisense-fpga-linker
+
       - name: Install FPGA linker dependencies
         run: |
           pip3 install -i https://pypi.tuna.tsinghua.edu.cn/simple \
