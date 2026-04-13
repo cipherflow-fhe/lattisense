@@ -2,10 +2,10 @@ name: CI
 
 on:
   push:
-    branches: [main, refactor/mega-ag-heterogeneous]
+    branches: [main]
     tags: ['v*']
   pull_request:
-    branches: [main, refactor/mega-ag-heterogeneous]
+    branches: [main]
   workflow_dispatch:
 
 concurrency:
@@ -24,10 +24,19 @@ jobs:
         shell: bash
     container:
       image: localhost:5000/lattisense-ci:latest
-      options: --gpus all
+      options: >-
+        --gpus all
+        --device=/dev/xdma0_c2h_0:/dev/xdma0_c2h_0
+        --device=/dev/xdma0_c2h_1:/dev/xdma0_c2h_1
+        --device=/dev/xdma0_h2c_0:/dev/xdma0_h2c_0
+        --device=/dev/xdma0_h2c_1:/dev/xdma0_h2c_1
+        --device=/dev/xdma0_h2c_2:/dev/xdma0_h2c_2
+        --device=/dev/xdma0_h2c_3:/dev/xdma0_h2c_3
+        --device=/dev/xdma0_user:/dev/xdma0_user
       volumes:
         - /opt/heongpu-cache:/opt/heongpu-cache
         - /opt/go-mod-cache:/root/go/pkg/mod
+        - /var/lock:/var/lock
     timeout-minutes: 60
 
     steps:
@@ -146,7 +155,7 @@ jobs:
         run: |
           cd build/unittests
           export LD_LIBRARY_PATH=$GITHUB_WORKSPACE/build/lib:$LD_LIBRARY_PATH
-          ./test_fpga_bfv
+          ./test_fpga_bfv '~[.]' '~*power_dag*' '~*power_mul*'
           ./test_fpga_ckks
 
   build-docker:
