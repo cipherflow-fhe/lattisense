@@ -41,6 +41,7 @@ jobs:
         env:
           TOKEN: ${{ secrets.PRIVATE_REPO_ACCESS_TOKEN }}
         run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
           git config --global url."https://x-access-token:${TOKEN}@github.com/".insteadOf "https://github.com/"
           git -c submodule."backends/lattisense-fpga/lattisense-fpga-runtime".update=checkout \
               -c submodule."backends/lattisense-fpga/lattisense-fpga-linker".update=checkout \

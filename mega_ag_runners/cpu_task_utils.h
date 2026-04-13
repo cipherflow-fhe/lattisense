@@ -393,76 +393,77 @@ void run_tasks(const MegaAG& mega_ag,
     std::function<void(NodeIndex, const std::vector<std::any>&)> submit_task =
         [&](NodeIndex task_index, const std::vector<std::any>& other_args) {
             const BS::priority_t pool_priority = mega_ag.computes.at(task_index).priority;
-            pool.detach_task([task_index, &mega_ag, &completed_tasks, &total_tasks, &m_mutex, &completion_mutex,
-                              &completion_cv, &available_data, &context_ptrs, &task_queue, &queued_computes,
-                              &data_ref_counts, other_args]() {
-                auto thread_id = BS::this_thread::get_index().value();
+            pool.detach_task(
+                [task_index, &mega_ag, &completed_tasks, &total_tasks, &m_mutex, &completion_mutex, &completion_cv,
+                 &available_data, &context_ptrs, &task_queue, &queued_computes, &data_ref_counts, other_args]() {
+                    auto thread_id = BS::this_thread::get_index().value();
 
-                const ComputeNode& compute_node = mega_ag.computes.at(task_index);
-                const std::vector<DatumNode*>& compute_input_nodes = compute_node.input_nodes;
-                const DatumNode* compute_output_node = compute_node.output_nodes[0];
+                    const ComputeNode& compute_node = mega_ag.computes.at(task_index);
+                    const std::vector<DatumNode*>& compute_input_nodes = compute_node.input_nodes;
+                    const DatumNode* compute_output_node = compute_node.output_nodes[0];
 
-                // Cache input data for this thread
-                std::unordered_map<NodeIndex, std::any> thread_input_cache;
-                {
-                    std::lock_guard<std::mutex> lock(m_mutex);
+                    // Cache input data for this thread
+                    std::unordered_map<NodeIndex, std::any> thread_input_cache;
+                    {
+                        std::lock_guard<std::mutex> lock(m_mutex);
 
-                    for (const auto* input_node : compute_input_nodes) {
-                        thread_input_cache[input_node->index] = available_data.at(input_node->index);
+                        for (const auto* input_node : compute_input_nodes) {
+                            thread_input_cache[input_node->index] = available_data.at(input_node->index);
+                        }
                     }
-                }
 
-                // Prepare execution context
-                ExecutionContext exec_ctx;
-                exec_ctx.context = context_ptrs[thread_id].get();
-                exec_ctx.other_args = other_args;
+                    // Prepare execution context
+                    ExecutionContext exec_ctx;
+                    exec_ctx.context = context_ptrs[thread_id].get();
+                    exec_ctx.other_args = other_args;
 
-                // Execute the compute node using its bound executor
-                std::any output;
-                try {
-                    compute_node.executor(exec_ctx, thread_input_cache, output, compute_node);
-                } catch (const std::exception& e) {
-                    // Still increment completed_tasks to avoid deadlock
-                    if (completed_tasks.fetch_add(1) + 1 >= total_tasks) {
+                    // Execute the compute node using its bound executor
+                    std::any output;
+                    try {
+                        compute_node.executor(exec_ctx, thread_input_cache, output, compute_node);
+                    } catch (const std::exception& e) {
+                        // Still increment completed_tasks to avoid deadlock
+                        if (completed_tasks.fetch_add(1) + 1 >= total_tasks) {
+                            std::lock_guard<std::mutex> lock(completion_mutex);
+                            completion_cv.notify_all();
+                        }
+                        return;
+                    }
+
+                    // Determine where to store the output
+                    NodeIndex output_index = compute_output_node->index;
+
+                    // Update results and find newly available tasks
+                    {
+                        std::lock_guard<std::mutex> lock(m_mutex);
+
+                        // Store the output
+                        available_data[output_index] = output;
+
+                        // Clean up unreferenced data
+                        mega_ag.purge_unused_data(compute_node, data_ref_counts, available_data);
+
+                        // Find newly available computes
+                        std::unordered_set<NodeIndex> newly_available_computes =
+                            mega_ag.step_available_computes(*compute_output_node, available_data);
+
+                        for (const auto& new_task_index : newly_available_computes) {
+                            if (queued_computes.find(new_task_index) == queued_computes.end()) {
+                                int pri = mega_ag.computes.at(new_task_index).priority;
+                                task_queue.push({pri, new_task_index});
+                                queued_computes.insert(new_task_index);
+                            }
+                        }
+                    }
+
+                    // Check if all tasks are completed
+                    size_t prev = completed_tasks.fetch_add(1);
+                    if (prev + 1 >= total_tasks) {
                         std::lock_guard<std::mutex> lock(completion_mutex);
                         completion_cv.notify_all();
                     }
-                    return;
-                }
-
-                // Determine where to store the output
-                NodeIndex output_index = compute_output_node->index;
-
-                // Update results and find newly available tasks
-                {
-                    std::lock_guard<std::mutex> lock(m_mutex);
-
-                    // Store the output
-                    available_data[output_index] = output;
-
-                    // Clean up unreferenced data
-                    mega_ag.purge_unused_data(compute_node, data_ref_counts, available_data);
-
-                    // Find newly available computes
-                    std::unordered_set<NodeIndex> newly_available_computes =
-                        mega_ag.step_available_computes(*compute_output_node, available_data);
-
-                    for (const auto& new_task_index : newly_available_computes) {
-                        if (queued_computes.find(new_task_index) == queued_computes.end()) {
-                            int pri = mega_ag.computes.at(new_task_index).priority;
-                            task_queue.push({pri, new_task_index});
-                            queued_computes.insert(new_task_index);
-                        }
-                    }
-                }
-
-                // Check if all tasks are completed
-                size_t prev = completed_tasks.fetch_add(1);
-                if (prev + 1 >= total_tasks) {
-                    std::lock_guard<std::mutex> lock(completion_mutex);
-                    completion_cv.notify_all();
-                }
-            }, pool_priority);
+                },
+                pool_priority);
         };
 
     // Get initial available computes and initialize task queue

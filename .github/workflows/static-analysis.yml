@@ -67,7 +67,8 @@ jobs:
         run: |
           # Find source files, excluding third-party and test directories
           files=$(find . \
-            -path './HEonGPU' -prune -o \
+            -path './backends/HEonGPU' -prune -o \
+            -path './backends/lattisense-fpga' -prune -o \
             -path './fhe_ops_lib/lattigo' -prune -o \
             -path './lib' -prune -o \
             -path './build' -prune -o \

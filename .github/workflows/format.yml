@@ -24,11 +24,13 @@ jobs:
         run: |
           # Find all C/C++ files, excluding third-party directories
           files=$(find . \
-            -path './HEonGPU' -prune -o \
+            -path './backends/HEonGPU' -prune -o \
+            -path './backends/lattisense-fpga' -prune -o \
             -path './fhe_ops_lib/lattigo' -prune -o \
             -path './lib' -prune -o \
             -path './build' -prune -o \
             -path './install' -prune -o \
+            -name 'catch.hpp' -prune -o \
             \( -name '*.cpp' -o -name '*.h' -o -name '*.hpp' -o -name '*.c' -o -name '*.cu' -o -name '*.cuh' \) \
             -type f -print)
 
@@ -58,7 +60,7 @@ jobs:
             echo ""
             echo "Please run: clang-format -i <file> to fix formatting"
             echo "Or run the following to fix all files:"
-            echo "  find . -path './HEonGPU' -prune -o -path './fhe_ops_lib/lattigo' -prune -o -path './lib' -prune -o -path './build' -prune -o -path './install' -prune -o \\( -name '*.cpp' -o -name '*.h' -o -name '*.hpp' -o -name '*.c' -o -name '*.cu' -o -name '*.cuh' \\) -type f -print | xargs clang-format -i"
+            echo "  find . -path './backends/HEonGPU' -prune -o -path './backends/lattisense-fpga' -prune -o -path './fhe_ops_lib/lattigo' -prune -o -path './lib' -prune -o -path './build' -prune -o -path './install' -prune -o -name 'catch.hpp' -prune -o \\( -name '*.cpp' -o -name '*.h' -o -name '*.hpp' -o -name '*.c' -o -name '*.cu' -o -name '*.cuh' \\) -type f -print | xargs clang-format -i"
             exit 1
           fi
 

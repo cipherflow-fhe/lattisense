@@ -107,19 +107,19 @@ struct DatumNode {
 
     // FHE-specific properties (use custom_prop.has_value() to check if custom node)
     struct FheProperty {
-        int32_t level;
-        int32_t degree;
-        bool is_ntt;
-        bool is_mform;
+        int32_t level = 0;
+        int32_t degree = 0;
+        bool is_ntt = false;
+        bool is_mform = false;
 
         struct ExtraProperty {
-            bool is_ringt;
-            bool is_compressed;
-            uint32_t galois_element;
+            bool is_ringt = false;
+            bool is_compressed = false;
+            uint32_t galois_element = 0;
         };
         std::optional<ExtraProperty> p;
 
-        int32_t sp_level;
+        int32_t sp_level = 0;
     };
     std::optional<FheProperty> fhe_prop;
 
@@ -159,11 +159,11 @@ struct ComputeNode {
 
     // FHE-specific properties (use custom_prop.has_value() to check if custom node)
     struct FheProperty {
-        OperationType op_type;
+        OperationType op_type = OperationType::UNKNOWN;
 
         struct ExtraProperty {
-            int32_t rotation_step;
-            int32_t sum_cnt;
+            int32_t rotation_step = 0;
+            int32_t sum_cnt = 0;
         };
         std::optional<ExtraProperty> p;
     };
