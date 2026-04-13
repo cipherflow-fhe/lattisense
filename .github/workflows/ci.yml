@@ -116,7 +116,6 @@ jobs:
           python3 -m pytest test_gpu_ckks.py -v
 
       - name: Generate FPGA test data
-        continue-on-error: true
         run: |
           cd unittests
           export PYTHONPATH=$GITHUB_WORKSPACE/build/unittests:$GITHUB_WORKSPACE:$PYTHONPATH
@@ -142,7 +141,6 @@ jobs:
           ./test_gpu_ckks
 
       - name: Run FPGA tests
-        continue-on-error: true
         timeout-minutes: 20
         run: |
           cd build/unittests
