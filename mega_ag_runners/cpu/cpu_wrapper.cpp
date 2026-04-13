@@ -34,16 +34,10 @@ extern "C" {
 #include "../wrapper.h"
 }
 
-#include <queue>
-#include <set>
-#include <mutex>
-#include <condition_variable>
-#include <atomic>
 #include <chrono>
 #include <iostream>
 #include <any>
 #include <memory>
-#include <fstream>
 #include <thread>
 
 namespace cpu_wrapper {
@@ -119,9 +113,8 @@ void _run_mega_ag(gsl::span<CArgument> input_args, gsl::span<CArgument> output_a
 
 class FheCpuTask {
 public:
-    FheCpuTask(const std::string& project_path) {
-        mega_ag_ = MegaAG::load(project_path + "/mega_ag.json", Processor::CPU);
-    }
+    FheCpuTask(const std::string& project_path)
+        : mega_ag_(MegaAG::load(project_path + "/mega_ag.json", Processor::CPU)) {}
 
     ~FheCpuTask() {}
 

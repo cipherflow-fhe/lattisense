@@ -27,7 +27,6 @@
 #include <functional>
 #include <any>
 #include <atomic>
-#include <variant>
 #include <optional>
 #include "nlohmann/json.hpp"
 #include "c_argument.h"
@@ -145,7 +144,7 @@ struct ComputeNode {
     ExecutorFunc executor;
 
     // Execution target: true if this node runs on CPU
-    bool on_cpu;
+    bool on_cpu = false;
 
     // Scheduling priority: higher value runs first
     int priority = 0;

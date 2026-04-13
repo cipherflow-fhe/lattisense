@@ -333,8 +333,8 @@ void _run_mega_ag(gsl::span<CArgument> input_args,
 
 class FheFpgaTask {
 public:
-    FheFpgaTask(const std::string& project_path) {
-        mega_ag_ = MegaAG::load(project_path + "/mega_ag.json", Processor::FPGA);
+    FheFpgaTask(const std::string& project_path)
+        : mega_ag_(MegaAG::load(project_path + "/mega_ag.json", Processor::FPGA)) {
 
         // Load one sub-project per FPGA_KERNEL node; the kernel's NodeIndex is the sub-dir name.
         // online_phase is determined by whether the sub-project's mega_ag.json has offline_inputs.

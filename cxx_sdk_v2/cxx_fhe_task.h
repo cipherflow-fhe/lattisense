@@ -19,11 +19,8 @@
 #ifndef CXX_FHE_TASK_H
 #define CXX_FHE_TASK_H
 
-#include <fstream>
-#include <iostream>
 #include <unordered_map>
 #include <vector>
-#include <typeindex>
 #include "nlohmann/json.hpp"
 #include "../fhe_ops_lib/fhe_lib_v2.h"
 
@@ -50,6 +47,7 @@ public:
     FheTask(FheTask&& other) {
         std::swap(_project_path, other._project_path);
         std::swap(_algo, other._algo);
+        std::swap(task_handle, other.task_handle);
     }
 
     void operator=(const FheTask& other) = delete;
@@ -57,6 +55,7 @@ public:
     void operator=(FheTask&& other) {
         std::swap(_project_path, other._project_path);
         std::swap(_algo, other._algo);
+        std::swap(task_handle, other.task_handle);
     }
 
     ~FheTask();
@@ -80,9 +79,9 @@ protected:
     std::string _project_path = "";
     nlohmann::json _task_signature;
     nlohmann::json _param_json;
-    Algo _algo;  // FHE algorithm (ALGO_BFV or ALGO_CKKS), parsed from task_signature
+    Algo _algo = ALGO_BFV;  // FHE algorithm (ALGO_BFV or ALGO_CKKS), parsed from task_signature
 
-    fhe_task_handle task_handle;
+    fhe_task_handle task_handle = nullptr;
 
     std::vector<CArgument> input_args;
     std::vector<CArgument> output_args;

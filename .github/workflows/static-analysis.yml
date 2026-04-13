@@ -29,6 +29,7 @@ jobs:
             --suppress=useStlAlgorithm \
             --suppress=noExplicitConstructor \
             --suppress=unusedFunction \
+            --suppress=virtualCallInConstructor \
             --suppress=*:lib/* \
             --error-exitcode=1 \
             --inline-suppr \

@@ -18,7 +18,6 @@
 
 #include <stdio.h>
 #include <sys/time.h>
-#include <string.h>
 #include <functional>
 #include <stdexcept>
 #include "fhe_lib_v2.h"

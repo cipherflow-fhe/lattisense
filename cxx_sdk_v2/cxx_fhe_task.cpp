@@ -16,9 +16,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <unordered_map>
+#include <fstream>
 #include "cxx_fhe_task.h"
-#include "cxx_argument.h"
 #include "nlohmann/json.hpp"
 
 extern "C" {
