@@ -212,28 +212,32 @@ endif()
 # standard
 # set(CMAKE_C_COMPILER "/usr/local/bin/gcc")
 # set(CMAKE_CXX_COMPILER "/usr/local/bin/g++")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -maes")
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -maes")
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -lstdc++")
+    set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -lstdc++")
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -m64")
+    add_compile_definitions(_GLIBCXX_USE_CXX11_ABI=1)
+endif()
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED TRUE)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
-# Force linking with the correct standard library
-set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -lstdc++")
-set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -lstdc++")
-
-
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release)
 endif()
-set(CMAKE_CXX_FLAGS_DEBUG "-g")
-set(CMAKE_CXX_FLAGS_RELEASE "-O3")
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+    set(CMAKE_CXX_FLAGS_DEBUG "-g")
+    set(CMAKE_CXX_FLAGS_RELEASE "-O3")
+endif()
 set(CMAKE_CUDA_FLAGS_DEBUG "${CMAKE_CUDA_FLAGS_DEBUG} -g")
 set(CMAKE_CUDA_FLAGS_RELEASE "${CMAKE_CUDA_FLAGS_RELEASE} -O3")
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -m64")
-add_compile_definitions(_GLIBCXX_USE_CXX11_ABI=1)
-add_definitions(-D_FILE_OFFSET_BITS=64 -D_GNU_SOURCE -D_LARGE_FILE_SOURCE -D_AIO_AIX_SOURCE)
+
+if(NOT WIN32)
+    add_definitions(-D_FILE_OFFSET_BITS=64 -D_GNU_SOURCE -D_LARGE_FILE_SOURCE -D_AIO_AIX_SOURCE)
+endif()
 
 message(STATUS "The CXX compiler : ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}")
 message(STATUS "The C   compiler : ${CMAKE_C_COMPILER_ID} ${CMAKE_C_COMPILER_VERSION}")
@@ -268,6 +272,9 @@ message(STATUS "LATTISENSE_BUILD_MODE: ${LATTISENSE_BUILD_MODE}")
 
 option(LATTISENSE_BUILD_TESTS "Build lattisense tests" ON)
 message(STATUS "LATTISENSE_BUILD_TESTS: ${LATTISENSE_BUILD_TESTS}")
+
+option(LATTISENSE_CLIENT_ONLY "Client-only build (keygen/encrypt/decrypt, no server-side components)" OFF)
+message(STATUS "LATTISENSE_CLIENT_ONLY: ${LATTISENSE_CLIENT_ONLY}")
 
 include_directories(${LATTISENSE_ROOT_DIR}/lib ${LATTISENSE_ROOT_DIR}/common)
 
@@ -308,18 +315,22 @@ add_custom_target(go_libs DEPENDS ${LIBLATTIGO_A} ${LIBLATTIGO_SHARED} ${LIBLATT
 
 add_subdirectory(fhe_ops_lib)
 add_dependencies(fhe_ops_lib go_libs)
-add_subdirectory(cxx_sdk_v2)
 
-add_subdirectory(mega_ag_runners)
+if(NOT LATTISENSE_CLIENT_ONLY)
+    add_subdirectory(cxx_sdk_v2)
 
-if(LATTISENSE_ENABLE_FPGA)
-    add_subdirectory(backends/lattisense-fpga/lattisense-fpga-runtime)
+    add_subdirectory(mega_ag_runners)
+
+    if(LATTISENSE_ENABLE_FPGA)
+        add_subdirectory(backends/lattisense-fpga/lattisense-fpga-runtime)
+    endif()
+
+    if(LATTISENSE_BUILD_TESTS)
+        add_subdirectory(unittests)
+    endif()
 endif()
 
-if(LATTISENSE_BUILD_TESTS)
-    add_subdirectory(unittests)
-endif()
-
+if(NOT LATTISENSE_CLIENT_ONLY)
 if(LATTISENSE_BUILD_MODE STREQUAL "SHARED")
     add_library(lattisense SHARED
         $<TARGET_OBJECTS:cxx_sdk_v2_obj>
@@ -487,3 +498,4 @@ else()
         DESTINATION ${LATTISENSE_INSTALL_DATADIR}/project_template
         PATTERN "build" EXCLUDE)
 endif()
+endif() # NOT LATTISENSE_CLIENT_ONLY
