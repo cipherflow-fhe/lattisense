@@ -25,6 +25,8 @@
 #include <thread>
 #include <vector>
 
+#include <sys/stat.h>
+
 // ---------------------------------------------------------------------------
 // MemoryMonitor: background thread that samples /proc/self/status every
 // `interval_ms` milliseconds and records (elapsed_ms, VmRSS_kB) pairs.
@@ -95,17 +97,19 @@ struct MemoryMonitor {
         return {rss + anon_huge, hwm};
     }
 
-    // Returns "base_NNNN.csv" where NNNN is one past the highest existing index.
-    static std::string next_csv_path(const std::string& base = "mem_usage_cpu") {
+    // Returns "dir/base_NNNN.csv" where NNNN is one past the highest existing index.
+    // Creates the directory if it doesn't exist.
+    static std::string next_csv_path(const std::string& dir, const std::string& base) {
+        mkdir(dir.c_str(), 0755);
         char buf[16];
         int next = 0;
         for (int i = 0; i < 10000; ++i) {
             snprintf(buf, sizeof(buf), "%04d", i);
-            if (std::ifstream(base + "_" + buf + ".csv").good())
+            if (std::ifstream(dir + "/" + base + "_" + buf + ".csv").good())
                 next = i + 1;
         }
         snprintf(buf, sizeof(buf), "%04d", next < 10000 ? next : 9999);
-        return base + "_" + buf + ".csv";
+        return dir + "/" + base + "_" + buf + ".csv";
     }
 
     // Open the CSV and start the background sampling thread.
