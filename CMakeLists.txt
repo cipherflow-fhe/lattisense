@@ -294,24 +294,45 @@ set(LIBLATTIGO_H   ${GO_SDK_DIR}/liblattigo.h)
 set(LIBLATTIGO_H_SANITIZED ${GO_SDK_DIR}/liblattigo_sanitized.h)
 
 set(GO_SOURCES main.go bootstrap.go c_struct_import_export.go conversion.go multiparty.go)
-add_custom_command(
-    OUTPUT ${LIBLATTIGO_A} ${LIBLATTIGO_SHARED} ${LIBLATTIGO_H_SANITIZED}
-    COMMAND ${CMAKE_COMMAND} -E env CGO_ENABLED=1
-        ${GO_EXECUTABLE} build -buildmode=c-archive -o ${LIBLATTIGO_A} ${GO_SOURCES}
-    COMMAND ${CMAKE_COMMAND} -E env CGO_ENABLED=1
-        ${GO_EXECUTABLE} build -buildmode=c-shared -o ${LIBLATTIGO_SHARED} ${GO_SOURCES}
-    COMMAND ${CMAKE_COMMAND} -P ${GO_SDK_DIR}/strip_cgo_line.cmake
-    WORKING_DIRECTORY ${GO_SDK_DIR}
-    DEPENDS
-        ${GO_SDK_DIR}/main.go
-        ${GO_SDK_DIR}/bootstrap.go
-        ${GO_SDK_DIR}/c_struct_import_export.go
-        ${GO_SDK_DIR}/conversion.go
-        ${GO_SDK_DIR}/multiparty.go
-    COMMENT "Building Go libraries (archive + shared)"
-)
-
-add_custom_target(go_libs DEPENDS ${LIBLATTIGO_A} ${LIBLATTIGO_SHARED} ${LIBLATTIGO_H_SANITIZED})
+if(WIN32)
+    # Windows: only build c-archive. c-shared fails because bridge_func (defined in
+    # bridge.c on the C++ side) is unresolved — Windows linker requires all symbols at
+    # link time, unlike Linux which allows lazy binding. fhe_ops_lib links liblattigo.a
+    # directly, statically embedding the Go runtime.
+    add_custom_command(
+        OUTPUT ${LIBLATTIGO_A} ${LIBLATTIGO_H_SANITIZED}
+        COMMAND ${CMAKE_COMMAND} -E env CGO_ENABLED=1
+            ${GO_EXECUTABLE} build -buildmode=c-archive -o ${LIBLATTIGO_A} ${GO_SOURCES}
+        COMMAND ${CMAKE_COMMAND} -P ${GO_SDK_DIR}/strip_cgo_line.cmake
+        WORKING_DIRECTORY ${GO_SDK_DIR}
+        DEPENDS
+            ${GO_SDK_DIR}/main.go
+            ${GO_SDK_DIR}/bootstrap.go
+            ${GO_SDK_DIR}/c_struct_import_export.go
+            ${GO_SDK_DIR}/conversion.go
+            ${GO_SDK_DIR}/multiparty.go
+        COMMENT "Building Go library (archive only)"
+    )
+    add_custom_target(go_libs DEPENDS ${LIBLATTIGO_A} ${LIBLATTIGO_H_SANITIZED})
+else()
+    add_custom_command(
+        OUTPUT ${LIBLATTIGO_A} ${LIBLATTIGO_SHARED} ${LIBLATTIGO_H_SANITIZED}
+        COMMAND ${CMAKE_COMMAND} -E env CGO_ENABLED=1
+            ${GO_EXECUTABLE} build -buildmode=c-archive -o ${LIBLATTIGO_A} ${GO_SOURCES}
+        COMMAND ${CMAKE_COMMAND} -E env CGO_ENABLED=1
+            ${GO_EXECUTABLE} build -buildmode=c-shared -o ${LIBLATTIGO_SHARED} ${GO_SOURCES}
+        COMMAND ${CMAKE_COMMAND} -P ${GO_SDK_DIR}/strip_cgo_line.cmake
+        WORKING_DIRECTORY ${GO_SDK_DIR}
+        DEPENDS
+            ${GO_SDK_DIR}/main.go
+            ${GO_SDK_DIR}/bootstrap.go
+            ${GO_SDK_DIR}/c_struct_import_export.go
+            ${GO_SDK_DIR}/conversion.go
+            ${GO_SDK_DIR}/multiparty.go
+        COMMENT "Building Go libraries (archive + shared)"
+    )
+    add_custom_target(go_libs DEPENDS ${LIBLATTIGO_A} ${LIBLATTIGO_SHARED} ${LIBLATTIGO_H_SANITIZED})
+endif()
 
 add_subdirectory(fhe_ops_lib)
 add_dependencies(fhe_ops_lib go_libs)

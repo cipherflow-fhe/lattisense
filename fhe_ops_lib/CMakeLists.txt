@@ -17,8 +17,11 @@ add_library(fhe_ops_lib SHARED $<TARGET_OBJECTS:fhe_ops_lib_obj>)
 target_include_directories(fhe_ops_lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/lattigo/go_sdk/)
 
 if(WIN32)
+    # Link against static archive — Go runtime is embedded into fhe_ops_lib.dll.
+    # c-shared (.dll) is not built on Windows because bridge_func is unresolved
+    # during Go's link phase (it's defined in bridge.c on the C++ side).
     target_link_libraries(fhe_ops_lib PUBLIC
-        ${CMAKE_CURRENT_SOURCE_DIR}/lattigo/go_sdk/liblattigo.dll ws2_32 winmm)
+        ${CMAKE_CURRENT_SOURCE_DIR}/lattigo/go_sdk/liblattigo.a ws2_32 winmm)
     set_target_properties(fhe_ops_lib PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
 else()
     target_link_libraries(fhe_ops_lib PUBLIC
