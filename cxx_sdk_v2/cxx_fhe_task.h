@@ -128,8 +128,10 @@ public:
     ~FheTaskGpu();
 
     void bind_custom_executors(const std::unordered_map<std::string, ExecutorFunc>& custom_executors) override;
-    uint64_t
-    run(FheContext* context, const std::vector<CxxVectorArgument>& cxx_args, ProgressCallback progress_cb = nullptr);
+    uint64_t run(FheContext* context,
+                 const std::vector<CxxVectorArgument>& cxx_args,
+                 ProgressCallback progress_cb = nullptr,
+                 int gpu_device = 0);
 
 protected:
     void bind_abi_executors() override;

@@ -65,8 +65,10 @@ void FheTaskGpu::bind_custom_executors(const std::unordered_map<std::string, Exe
     bind_gpu_task_custom_executors(task_handle, custom_types.data(), executor_ptrs.data(), custom_types.size());
 }
 
-uint64_t
-FheTaskGpu::run(FheContext* context, const std::vector<CxxVectorArgument>& cxx_args, ProgressCallback progress_cb) {
+uint64_t FheTaskGpu::run(FheContext* context,
+                         const std::vector<CxxVectorArgument>& cxx_args,
+                         ProgressCallback progress_cb,
+                         int gpu_device) {
     auto start = std::chrono::high_resolution_clock::now();
 
     int n_in_args = 0, n_out_args = 0;
@@ -98,7 +100,7 @@ FheTaskGpu::run(FheContext* context, const std::vector<CxxVectorArgument>& cxx_a
 
     // Call GPU runner (Handle will be converted via ABI bridge executors in MegaAG)
     int ret = run_fhe_gpu_task(task_handle, input_args.data(), input_args.size(), output_args.data(),
-                               output_args.size(), c_cb, c_ud);
+                               output_args.size(), c_cb, c_ud, gpu_device);
 
     if (ret != 0) {
         throw std::runtime_error("Failed to run GPU project");
