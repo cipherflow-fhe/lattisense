@@ -30,6 +30,17 @@ extern "C" {
 
 typedef struct fhe_task_handle_st* fhe_task_handle;
 
+/**
+ * @brief Progress callback function type for tracking mega_ag execution progress.
+ * @param completed Number of compute nodes completed so far.
+ * @param total Total number of compute nodes in the mega_ag graph.
+ * @param user_data Opaque pointer passed through from the caller.
+ *
+ * @note Called from worker threads. The caller is responsible for thread-safe handling.
+ * @note Throttled internally to at most once per 100ms. The final task always triggers a callback.
+ */
+typedef void (*progress_callback_t)(int completed, int total, void* user_data);
+
 // ========== CPU Task Functions ==========
 
 fhe_task_handle create_fhe_cpu_task(const char* project_path);
@@ -47,7 +58,9 @@ int run_fhe_cpu_task(fhe_task_handle handle,
                      CArgument* input_args,
                      uint64_t n_in_args,
                      CArgument* output_args,
-                     uint64_t n_out_args);
+                     uint64_t n_out_args,
+                     progress_callback_t progress_cb,
+                     void* user_data);
 
 // ========== GPU Task Functions ==========
 
@@ -66,7 +79,9 @@ int run_fhe_gpu_task(fhe_task_handle handle,
                      CArgument* input_args,
                      uint64_t n_in_args,
                      CArgument* output_args,
-                     uint64_t n_out_args);
+                     uint64_t n_out_args,
+                     progress_callback_t progress_cb,
+                     void* user_data);
 
 // ========== FPGA Task Functions ==========
 

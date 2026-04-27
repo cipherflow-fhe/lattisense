@@ -93,10 +93,11 @@ jobs:
             echo "No cache found, HEonGPU will be built automatically during cmake configure"
           fi
 
-      - name: Build SDK (CPU + GPU + FPGA)
+      - name: Build SDK (CPU + GPU + FPGA + Examples)
         run: |
           cmake -B build \
             -DLATTISENSE_BUILD_TESTS=ON \
+            -DLATTISENSE_BUILD_EXAMPLES=ON \
             -DLATTISENSE_ENABLE_GPU=ON \
             -DLATTISENSE_ENABLE_FPGA=ON \
             -DLATTISENSE_CUDA_ARCH=86 \
@@ -157,6 +158,54 @@ jobs:
           export LD_LIBRARY_PATH=$GITHUB_WORKSPACE/build/lib:$LD_LIBRARY_PATH
           ./test_fpga_bfv '~[.]' '~*power_dag*' '~*power_mul*'
           ./test_fpga_ckks
+
+      - name: Run CPU examples
+        timeout-minutes: 10
+        run: |
+          export PYTHONPATH=$GITHUB_WORKSPACE:$PYTHONPATH
+          export LD_LIBRARY_PATH=$GITHUB_WORKSPACE/build:$GITHUB_WORKSPACE/build/fhe_ops_lib:$GITHUB_WORKSPACE/fhe_ops_lib/lattigo/go_sdk:$LD_LIBRARY_PATH
+
+          cd build/examples/bfv_mult_cpu
+          python3 bfv_mult_cpu.py && ./bfv_mult_cpu
+
+          cd $GITHUB_WORKSPACE/build/examples/ckks_mult_cpu
+          python3 ckks_mult_cpu.py && ./ckks_mult_cpu
+
+          cd $GITHUB_WORKSPACE/build/examples/ckks_mult_serialization_cpu
+          ./ckks_mult_serialization_cpu
+
+          cd $GITHUB_WORKSPACE/build/examples/bfv_poly_7_cpu
+          python3 bfv_poly_7_cpu.py && ./bfv_poly_7_cpu
+
+          cd $GITHUB_WORKSPACE/build/examples/ckks_euclidean_distance_cpu
+          python3 ckks_euclidean_distance_cpu.py && ./ckks_euclidean_distance_cpu
+
+          cd $GITHUB_WORKSPACE/build/examples/ckks_logistic_regression_cpu
+          python3 ckks_logistic_regression_cpu.py && ./ckks_logistic_regression_cpu
+
+      - name: Run CPU benchmarks
+        timeout-minutes: 10
+        run: |
+          export PYTHONPATH=$GITHUB_WORKSPACE:$PYTHONPATH
+          export LD_LIBRARY_PATH=$GITHUB_WORKSPACE/build:$GITHUB_WORKSPACE/build/fhe_ops_lib:$GITHUB_WORKSPACE/fhe_ops_lib/lattigo/go_sdk:$LD_LIBRARY_PATH
+
+          cd $GITHUB_WORKSPACE/build/examples/benchmark_cpu
+          python3 benchmark_cpu.py && ./benchmark_cpu all
+
+          cd $GITHUB_WORKSPACE/build/examples/benchmark_convolution
+          python3 benchmark_convolution.py && ./benchmark_convolution_cpu
+
+      - name: Run GPU benchmarks
+        timeout-minutes: 10
+        run: |
+          export PYTHONPATH=$GITHUB_WORKSPACE:$PYTHONPATH
+          export LD_LIBRARY_PATH=$GITHUB_WORKSPACE/build:$GITHUB_WORKSPACE/build/fhe_ops_lib:$GITHUB_WORKSPACE/fhe_ops_lib/lattigo/go_sdk:$GITHUB_WORKSPACE/backends/HEonGPU/install/lib:$LD_LIBRARY_PATH
+
+          cd $GITHUB_WORKSPACE/build/examples/benchmark_gpu
+          python3 benchmark_gpu.py && ./benchmark_gpu all
+
+          cd $GITHUB_WORKSPACE/build/examples/benchmark_convolution
+          ./benchmark_convolution_gpu
 
   build-docker:
     if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')

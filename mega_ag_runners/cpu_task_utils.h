@@ -40,6 +40,11 @@
 #include "mega_ag.h"
 #include "../lib/gsl/span"
 
+/// Progress callback for tracking mega_ag execution.
+/// @param completed Number of compute nodes completed so far.
+/// @param total Total number of compute nodes.
+using ProgressCallback = std::function<void(int completed, int total)>;
+
 using namespace fhe_ops_lib;
 
 /**
@@ -371,7 +376,8 @@ void run_tasks(const MegaAG& mega_ag,
                                   std::condition_variable&,
                                   std::mutex&,
                                   std::unordered_map<NodeIndex, std::atomic<int>>&)> submit_backend_task = nullptr,
-               std::function<void()> cleanup = nullptr) {
+               std::function<void()> cleanup = nullptr,
+               ProgressCallback progress_callback = nullptr) {
     // Create thread-local contexts for CPU pool
     std::vector<std::unique_ptr<TContext>> context_ptrs = create_thread_contexts(pool, base_context);
 
@@ -389,13 +395,19 @@ void run_tasks(const MegaAG& mega_ag,
     std::priority_queue<TaskInfo> task_queue;
     std::set<NodeIndex> queued_computes;
 
+    // Progress callback throttle state (best-effort, no mutex)
+    using SteadyClock = std::chrono::steady_clock;
+    std::atomic<SteadyClock::rep> last_progress_time{0};
+    constexpr auto progress_interval = std::chrono::milliseconds(100);
+
     // Define CPU task submission function
     std::function<void(NodeIndex, const std::vector<std::any>&)> submit_task =
         [&](NodeIndex task_index, const std::vector<std::any>& other_args) {
             const BS::priority_t pool_priority = mega_ag.computes.at(task_index).priority;
             pool.detach_task(
                 [task_index, &mega_ag, &completed_tasks, &total_tasks, &m_mutex, &completion_mutex, &completion_cv,
-                 &available_data, &context_ptrs, &task_queue, &queued_computes, &data_ref_counts, other_args]() {
+                 &available_data, &context_ptrs, &task_queue, &queued_computes, &data_ref_counts, other_args,
+                 &progress_callback, &last_progress_time, progress_interval]() {
                     auto thread_id = BS::this_thread::get_index().value();
 
                     const ComputeNode& compute_node = mega_ag.computes.at(task_index);
@@ -458,6 +470,17 @@ void run_tasks(const MegaAG& mega_ag,
 
                     // Check if all tasks are completed
                     size_t prev = completed_tasks.fetch_add(1);
+                    if (progress_callback) {
+                        auto now = SteadyClock::now().time_since_epoch().count();
+                        auto last = last_progress_time.load(std::memory_order_relaxed);
+                        bool is_final = (prev + 1 >= total_tasks);
+                        bool throttle_ok = (now - last) >=
+                                           std::chrono::duration_cast<SteadyClock::duration>(progress_interval).count();
+                        if (is_final || throttle_ok) {
+                            last_progress_time.store(now, std::memory_order_relaxed);
+                            progress_callback(static_cast<int>(prev + 1), static_cast<int>(total_tasks.load()));
+                        }
+                    }
                     if (prev + 1 >= total_tasks) {
                         std::lock_guard<std::mutex> lock(completion_mutex);
                         completion_cv.notify_all();

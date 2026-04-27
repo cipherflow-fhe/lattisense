@@ -361,6 +361,10 @@ if(LATTISENSE_BUILD_MODE STREQUAL "SHARED")
         )
     endif()
 
+    if(LATTISENSE_ENABLE_FPGA)
+        target_link_libraries(lattisense PRIVATE fpga_ops fpga_bfv)
+    endif()
+
     set_target_properties(lattisense PROPERTIES
         INSTALL_RPATH "$ORIGIN"
         BUILD_WITH_INSTALL_RPATH OFF

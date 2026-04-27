@@ -45,7 +45,10 @@ namespace cpu_wrapper {
 using namespace fhe_ops_lib;
 
 template <HEScheme SchemeType, typename TContext>
-void _run_mega_ag_impl(gsl::span<CArgument> input_args, gsl::span<CArgument> output_args, const MegaAG& mega_ag) {
+void _run_mega_ag_impl(gsl::span<CArgument> input_args,
+                       gsl::span<CArgument> output_args,
+                       const MegaAG& mega_ag,
+                       ProgressCallback progress_cb = nullptr) {
     std::unique_ptr<TContext> context;
     init_context<SchemeType, TContext>(mega_ag.parameter, input_args, context);
 
@@ -78,7 +81,7 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args, gsl::span<CArgument> out
     MemoryMonitor mem_monitor(100);  // sample every 100 ms
     mem_monitor.start(MemoryMonitor::next_csv_path("mem_usage_cpu"));
 #endif
-    run_tasks(mega_ag, pool, context, available_data, get_other_args);
+    run_tasks(mega_ag, pool, context, available_data, get_other_args, nullptr, nullptr, progress_cb);
 #ifdef LATTISENSE_DEV
     mem_monitor.stop();
 #endif
@@ -91,23 +94,26 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args, gsl::span<CArgument> out
 }
 
 template <HEScheme SchemeType>
-void _run_mega_ag(gsl::span<CArgument> input_args, gsl::span<CArgument> output_args, const MegaAG& mega_ag) {
+void _run_mega_ag(gsl::span<CArgument> input_args,
+                  gsl::span<CArgument> output_args,
+                  const MegaAG& mega_ag,
+                  ProgressCallback progress_cb = nullptr) {
     // Determine TContext based on SchemeType and bootstrap parameters
     if constexpr (SchemeType == HEScheme::CKKS) {
         // Check if bootstrap parameters exist
         if (mega_ag.parameter.contains("btp_output_level")) {
             // Use CkksBtpContext for bootstrap
             using TContext = CkksBtpContext;
-            _run_mega_ag_impl<SchemeType, TContext>(input_args, output_args, mega_ag);
+            _run_mega_ag_impl<SchemeType, TContext>(input_args, output_args, mega_ag, progress_cb);
         } else {
             // Use regular CkksContext
             using TContext = CkksContext;
-            _run_mega_ag_impl<SchemeType, TContext>(input_args, output_args, mega_ag);
+            _run_mega_ag_impl<SchemeType, TContext>(input_args, output_args, mega_ag, progress_cb);
         }
     } else {
         // BFV always uses BfvContext
         using TContext = BfvContext;
-        _run_mega_ag_impl<SchemeType, TContext>(input_args, output_args, mega_ag);
+        _run_mega_ag_impl<SchemeType, TContext>(input_args, output_args, mega_ag, progress_cb);
     }
 }
 
@@ -126,10 +132,10 @@ public:
         mega_ag_.bind_abi_bridge_executors(abi_export, abi_import);
     }
 
-    int run(gsl::span<CArgument> input_args, gsl::span<CArgument> output_args) {
+    int run(gsl::span<CArgument> input_args, gsl::span<CArgument> output_args, ProgressCallback progress_cb = nullptr) {
         switch (mega_ag_.algo) {
-            case Algo::ALGO_BFV: _run_mega_ag<HEScheme::BFV>(input_args, output_args, mega_ag_); break;
-            case Algo::ALGO_CKKS: _run_mega_ag<HEScheme::CKKS>(input_args, output_args, mega_ag_); break;
+            case Algo::ALGO_BFV: _run_mega_ag<HEScheme::BFV>(input_args, output_args, mega_ag_, progress_cb); break;
+            case Algo::ALGO_CKKS: _run_mega_ag<HEScheme::CKKS>(input_args, output_args, mega_ag_, progress_cb); break;
             default: throw std::invalid_argument("algo not supported"); break;
         }
 
@@ -176,10 +182,18 @@ int run_fhe_cpu_task(fhe_task_handle handle,
                      CArgument* input_args,
                      uint64_t n_in_args,
                      CArgument* output_args,
-                     uint64_t n_out_args) {
+                     uint64_t n_out_args,
+                     progress_callback_t progress_cb,
+                     void* user_data) {
     cpu_wrapper::FheCpuTask* task = (cpu_wrapper::FheCpuTask*)handle;
     gsl::span<CArgument> input_arg_span{input_args, n_in_args};
     gsl::span<CArgument> output_arg_span{output_args, n_out_args};
-    return task->run(input_arg_span, output_arg_span);
+
+    // Wrap C callback into ProgressCallback (std::function)
+    ProgressCallback cb;
+    if (progress_cb) {
+        cb = [progress_cb, user_data](int completed, int total) { progress_cb(completed, total, user_data); };
+    }
+    return task->run(input_arg_span, output_arg_span, cb);
 }
 }  // extern "C"

@@ -59,7 +59,8 @@ void FheTaskCpu::bind_custom_executors(const std::unordered_map<std::string, Exe
     bind_cpu_task_custom_executors(task_handle, custom_types.data(), executor_ptrs.data(), custom_types.size());
 }
 
-uint64_t FheTaskCpu::run(FheContext* context, const std::vector<CxxVectorArgument>& cxx_args) {
+uint64_t
+FheTaskCpu::run(FheContext* context, const std::vector<CxxVectorArgument>& cxx_args, ProgressCallback progress_cb) {
     auto start = std::chrono::high_resolution_clock::now();
 
     int n_in_args = 0, n_out_args = 0;
@@ -76,8 +77,19 @@ uint64_t FheTaskCpu::run(FheContext* context, const std::vector<CxxVectorArgumen
 
     export_public_key_arguments(key_signature, input_args, context, _key_storage);
 
-    int ret =
-        run_fhe_cpu_task(task_handle, input_args.data(), input_args.size(), output_args.data(), output_args.size());
+    // Wrap std::function into C callback
+    progress_callback_t c_cb = nullptr;
+    void* c_ud = nullptr;
+    if (progress_cb) {
+        c_cb = [](int completed, int total, void* ud) {
+            auto* fn = static_cast<ProgressCallback*>(ud);
+            (*fn)(completed, total);
+        };
+        c_ud = &progress_cb;
+    }
+
+    int ret = run_fhe_cpu_task(task_handle, input_args.data(), input_args.size(), output_args.data(),
+                               output_args.size(), c_cb, c_ud);
 
     if (ret != 0) {
         throw std::runtime_error("Failed to run CPU project");

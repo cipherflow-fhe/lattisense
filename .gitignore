@@ -86,3 +86,6 @@ unittests/test_config.py
 credentials.json
 .env
 .env.local
+
+# Superpowers (AI agent workspace)
+.superpowers/

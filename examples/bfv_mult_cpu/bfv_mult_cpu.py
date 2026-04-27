@@ -37,7 +37,7 @@ def bfv_mult():
     process_custom_task(
         input_args=[Argument('x', x), Argument('y', y)],
         output_args=[Argument('z', z)],
-        output_instruction_path='bfv_mult_cpu',
+        output_instruction_path='project',
         fpga_acc=False,
     )
 

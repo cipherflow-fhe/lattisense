@@ -107,7 +107,8 @@ void benchmark_convolution(uint32_t input_size, uint32_t kernel_size, uint32_t n
     FheTaskCpu task(project_path);
 
     auto start = std::chrono::high_resolution_clock::now();
-    task.run(&context, cxx_args);
+    task.run(&context, cxx_args,
+             [](int done, int total) { printf("[CPU Progress] %d/%d (%.0f%%)\n", done, total, 100.0 * done / total); });
     auto end = std::chrono::high_resolution_clock::now();
 
     double elapsed_ms = std::chrono::duration<double, std::milli>(end - start).count();

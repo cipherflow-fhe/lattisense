@@ -44,7 +44,9 @@ void benchmark_bfv_mult_relin() {
 
     FheTaskCpu task("bfv_mult_relin");
     std::vector<CxxVectorArgument> args = {{"xs", &xs}, {"ys", &ys}, {"zs", &zs}};
-    uint64_t time_ns = task.run(&ctx, args);
+    uint64_t time_ns = task.run(&ctx, args, [](int done, int total) {
+        printf("[Progress] %d/%d (%.0f%%)\n", done, total, 100.0 * done / total);
+    });
 
     printf("BFV mult_relin: %d ops, %.2f ms, %.1f ops/sec\n", n_op, time_ns / 1.0e6, n_op / (time_ns / 1.0e9));
 }
@@ -69,7 +71,9 @@ void benchmark_ckks_mult_relin() {
 
     FheTaskCpu task("ckks_mult_relin");
     std::vector<CxxVectorArgument> args = {{"xs", &xs}, {"ys", &ys}, {"zs", &zs}};
-    uint64_t time_ns = task.run(&ctx, args);
+    uint64_t time_ns = task.run(&ctx, args, [](int done, int total) {
+        printf("[Progress] %d/%d (%.0f%%)\n", done, total, 100.0 * done / total);
+    });
 
     printf("CKKS mult_relin: %d ops, %.2f ms, %.1f ops/sec\n", n_op, time_ns / 1.0e6, n_op / (time_ns / 1.0e9));
 }
@@ -95,7 +99,9 @@ void benchmark_bfv_rotate_col() {
 
     FheTaskCpu task("bfv_rotate_col");
     std::vector<CxxVectorArgument> args = {{"xs", &xs}, {"ys", &ys}};
-    uint64_t time_ns = task.run(&ctx, args);
+    uint64_t time_ns = task.run(&ctx, args, [](int done, int total) {
+        printf("[Progress] %d/%d (%.0f%%)\n", done, total, 100.0 * done / total);
+    });
 
     printf("BFV rotate_col: %d ops, %.2f ms, %.1f ops/sec\n", n_op, time_ns / 1.0e6, n_op / (time_ns / 1.0e9));
 }
