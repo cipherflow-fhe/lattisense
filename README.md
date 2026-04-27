@@ -192,6 +192,15 @@ cmake -B build -DLATTISENSE_ENABLE_GPU=ON -DLATTISENSE_CUDA_ARCH=<arch>
 cmake --build build -j$(nproc)
 ```
 
+To select a CUDA device at runtime, pass the device index to `FheTaskGpu::run()`:
+
+```cpp
+FheTaskGpu task("my_task");
+task.run(&context, cxx_args, nullptr, 1);  // run on CUDA device 1
+```
+
+The default device is `0` when the argument is omitted.
+
 > **Slow CCCL download?** Use a mirror:
 > ```bash
 > cmake -B build -DLATTISENSE_ENABLE_GPU=ON -DLATTISENSE_CUDA_ARCH=<arch> \
