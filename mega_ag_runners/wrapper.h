@@ -64,7 +64,7 @@ int run_fhe_cpu_task(fhe_task_handle handle,
 
 // ========== GPU Task Functions ==========
 
-fhe_task_handle create_fhe_gpu_task(const char* project_path);
+fhe_task_handle create_fhe_gpu_task(const char* project_path, int gpu_device);
 
 void release_fhe_gpu_task(fhe_task_handle handle);
 

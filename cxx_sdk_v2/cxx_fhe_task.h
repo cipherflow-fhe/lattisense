@@ -121,9 +121,7 @@ protected:
 
 class FheTaskGpu : public FheTask {
 public:
-    using FheTask::FheTask;
-
-    FheTaskGpu(const std::string& project_path);
+    FheTaskGpu(const std::string& project_path, int gpu_device = 0);
 
     ~FheTaskGpu();
 

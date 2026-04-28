@@ -28,8 +28,8 @@ namespace lattisense {
 
 const int GPU_MFORM_BITS = 0;
 
-FheTaskGpu::FheTaskGpu(const std::string& project_path) : FheTask{project_path} {
-    task_handle = create_fhe_gpu_task(project_path.c_str());
+FheTaskGpu::FheTaskGpu(const std::string& project_path, int gpu_device) : FheTask{project_path} {
+    task_handle = create_fhe_gpu_task(project_path.c_str(), gpu_device);
 
     bind_abi_executors();
 }

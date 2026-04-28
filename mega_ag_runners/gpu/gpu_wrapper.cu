@@ -385,22 +385,9 @@ void _run_mega_ag(gsl::span<CArgument> input_args,
 
 class FheGpuTask {
 public:
-    FheGpuTask(const std::string& project_path) {
+    FheGpuTask(const std::string& project_path, int gpu_device = 0) : gpu_device_(gpu_device) {
         mega_ag_ = MegaAG::load(project_path + "/mega_ag.json", Processor::GPU);
-
-        cudaSetDevice(0);  // Warm up default device; actual device is selected at run time
-
-        // Warm up the CUDA context, so that the computation time measurment is more accurate.
-        heongpu::HEContext<heongpu::Scheme::BFV> context(heongpu::keyswitching_type::KEYSWITCHING_METHOD_II,
-                                                         heongpu::sec_level_type::none);
-        context.set_poly_modulus_degree(8192);
-        context.set_coeff_modulus_values({18014398508400641, 18014398510645249, 18014398510661633},
-                                         {36028797018652673});
-        context.set_plain_modulus(65537);
-        context.generate();
-        heongpu::HEKeyGenerator<heongpu::Scheme::BFV> keygen(context);
-        heongpu::Secretkey<heongpu::Scheme::BFV> secret_key(context);
-        keygen.generate_secret_key(secret_key);
+        warm_up_device(gpu_device_);
     }
 
     ~FheGpuTask() {}
@@ -432,12 +419,19 @@ public:
             gsl::span<CArgument> output_args,
             ProgressCallback progress_cb = nullptr,
             int gpu_device = 0) {
+        if (gpu_device != gpu_device_) {
+            gpu_device_ = gpu_device;
+            warm_up_device(gpu_device_);
+        } else {
+            CHECK(cudaSetDevice(gpu_device_));
+        }
+
         switch (mega_ag_.algo) {
             case Algo::ALGO_BFV:
-                _run_mega_ag<heongpu::Scheme::BFV>(input_args, output_args, mega_ag_, progress_cb, gpu_device);
+                _run_mega_ag<heongpu::Scheme::BFV>(input_args, output_args, mega_ag_, progress_cb, gpu_device_);
                 break;
             case Algo::ALGO_CKKS:
-                _run_mega_ag<heongpu::Scheme::CKKS>(input_args, output_args, mega_ag_, progress_cb, gpu_device);
+                _run_mega_ag<heongpu::Scheme::CKKS>(input_args, output_args, mega_ag_, progress_cb, gpu_device_);
                 break;
             default: throw std::invalid_argument("algo not supported"); break;
         }
@@ -448,13 +442,31 @@ public:
     }
 
 protected:
+    void warm_up_device(int gpu_device) {
+        CHECK(cudaSetDevice(gpu_device));
+
+        // Warm up the CUDA context so timing is more accurate and HEonGPU device-local resources are initialized on
+        // the same device that will execute the task.
+        heongpu::HEContext<heongpu::Scheme::BFV> context(heongpu::keyswitching_type::KEYSWITCHING_METHOD_II,
+                                                         heongpu::sec_level_type::none);
+        context.set_poly_modulus_degree(8192);
+        context.set_coeff_modulus_values({18014398508400641, 18014398510645249, 18014398510661633},
+                                         {36028797018652673});
+        context.set_plain_modulus(65537);
+        context.generate();
+        heongpu::HEKeyGenerator<heongpu::Scheme::BFV> keygen(context);
+        heongpu::Secretkey<heongpu::Scheme::BFV> secret_key(context);
+        keygen.generate_secret_key(secret_key);
+    }
+
     MegaAG mega_ag_;
+    int gpu_device_;
 };
 };  // namespace gpu_wrapper
 
 extern "C" {
-fhe_task_handle create_fhe_gpu_task(const char* project_path) {
-    gpu_wrapper::FheGpuTask* task = new gpu_wrapper::FheGpuTask(project_path);
+fhe_task_handle create_fhe_gpu_task(const char* project_path, int gpu_device) {
+    gpu_wrapper::FheGpuTask* task = new gpu_wrapper::FheGpuTask(project_path, gpu_device);
     return (fhe_task_handle)task;
 }
 
