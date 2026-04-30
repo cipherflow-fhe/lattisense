@@ -18,9 +18,13 @@
 
 #include <stdio.h>
 #include <sys/time.h>
+#include <string.h>
 #include <functional>
 #include <stdexcept>
 #include "fhe_lib_v2.h"
+
+#include <vector>
+
 
 using namespace std::placeholders;
 
@@ -603,7 +607,7 @@ uint64_t BfvCiphertext::get_coeff(int poly_idx, int rns_idx, int coeff_idx) cons
 int BfvCiphertext3::get_level() const {
     return GetBfvCiphertext3Level(this->get());
 }
-
+////////////////////////////////////////////////////////////////////////
 // CKKS
 CkksParameter CkksParameter::create_fpga_parameter() {
     return CkksParameter(CreateCkksParameterV2());
@@ -764,7 +768,10 @@ CkksContext CkksContext::deserialize_advanced(BytesView data) {
     CkksContextDecompress(context.get());
     return context;
 }
-
+// 获取当前 CkksContext 的底层句柄 this->get()。
+// 将输入 vector<double> 的原始指针和长度传给底层 C 函数 CkksEncode。
+// CkksEncode 在底层执行编码（包括扩维、缩放、取模），返回一个新分配的明文句柄（uint64_t）。
+// 用该句柄构造一个 CkksPlaintext 对象（继承自 Handle）并返回
 CkksPlaintext CkksContext::encode(const std::vector<double>& x_mg, int level, double scale) {
     return CkksPlaintext(CkksEncode(this->get(), (double*)x_mg.data(), x_mg.size(), level, scale));
 }
@@ -796,13 +803,15 @@ CkksPlaintextMul CkksContext::encode_coeffs_mul(const std::vector<double>& x_mg,
 std::vector<double> CkksContext::decode(const CkksPlaintext& x_pt) {
     double* raw_data;
     uint64_t length;
+    // 调用 CkksDecode，底层返回一个 double* 数组，其中交错存储了复数结果的实部和虚部
     uint64_t binary_data_handle = CkksDecode(this->get(), x_pt.get(), &raw_data, &length);
     std::vector<double> message(length);
     // Copy only the real part of the complex values.
+    // 将实部拷贝到 std::vector<double> 中
     for (int i = 0; i < length; i++) {
         message[i] = raw_data[i * 2];
     }
-    ReleaseHandle(binary_data_handle);
+    ReleaseHandle(binary_data_handle);// 释放底层数据内存
     return message;
 }
 
@@ -837,7 +846,10 @@ CkksCiphertext CkksContext::new_ciphertext(int level, double scale) {
 CkksCiphertext3 CkksContext::new_ciphertext3(int level, double scale) {
     return CkksCiphertext3(NewCkksCiphertext(this->get(), 2, level, scale));
 }
-
+// 从上下文获取公钥（公钥已经存储在 CkksContext 句柄中）。
+// 调用 CkksEncryptAsymmetric，传入上下文句柄和明文句柄。
+// 底层执行加密，返回新密文句柄。
+// 包装为 CkksCiphertext 返回
 CkksCiphertext CkksContext::encrypt_asymmetric(const CkksPlaintext& x_pt) {
     return CkksCiphertext(CkksEncryptAsymmetric(this->get(), x_pt.get()));
 }
@@ -856,6 +868,7 @@ CkksCiphertext CkksContext::compressed_ciphertext_to_ciphertext(const CkksCompre
 
 CkksPlaintext CkksContext::decrypt(const CkksCiphertext& x_ct) {
     uint64_t plaintext_handle_id;
+    // 使用上下文中的秘密密钥（SecretKey）对密文解密。调用 CkksDecrypt，输出明文句柄
     CHECK(CkksDecrypt(this->get(), x_ct.get(), &plaintext_handle_id));
     return CkksPlaintext(std::move(plaintext_handle_id));
 }
@@ -909,7 +922,9 @@ CkksBtpContext CkksBtpContext::make_public_context() {
 CkksCiphertext CkksContext::add_plain(const CkksCiphertext& x0_ct, const CkksPlaintext& x1_pt) {
     return CkksCiphertext(CkksAddPlain(this->get(), x0_ct.get(), x1_pt.get()));
 }
-
+// 获取上下文句柄、两个密文句柄。
+// 调用 CkksAdd，底层执行多项式加法（模各个 RNS 分量）。
+// 返回新密文句柄，包装后返回。
 CkksCiphertext CkksContext::add(const CkksCiphertext& x0_ct, const CkksCiphertext& x1_ct) {
     return CkksCiphertext(CkksAdd(this->get(), x0_ct.get(), x1_ct.get()));
 }
@@ -944,7 +959,9 @@ CkksPlaintext CkksContext::ringt_to_pt(const CkksPlaintextRingt& pt_ringt, int l
 CkksCiphertext CkksContext::negate(const CkksCiphertext& x0_ct) {
     return CkksCiphertext(CkksNegate(this->get(), x0_ct.get()));
 }
-
+// 调用 CkksMult 执行多项式乘法（在 NTT 域中），结果是一个包含三个多项式的密文（因为乘法使密文维度从 2 增加到 3）。
+// 返回 CkksCiphertext3 对象。
+// 之后通常需要调用 relinearize 将维度降回 2
 CkksCiphertext3 CkksContext::mult(const CkksCiphertext& x0_ct, const CkksCiphertext& x1_ct) {
     return CkksCiphertext3(CkksMult(this->get(), x0_ct.get(), x1_ct.get()));
 }
@@ -960,7 +977,9 @@ CkksCiphertext CkksContext::mult_plain_mul(const CkksCiphertext& x0_ct, const Ck
 CkksPlaintextMul CkksContext::ringt_to_mul(const CkksPlaintextRingt& x_pt, int level) {
     return CkksPlaintextMul(CkksPlaintextRingtToPlaintextMul(this->get(), x_pt.get(), level));
 }
-
+// 输入是 CkksCiphertext3（三个多项式），输出是 CkksCiphertext（两个多项式）。
+// 调用 CkksRelinearize，使用上下文中的重线性化密钥（RelinKey）将第三项分解回第二项。
+// 返回新的二级密文。
 CkksCiphertext CkksContext::relinearize(const CkksCiphertext3& x_ct) {
     return CkksCiphertext(CkksRelinearize(this->get(), x_ct.get()));
 }
@@ -972,7 +991,9 @@ CkksCiphertext CkksContext::drop_level(const CkksCiphertext& x_ct, int levels) {
 CkksCiphertext CkksContext::rescale(const CkksCiphertext& x_ct, double min_scale) {
     return CkksCiphertext(CkksRescale(this->get(), x_ct.get(), min_scale));
 }
-
+// 这里使用了 CHECK 宏和输出参数 y_ct_handle_id，与 BFV 风格一致。
+// 调用 CkksRotate，传入步长 step 和数量 1，底层利用 Galois 密钥对密文多项式系数进行循环移位。
+// 检查错误，将得到的句柄移动构造为 CkksCiphertext 返回。
 CkksCiphertext CkksContext::rotate(const CkksCiphertext& x_ct, int32_t step) {
     uint64_t y_ct_handle_id;
     CHECK(CkksRotate(this->get(), x_ct.get(), &step, 1, &y_ct_handle_id));
@@ -1006,6 +1027,8 @@ std::map<int32_t, CkksCiphertext> CkksContext::advanced_rotate(const CkksCiphert
     return ct_rotated_map;
 }
 
+// 多项式计算，可直接调用使用
+// softmax中可用于exp的计算和倒数的计算
 CkksCiphertext
 CkksContext::poly_eval_relu_function(const CkksCiphertext& x_ct_h, double left, double right, int degree) {
     return CkksCiphertext(PolyEvalReluFunction(this->get(), x_ct_h.get(), left, right, degree));
@@ -1019,6 +1042,124 @@ CkksContext::poly_eval_function(Operation op, const CkksCiphertext& x_ct_h, doub
     }
 
     throw std::invalid_argument("CkksContext::poly_eval_function() unsupported operation type.");
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////
+// 单独添加基于chebyshev基的多项式求值
+////////////////////////////////////////////////////////////////////////////////////////////////////////
+// 在 CkksContext 中实现基于切比雪夫系数的求值
+CkksCiphertext CkksContext::poly_eval_chebyshev(const CkksCiphertext& x_ct, const std::vector<double>& coeffs, double a, 
+                                                double b, uint64_t slots, double base_scale)
+{
+
+   if (coeffs.empty()) {
+        throw std::invalid_argument("Chebyshev coefficients cannot be empty.");
+    }
+    
+    int n = coeffs.size() - 1; 
+
+    // 辅助 Lambda：将单个标量编码为填充整个 Slot 的明文
+    auto encode_scalar = [&](double val, int level) {
+        return this->encode(std::vector<double>(slots, val), level, base_scale);
+    };
+
+    // ==========================================
+    // 1. 映射 x 到 [-1, 1] 区间，得到 x' 和 2x'
+    // x' = x * (2/(b-a)) - (a+b)/(b-a)
+    // ==========================================
+    CkksPlaintext pt_scale = encode_scalar(2.0 / (b - a), x_ct.get_level()); 
+    CkksCiphertext x_prime_ct = this->mult_plain(x_ct, pt_scale);
+    x_prime_ct = this->rescale(x_prime_ct, base_scale); 
+
+    CkksPlaintext pt_shift = encode_scalar(-(a + b) / (b - a), x_prime_ct.get_level());
+    x_prime_ct = this->add_plain(x_prime_ct, pt_shift);
+
+    // 利用同态加法获得 2x'，0 开销
+    CkksCiphertext x2_ct = this->add(x_prime_ct, x_prime_ct);
+
+    // ==========================================
+    // 2. 处理低次多项式的边界情况
+    // ==========================================
+    if (n == 0) {
+        CkksCiphertext zero_ct = this->sub(x_ct, x_ct); // 巧妙生成全 0 密文
+        return this->add_plain(zero_ct, encode_scalar(coeffs[0], zero_ct.get_level()));
+    }
+    if (n == 1) {
+        // Result = x' * c_1 + c_0
+        CkksCiphertext res = this->mult_plain(x_prime_ct, encode_scalar(coeffs[1], x_prime_ct.get_level()));
+        res = this->rescale(res, base_scale);
+        return this->add_plain(res, encode_scalar(coeffs[0], res.get_level()));
+    }
+
+    // ==========================================
+    // 3. Clenshaw 迭代核心逻辑 (n >= 2)
+    // 经过数学展开，手动处理 i=n, i=n-1, i=n-2
+    // ==========================================
+    CkksCiphertext b_next2;
+    CkksCiphertext b_next1;
+
+    // 展开 Step: i = n - 1
+    // 数学: b_{n-1} = 2x' * c_n + c_{n-1}
+    b_next1 = this->mult_plain(x2_ct, encode_scalar(coeffs[n], x2_ct.get_level()));
+    b_next1 = this->rescale(b_next1, base_scale);
+    b_next1 = this->add_plain(b_next1, encode_scalar(coeffs[n - 1], b_next1.get_level()));
+
+    if (n == 2) {
+        // n=2 时的终结步: Result = x' * b_1 - c_2 + c_0
+        CkksCiphertext x_prime_dropped = this->drop_level(x_prime_ct, x_prime_ct.get_level() - b_next1.get_level());
+        CkksCiphertext3 temp3 = this->mult(x_prime_dropped, b_next1);
+        CkksCiphertext temp = this->relinearize(temp3);
+        temp = this->rescale(temp, base_scale);
+        // c_0 - c_2 直接在明文合并
+        return this->add_plain(temp, encode_scalar(coeffs[0], temp.get_level()));// 修改
+    }
+
+    // 展开 Step: i = n - 2
+    // 数学: b_{n-2} = 2x' * b_{n-1} - c_n + c_{n-2}
+    CkksCiphertext x2_dropped = this->drop_level(x2_ct, x2_ct.get_level() - b_next1.get_level());
+    CkksCiphertext3 temp3 = this->mult(x2_dropped, b_next1);
+    CkksCiphertext temp = this->relinearize(temp3);
+    temp = this->rescale(temp, base_scale);
+    temp = this->add_plain(temp, encode_scalar(coeffs[n - 2], temp.get_level())); // 修改
+
+    b_next2 = std::move(b_next1);
+    b_next1 = std::move(temp);
+
+    // 标准 Clenshaw 循环: i = n - 3 下降到 1
+    for (int i = n - 3; i >= 1; --i) {
+        // 1. 对齐 x2_ct 并执行乘法
+        x2_dropped = this->drop_level(x2_ct, x2_ct.get_level() - b_next1.get_level());
+        temp3 = this->mult(x2_dropped, b_next1);
+        temp = this->relinearize(temp3);
+        temp = this->rescale(temp, base_scale);
+
+        // 2. 对齐 b_{i+2} 的层级并相减 (b_{i+2} 永远比乘法后的 temp 高2个 level)
+        CkksCiphertext b_next2_dropped = this->drop_level(b_next2, b_next2.get_level() - temp.get_level());
+        temp = this->sub(temp, b_next2_dropped);
+        
+        // 3. 加上当前常数 c_i
+        temp = this->add_plain(temp, encode_scalar(coeffs[i], temp.get_level()));
+
+        // 4. 状态更新
+        b_next2 = std::move(b_next1);
+        b_next1 = std::move(temp);
+
+    }
+
+    // ==========================================
+    // 4. Clenshaw 终结步 (i = 0)
+    // 数学: Result = x' * b_1 - b_2 + c_0
+    // ==========================================
+    CkksCiphertext x_prime_dropped = this->drop_level(x_prime_ct, x_prime_ct.get_level() - b_next1.get_level());
+    temp3 = this->mult(x_prime_dropped, b_next1);
+    CkksCiphertext res = this->relinearize(temp3);
+    res = this->rescale(res, base_scale);
+
+    CkksCiphertext b_next2_dropped = this->drop_level(b_next2, b_next2.get_level() - res.get_level());
+    res = this->sub(res, b_next2_dropped);
+    res = this->add_plain(res, encode_scalar(coeffs[0], res.get_level()));
+
+    return res;
 }
 
 CkksCiphertext CkksContext::conjugate(const CkksCiphertext& x_ct) {
@@ -1164,7 +1305,7 @@ void CkksCiphertext3::copy_to(const CkksCiphertext3& y_ct) const {
 double CkksCiphertext3::set_scale(double scale_in) const {
     return SetCkksCiphertextScale(this->get(), scale_in);
 }
-
+///////////////////////////////////////////////////////////////////
 DBfvContext
 DBfvContext::create_random_context(const BfvParameter& param, const std::vector<uint8_t>& seed, double sigma_smudging) {
     BfvContext context = BfvContext::create_empty_context(param);
