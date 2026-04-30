@@ -21,6 +21,7 @@
 #include <string.h>
 #include <functional>
 #include <stdexcept>
+#include <cstring>
 #include "fhe_lib_v2.h"
 
 using namespace std::placeholders;
@@ -618,6 +619,14 @@ CkksBtpParameter CkksBtpParameter::create_toy_parameter() {
     return CkksBtpParameter(CreateCkksToyBtpParameter());
 }
 
+CkksBtpParameter CkksBtpParameter::create_parameter_with_log_slots(uint8_t log_slots) {
+    return CkksBtpParameter(CreateCkksBtpParameterWithLogSlots(log_slots));
+}
+
+CkksBtpParameter CkksBtpParameter::create_toy_parameter_with_log_slots(uint8_t log_slots) {
+    return CkksBtpParameter(CreateCkksToyBtpParameterWithLogSlots(log_slots));
+}
+
 // CkksParameter
 CkksParameter CkksParameter::create_parameter(uint64_t N) {
     return CkksParameter(CreateCkksParameter(N));
@@ -782,6 +791,27 @@ CkksPlaintextMul CkksContext::encode_mul(const std::vector<double>& x_mg, int le
     return CkksPlaintextMul(CkksEncodeMul(this->get(), (double*)x_mg.data(), x_mg.size(), level, scale));
 }
 
+CkksPlaintext CkksContext::encode_with_slots(const std::vector<double>& x_mg, int level, double scale, int log_slots) {
+    return CkksPlaintext(CkksEncodeWithSlots(this->get(), (double*)x_mg.data(), x_mg.size(), level, scale, log_slots));
+}
+
+CkksPlaintext
+CkksContext::encode_complex_with_slots(const std::vector<double>& x_mg, int level, double scale, int log_slots) {
+    return CkksPlaintext(
+        CkksEncodeComplexWithSlots(this->get(), (double*)x_mg.data(), x_mg.size() / 2, level, scale, log_slots));
+}
+
+CkksPlaintextRingt CkksContext::encode_ringt_with_slots(const std::vector<double>& x_mg, double scale, int log_slots) {
+    return CkksPlaintextRingt(
+        CkksEncodeRingtWithSlots(this->get(), (double*)x_mg.data(), x_mg.size(), scale, log_slots));
+}
+
+CkksPlaintextMul
+CkksContext::encode_mul_with_slots(const std::vector<double>& x_mg, int level, double scale, int log_slots) {
+    return CkksPlaintextMul(
+        CkksEncodeMulWithSlots(this->get(), (double*)x_mg.data(), x_mg.size(), level, scale, log_slots));
+}
+
 CkksPlaintext CkksContext::encode_coeffs(const std::vector<double>& x_mg, int level, double scale) {
     return CkksPlaintext(CkksEncodeCoeffs(this->get(), (double*)x_mg.data(), x_mg.size(), level, scale));
 }
@@ -798,6 +828,19 @@ std::vector<double> CkksContext::decode(const CkksPlaintext& x_pt) {
     double* raw_data;
     uint64_t length;
     uint64_t binary_data_handle = CkksDecode(this->get(), x_pt.get(), &raw_data, &length);
+    std::vector<double> message(length);
+    // Copy only the real part of the complex values.
+    for (int i = 0; i < length; i++) {
+        message[i] = raw_data[i * 2];
+    }
+    ReleaseHandle(binary_data_handle);
+    return message;
+}
+
+std::vector<double> CkksContext::decode_with_slots(const CkksPlaintext& x_pt, int log_slots) {
+    double* raw_data;
+    uint64_t length;
+    uint64_t binary_data_handle = CkksDecodeWithSlots(this->get(), x_pt.get(), &raw_data, &length, log_slots);
     std::vector<double> message(length);
     // Copy only the real part of the complex values.
     for (int i = 0; i < length; i++) {
@@ -874,6 +917,10 @@ CkksBtpContext CkksBtpContext::create_random_context(const CkksBtpParameter& par
 
 CkksBtpContext CkksBtpContext::create_empty_context(const CkksBtpParameter& param) {
     return CkksBtpContext(CreateEmptyCkksBtpContext(param.get()));
+}
+
+CkksBtpContext CkksBtpContext::create_context_from_sk(const CkksBtpParameter& parameter, const SecretKey& sk) {
+    return CkksBtpContext(CreateCkksBtpContextFromSK(parameter.get(), sk.get()));
 }
 
 void CkksBtpContext::gen_rotation_keys() {
@@ -1034,8 +1081,14 @@ CkksCiphertext CkksContext::poly_eval_step_function(const CkksCiphertext& x_ct,
     return CkksCiphertext(CkksPolyEvalStepFunction(this->get(), x_ct.get(), left, right, degree, threshold));
 }
 
-CkksCiphertext CkksBtpContext::bootstrap(const CkksCiphertext& x_ct) {
-    return CkksCiphertext(CkksBootstrap(this->get(), x_ct.get()));
+CkksCiphertext CkksBtpContext::bootstrap(const CkksCiphertext& x_ct, int log_slots) {
+    if (log_slots == -1) {
+        return CkksCiphertext(CkksBootstrap(this->get(), x_ct.get()));
+    }
+    if (log_slots >= _sparse_contexts.size() || !_sparse_contexts[log_slots]) {
+        throw std::runtime_error("Sparse bootstrapper not initialized for log_slots: " + std::to_string(log_slots));
+    }
+    return CkksCiphertext(CkksBootstrap(_sparse_contexts[log_slots]->get(), x_ct.get()));
 }
 
 CkksBtpContext& CkksBtpContext::get_copy(int index) {
@@ -1050,13 +1103,113 @@ CkksBtpContext& CkksBtpContext::get_copy(int index) {
 }
 
 // cppcheck-suppress duplInheritedMember
-Bytes CkksBtpContext::serialize() const {
+Bytes CkksBtpContext::serialize_go() const {
     return export_raw_data<uint8_t>(std::bind(SerializeCkksBtpContextAdvanced, this->get(), _1, _2));
 }
 
 // cppcheck-suppress duplInheritedMember
-CkksBtpContext CkksBtpContext::deserialize(BytesView data) {
+CkksBtpContext CkksBtpContext::deserialize_go(BytesView data) {
     return CkksBtpContext(DeserializeCkksBtpContextAdvanced((uint8_t*)data.data(), data.size()));
+}
+
+// cppcheck-suppress duplInheritedMember
+Bytes CkksBtpContext::serialize() const {
+    Bytes main_data = this->serialize_go();
+    uint32_t num_sparse = 0;
+    // Special Header
+    uint32_t magic = 0x53504152;  // SPAR
+
+    // collect all non-empty sparse contexts
+    std::vector<std::pair<int32_t, Bytes>> sparse_data_list;
+    for (int ls = 0; ls < _sparse_contexts.size(); ls++) {
+        if (_sparse_contexts[ls]) {
+            Bytes s_data = _sparse_contexts[ls]->serialize_go();
+            sparse_data_list.push_back({ls, std::move(s_data)});
+            num_sparse++;
+        }
+    }
+
+    uint64_t total_size = sizeof(uint32_t) * 2 + sizeof(uint64_t) + main_data.size();
+    for (const auto& item : sparse_data_list) {
+        total_size += sizeof(int32_t) + sizeof(uint64_t) + item.second.size();
+    }
+
+    Bytes result(total_size);
+    uint8_t* ptr = result.data();
+
+    // Write header: [magic][num_sparse]
+    std::memcpy(ptr, &magic, sizeof(uint32_t));
+    ptr += sizeof(uint32_t);
+    std::memcpy(ptr, &num_sparse, sizeof(uint32_t));
+    ptr += sizeof(uint32_t);
+
+    // Append main context data
+    uint64_t main_sz = main_data.size();
+    std::memcpy(ptr, &main_sz, sizeof(uint64_t));
+    ptr += sizeof(uint64_t);
+    std::memcpy(ptr, main_data.data(), main_sz);
+    ptr += main_sz;
+
+    // Append sparse contexts
+    for (const auto& item : sparse_data_list) {
+        int32_t ls = item.first;
+        uint64_t sz = item.second.size();
+        std::memcpy(ptr, &ls, sizeof(int32_t));
+        ptr += sizeof(int32_t);
+        std::memcpy(ptr, &sz, sizeof(uint64_t));
+        ptr += sizeof(uint64_t);
+        std::memcpy(ptr, item.second.data(), sz);
+        ptr += sz;
+    }
+    return result;
+}
+
+// cppcheck-suppress duplInheritedMember
+CkksBtpContext CkksBtpContext::deserialize(BytesView data) {
+    const uint8_t* ptr = data.data();
+
+    uint32_t magic;
+    std::memcpy(&magic, ptr, sizeof(uint32_t));
+
+    if (magic != 0x53504152) {  // SPAR
+        // No special header, treat as old format without sparse contexts
+        return deserialize_go(data);
+    }
+    ptr += sizeof(uint32_t);
+
+    uint32_t num_sparse;
+    std::memcpy(&num_sparse, ptr, sizeof(uint32_t));
+    ptr += sizeof(uint32_t);
+
+    // recover main context data
+    uint64_t main_sz;
+    std::memcpy(&main_sz, ptr, sizeof(uint64_t));
+    ptr += sizeof(uint64_t);
+    BytesView main_view(ptr, main_sz);
+    CkksBtpContext main_ctx = deserialize_go(main_view);
+    ptr += main_sz;
+
+    // recover sparse contexts
+    for (uint32_t i = 0; i < num_sparse; i++) {
+        int32_t ls;
+        std::memcpy(&ls, ptr, sizeof(int32_t));
+        ptr += sizeof(int32_t);
+
+        uint64_t sz;
+        std::memcpy(&sz, ptr, sizeof(uint64_t));
+        ptr += sizeof(uint64_t);
+
+        BytesView s_view(ptr, sz);
+        auto s_ctx = std::make_unique<CkksBtpContext>(deserialize_go(s_view));
+
+        if (main_ctx._sparse_contexts.size() <= ls) {
+            main_ctx._sparse_contexts.resize(ls + 1);
+        }
+        main_ctx._sparse_contexts[ls] = std::move(s_ctx);
+
+        ptr += sz;
+    }
+    return main_ctx;
 }
 
 KeySwitchKey CkksBtpContext::extract_swk_dts() const {
@@ -1087,6 +1240,47 @@ void CkksBtpContext::set_context_switch_key_std(const KeySwitchKey& swk) {
 
 void CkksBtpContext::create_bootstrapper() {
     CreateCkksBtpContextBootstrapper(this->get());
+}
+
+void CkksBtpContext::generate_sparse_bootstrapper(int log_slots, const SecretKey& sk, bool is_toy) {
+    if (_sparse_contexts.size() <= log_slots) {
+        _sparse_contexts.resize(log_slots + 1);
+    }
+    if (_sparse_contexts[log_slots]) {
+        // Already generated
+        return;
+    }
+
+    CkksBtpParameter param;
+    if (is_toy) {
+        param = CkksBtpParameter::create_toy_parameter_with_log_slots(log_slots);
+    } else {
+        param = CkksBtpParameter::create_parameter_with_log_slots(log_slots);
+    }
+    auto btp_ctx = std::make_unique<CkksBtpContext>(CkksBtpContext::create_context_from_sk(param, sk));
+
+    _sparse_contexts[log_slots] = std::move(btp_ctx);
+}
+
+CkksBtpContext* CkksBtpContext::get_sparse_context(int log_slots) const {
+    if (log_slots < 0 || log_slots >= _sparse_contexts.size()) {
+        return nullptr;
+    }
+    return _sparse_contexts[log_slots].get();
+}
+
+const std::vector<std::unique_ptr<CkksBtpContext>>& CkksBtpContext::get_sparse_contexts() const {
+    return _sparse_contexts;
+}
+
+void CkksBtpContext::inject_sparse_context(int log_slots, CkksBtpContext* sp_ctx_ptr) {
+    if (sp_ctx_ptr == nullptr) {
+        return;
+    }
+    if (_sparse_contexts.size() <= log_slots) {
+        _sparse_contexts.resize(log_slots + 1);
+    }
+    _sparse_contexts[log_slots] = std::make_unique<CkksBtpContext>(sp_ctx_ptr->shallow_copy_context());
 }
 
 // CkksCiphertext

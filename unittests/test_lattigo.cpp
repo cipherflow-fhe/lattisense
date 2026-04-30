@@ -2486,6 +2486,216 @@ TEST_CASE_METHOD(LattigoCkksBtpFixture, "CKKS BTP public context serialization -
     REQUIRE(failed_threads.load() == 0);
 }
 
+TEST_CASE("lattigo toy ckks sparse bootstrap basic", "[.]") {
+    auto param = CkksBtpParameter::create_toy_parameter();
+    auto context = CkksBtpContext::create_random_context(param);
+    SecretKey sk = context.extract_secret_key();
+
+    vector<int> sparse_slots = {2, 8, 6};
+    for (int sparse_slot : sparse_slots) {
+        // prepare sparse bootstrapper
+        REQUIRE_NOTHROW(context.generate_sparse_bootstrapper(sparse_slot, sk, true));
+        // prepare plaintext and ciphertext
+        vector<double> input_data(1 << sparse_slot);
+        for (size_t i = 0; i < input_data.size(); i++) {
+            input_data[i] = double(0.5 + i * 0.01);
+        }
+        auto pt = context.encode_with_slots(input_data, 0, pow(2, 40), sparse_slot);
+        auto ct = context.encrypt_asymmetric(pt);
+        auto ct_res = context.bootstrap(ct, sparse_slot);
+        auto pt_res = context.decrypt(ct_res);
+        auto res_data = context.decode_with_slots(pt_res, sparse_slot);
+        int verify_data_len = input_data.size();
+        if (verify_data_len > 10) {
+            verify_data_len = 10;
+        }
+        REQUIRE(compare_double_vectors(res_data, input_data, verify_data_len, 0.01) == false);
+        REQUIRE_THROWS_AS(context.bootstrap(ct, 5), std::runtime_error);
+    }
+}
+
+// =========================================================================================
+// SPARSE PACKED BOOTSTRAPPING TESTS
+// =========================================================================================
+
+TEST_CASE_METHOD(LattigoCkksBtpFixture, "CKKS Sparse BTP bootstrap", "[.]") {
+    SecretKey sk = context.extract_secret_key();
+    vector<int> sparse_slots_list = {2, 8, 6};
+
+    for (int sparse_slot : sparse_slots_list) {
+        SECTION("logslots " + to_string(sparse_slot)) {
+            REQUIRE_NOTHROW(context.generate_sparse_bootstrapper(sparse_slot, sk));
+
+            int num_slots = 1 << sparse_slot;
+            int verify_data_len = std::min(10, num_slots);
+            vector<double> x_mg(num_slots);
+            for (int i = 0; i < verify_data_len; i++) {
+                x_mg[i] = 1.0 + i * 0.1;
+            }
+
+            CkksPlaintext x_pt = context.encode_with_slots(x_mg, 5, default_scale, sparse_slot);
+            CkksCiphertext x_ct = context.encrypt_symmetric(x_pt);
+
+            CkksCiphertext y_ct = context.bootstrap(x_ct, sparse_slot);
+
+            CkksPlaintext y_pt = context.decrypt(y_ct);
+            vector<double> y_mg = context.decode_with_slots(y_pt, sparse_slot);
+
+            print_double_message(y_mg.data(), "y_mg", verify_data_len);
+
+            REQUIRE(compare_double_vectors(y_mg, x_mg, verify_data_len, 0.01) == false);
+
+            REQUIRE_THROWS_AS(context.bootstrap(x_ct, 5), std::runtime_error);
+        }
+    }
+}
+
+TEST_CASE_METHOD(LattigoCkksBtpFixture, "CKKS Sparse BTP multiply and bootstrap", "[.]") {
+    SecretKey sk = context.extract_secret_key();
+    vector<int> sparse_slots_list = {2, 8, 6};
+
+    for (int sparse_slot : sparse_slots_list) {
+        SECTION("logslots " + to_string(sparse_slot)) {
+            REQUIRE_NOTHROW(context.generate_sparse_bootstrapper(sparse_slot, sk));
+
+            int num_slots = 1 << sparse_slot;
+            int verify_data_len = std::min(10, num_slots);
+            vector<double> x_mg(num_slots);
+            vector<double> y_mg(num_slots);
+            vector<double> z_true(num_slots);
+
+            for (int i = 0; i < verify_data_len; i++) {
+                x_mg[i] = 1.0 + i * 0.1;
+                y_mg[i] = 2.0;
+                z_true[i] = x_mg[i] * y_mg[i];
+            }
+
+            print_double_message(x_mg.data(), "x_mg", verify_data_len);
+            print_double_message(y_mg.data(), "y_mg", verify_data_len);
+
+            CkksPlaintext x_pt = context.encode_with_slots(x_mg, 3, default_scale, sparse_slot);
+            CkksPlaintext y_pt = context.encode_with_slots(y_mg, 3, default_scale, sparse_slot);
+            CkksCiphertext x_ct = context.encrypt_symmetric(x_pt);
+            CkksCiphertext y_ct = context.encrypt_symmetric(y_pt);
+
+            CkksCiphertext3 z_ct3 = context.mult(x_ct, y_ct);
+            CkksCiphertext z_ct = context.relinearize(z_ct3);
+            z_ct = context.rescale(z_ct, default_scale);
+            z_ct = context.drop_level(z_ct, 2);
+
+            auto input_scale = z_ct.get_scale();
+            z_ct.set_scale(default_scale);
+
+            z_ct = context.bootstrap(z_ct, sparse_slot);
+            z_ct.set_scale(input_scale);
+
+            CkksPlaintext z_pt = context.decrypt(z_ct);
+            vector<double> z_mg = context.decode_with_slots(z_pt, sparse_slot);
+
+            print_double_message(z_mg.data(), "z_mg", verify_data_len);
+            fprintf(stderr, "z_ct level=%d, log scale=%f\n", z_ct.get_level(), log2(z_ct.get_scale()));
+
+            REQUIRE(compare_double_vectors(z_mg, z_true, verify_data_len, 0.01) == false);
+            REQUIRE_THROWS_AS(context.bootstrap(z_ct, 5), std::runtime_error);
+        }
+    }
+}
+
+TEST_CASE_METHOD(LattigoCkksBtpFixture, "CKKS Sparse BTP multiple multiply and bootstrap", "[.]") {
+    SecretKey sk = context.extract_secret_key();
+    vector<int> sparse_slots_list = {2, 8, 6};
+
+    for (int sparse_slot : sparse_slots_list) {
+        SECTION("logslots " + to_string(sparse_slot)) {
+            REQUIRE_NOTHROW(context.generate_sparse_bootstrapper(sparse_slot, sk));
+
+            int num_slots = 1 << sparse_slot;
+            int verify_data_len = std::min(10, num_slots);
+            vector<double> x_mg(num_slots);
+            vector<double> y_mg(num_slots);
+            vector<double> z_true(num_slots);
+
+            for (int i = 0; i < verify_data_len; i++) {
+                x_mg[i] = 1.0 + i * 0.1;
+                y_mg[i] = 1.1;
+                z_true[i] = x_mg[i] * y_mg[i];
+            }
+
+            print_double_message(x_mg.data(), "x_mg", verify_data_len);
+            print_double_message(y_mg.data(), "y_mg", verify_data_len);
+
+            CkksPlaintext x_pt = context.encode_with_slots(x_mg, 6, default_scale, sparse_slot);
+            CkksPlaintext y_pt = context.encode_with_slots(y_mg, 6, double(0x10000500001), sparse_slot);
+            CkksCiphertext x_ct = context.encrypt_asymmetric(x_pt);
+            CkksCiphertext y_ct = context.encrypt_asymmetric(y_pt);
+
+            CkksCiphertext z_ct = std::move(x_ct);
+            for (int r = 0; r < 2; r++) {
+                z_ct = context.relinearize(context.mult(z_ct, y_ct));
+                z_ct = context.rescale(z_ct, default_scale);
+
+                z_ct = context.bootstrap(z_ct, sparse_slot);
+
+                CkksPlaintext z_pt = context.decrypt(z_ct);
+                vector<double> z_mg = context.decode_with_slots(z_pt, sparse_slot);
+                print_double_message(z_mg.data(), "z_mg", verify_data_len);
+                fprintf(stderr, "z_ct level=%d, log scale=%f\n", z_ct.get_level(), log2(z_ct.get_scale()));
+            }
+
+            REQUIRE_THROWS_AS(context.bootstrap(z_ct, 5), std::runtime_error);
+        }
+    }
+}
+
+TEST_CASE_METHOD(LattigoCkksBtpFixture, "CKKS Sparse BTP multiple multiply to level 0 and bootstrap", "[.]") {
+    SecretKey sk = context.extract_secret_key();
+    vector<int> sparse_slots_list = {2, 8, 6};
+
+    for (int sparse_slot : sparse_slots_list) {
+        SECTION("logslots " + to_string(sparse_slot)) {
+            REQUIRE_NOTHROW(context.generate_sparse_bootstrapper(sparse_slot, sk));
+
+            int num_slots = 1 << sparse_slot;
+            int verify_data_len = std::min(10, num_slots);
+            vector<double> x_mg(num_slots);
+            vector<double> y_mg(num_slots);
+            vector<double> z_true(num_slots);
+
+            for (int i = 0; i < verify_data_len; i++) {
+                x_mg[i] = 1.0 + i * 0.1;
+                y_mg[i] = 1.1;
+                z_true[i] = x_mg[i] * y_mg[i];
+            }
+
+            print_double_message(x_mg.data(), "x_mg", verify_data_len);
+            print_double_message(y_mg.data(), "y_mg", verify_data_len);
+
+            CkksPlaintext x_pt = context.encode_with_slots(x_mg, 9, default_scale, sparse_slot);
+            CkksPlaintext y_pt = context.encode_with_slots(y_mg, 1, double(0x10000140001), sparse_slot);
+            CkksCiphertext x_ct = context.encrypt_asymmetric(x_pt);
+            CkksCiphertext y_ct = context.encrypt_asymmetric(y_pt);
+
+            CkksCiphertext z_ct = std::move(x_ct);
+            for (int r = 0; r < 2; r++) {
+                for (int j = 0; j < 8; j++) {
+                    z_ct = context.drop_level(z_ct);
+                }
+                z_ct = context.relinearize(context.mult(z_ct, y_ct));
+                z_ct = context.rescale(z_ct, default_scale);
+
+                z_ct = context.bootstrap(z_ct, sparse_slot);
+
+                CkksPlaintext z_pt = context.decrypt(z_ct);
+                vector<double> z_mg = context.decode_with_slots(z_pt, sparse_slot);
+                print_double_message(z_mg.data(), "z_mg", verify_data_len);
+                fprintf(stderr, "z_ct level=%d, log scale=%f\n", z_ct.get_level(), log2(z_ct.get_scale()));
+            }
+
+            REQUIRE_THROWS_AS(context.bootstrap(z_ct, 5), std::runtime_error);
+        }
+    }
+}
+
 TEST_CASE("BFV power-of-2 plaintext modulus encrypt-decrypt") {
     int N = 8192;
     uint64_t t = 1 << 10;

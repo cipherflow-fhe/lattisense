@@ -282,6 +282,10 @@ public:
 
     static CkksBtpParameter create_toy_parameter();
 
+    static CkksBtpParameter create_parameter_with_log_slots(uint8_t log_slots);
+
+    static CkksBtpParameter create_toy_parameter_with_log_slots(uint8_t log_slots);
+
     CkksParameter& get_ckks_parameter();
 
 protected:
@@ -936,6 +940,37 @@ public:
     CkksPlaintextMul encode_mul(const std::vector<double>& x_mg, int level, double scale);
 
     /**
+     * Encode message data into a CKKS plaintext.
+     * @param x_mg The input message data.
+     * @param level The level of the output plaintext.
+     * @param scale The encoding scale.
+     * @param log_slots The log2 of the number of slots to encode.
+     * @return The encoded plaintext.
+     */
+    CkksPlaintext encode_with_slots(const std::vector<double>& x_mg, int level, double scale, int log_slots);
+
+    CkksPlaintext encode_complex_with_slots(const std::vector<double>& x_mg, int level, double scale, int log_slots);
+
+    /**
+     * Encode message data into a CKKS plaintext in ring-t form for multiplication.
+     * @param x_mg The input message data.
+     * @param scale The encoding scale.
+     * @param log_slots The log2 of the number of slots to encode.
+     * @return The encoded plaintext for multiplication.
+     */
+    CkksPlaintextRingt encode_ringt_with_slots(const std::vector<double>& x_mg, double scale, int log_slots);
+
+    /**
+     * Encode message data into a CKKS plaintext for multiplication.
+     * @param x_mg The input message data.
+     * @param level The level of the output plaintext.
+     * @param scale The encoding scale.
+     * @param log_slots The log2 of the number of slots to encode.
+     * @return The encoded plaintext for multiplication.
+     */
+    CkksPlaintextMul encode_mul_with_slots(const std::vector<double>& x_mg, int level, double scale, int log_slots);
+
+    /**
      * Encode a floating-point array into a CKKS plaintext, with array components directly embedded into plaintext
      * polynomial coefficients. Does not support element-wise multiplication.
      * @param x_mg The input message data.
@@ -978,6 +1013,14 @@ public:
      * @return The decoded message data.
      */
     std::vector<double> decode(const CkksPlaintext& x_pt);
+
+    /**
+     * Decode a CKKS plaintext into message data.
+     * @param x_pt The input plaintext.
+     * @param log_slots The log2 of the number of slots encoded in the plaintext.
+     * @return The decoded message data.
+     */
+    std::vector<double> decode_with_slots(const CkksPlaintext& x_pt, int log_slots);
 
     std::vector<double> decode_complex(const CkksPlaintext& x_pt);
 
@@ -1159,6 +1202,8 @@ public:
 
     static CkksBtpContext create_empty_context(const CkksBtpParameter& param);
 
+    static CkksBtpContext create_context_from_sk(const CkksBtpParameter& parameter, const SecretKey& sk);
+
     void gen_rotation_keys();
 
     void gen_rotation_keys_for_rotations(const std::vector<int32_t>& rots, bool include_swap_rows = false);
@@ -1170,10 +1215,13 @@ public:
 
     CkksParameter& get_parameter() override;
 
-    CkksCiphertext bootstrap(const CkksCiphertext& x_ct);
+    // log_slots = -1: directly use the bootstrapper in this context
+    // log_slots >= 0: use the bootstrapper in the sparse context with log_slots
+    CkksCiphertext bootstrap(const CkksCiphertext& x_ct, int log_slots = -1);
 
     CkksBtpContext& get_copy(int index) override;
 
+    // Re-Write serialize/deserialize to support multiple sparse bootstrappers
     // cppcheck-suppress duplInheritedMember
     Bytes serialize() const;
 
@@ -1195,6 +1243,17 @@ public:
     void set_context_switch_key_std(const KeySwitchKey& swk);
 
     void create_bootstrapper();
+    void generate_sparse_bootstrapper(int log_slots, const SecretKey& sk, bool is_toy = false);
+
+    // bridge methods for transferring sparse bootstrappers
+    CkksBtpContext* get_sparse_context(int log_slots) const;
+    const std::vector<std::unique_ptr<CkksBtpContext>>& get_sparse_contexts() const;
+    void inject_sparse_context(int log_slots, CkksBtpContext* sp_ctx_ptr);
+
+private:
+    std::vector<std::unique_ptr<CkksBtpContext>> _sparse_contexts;
+    Bytes serialize_go() const;
+    static CkksBtpContext deserialize_go(BytesView data);
 };
 
 /**

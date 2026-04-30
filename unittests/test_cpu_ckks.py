@@ -819,6 +819,62 @@ class TestTask(unittest.TestCase):
                 )
         default_param = Param.create_ckks_default_param(n=16384)
         set_fhe_param(default_param)
+        
+    def test_toy_sparse_bootstrap(self, n_op=4, levels=[0], sparse_slots=[2, 8, 6, 10]):
+        param = CkksBtpParam.create_toy_param()
+        set_fhe_param(param)
+
+        for lv in levels:
+            with self.subTest(n=n_op, lv=lv):
+                task = f'CKKS_{n_op}_sparse_bootstrap/level_{lv}/slots_{sparse_slots}'
+                task_dir = os.path.join(CPU_OUTPUT_BASE_DIR, task)
+
+                x_list = []
+                y_list = []
+                for i in range(n_op):
+                    x_list.append(CkksCiphertextNode(f'x_{i}', level=lv))
+                    y_list.append(bootstrap(x_list[i], log_slots=sparse_slots[i % len(sparse_slots)], output_id=f'y_{i}'))
+
+                arg_x = Argument('in_x_list', x_list)
+                arg_y = Argument('out_y_list', y_list)
+
+                process_custom_task(
+                    input_args=[arg_x],
+                    offline_input_args=[],
+                    output_args=[arg_y],
+                    output_instruction_path=task_dir,
+                )
+                    
+        default_param = Param.create_ckks_default_param(n=16384)
+        set_fhe_param(default_param)
+    
+    def test_sparse_bootstrap(self, n_op=4, levels=[0], sparse_slots=[2, 8, 6, 10]):
+        param = CkksBtpParam.create_default_param()
+        set_fhe_param(param)
+
+        for lv in levels:
+            with self.subTest(n=n_op, lv=lv):
+                task = f'CKKS_{n_op}_sparse_bootstrap/level_{lv}/slots_{sparse_slots}'
+                task_dir = os.path.join(CPU_OUTPUT_BASE_DIR, task)
+
+                x_list = []
+                y_list = []
+                for i in range(n_op):
+                    x_list.append(CkksCiphertextNode(f'x_{i}', level=lv))
+                    y_list.append(bootstrap(x_list[i], log_slots=sparse_slots[i % len(sparse_slots)], output_id=f'y_{i}'))
+
+                arg_x = Argument('in_x_list', x_list)
+                arg_y = Argument('out_y_list', y_list)
+
+                process_custom_task(
+                    input_args=[arg_x],
+                    offline_input_args=[],
+                    output_args=[arg_y],
+                    output_instruction_path=task_dir,
+                )
+                    
+        default_param = Param.create_ckks_default_param(n=16384)
+        set_fhe_param(default_param)
 
     def test_cmc_relin_rescale_bootstrap(self, n_op=4, levels=[3]):
         param = CkksBtpParam.create_default_param()

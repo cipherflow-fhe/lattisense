@@ -283,6 +283,40 @@ inline void export_public_key_arguments(nlohmann::json& key_signature,
                                         FheContext* context,
                                         int mf_nbits,
                                         bool is_heterogeneous) {
+    if (key_signature.contains("btp_sp_log_slots")) {
+        auto btp_sp_slots = key_signature["btp_sp_log_slots"].get<std::vector<int>>();
+        if (!btp_sp_slots.empty() && btp_sp_slots[0] >= 0) {
+            CkksBtpContext* btp_context = dynamic_cast<CkksBtpContext*>(context);
+            if (btp_context == nullptr) {
+                throw std::runtime_error("Context is not CkksBtpContext but btp_sp_log_slots is required");
+            }
+            bool is_toy = btp_context->get_parameter().get_n() == (1 << 13);
+            auto sk = context->extract_secret_key();
+            for (int log_slots : btp_sp_slots) {
+                if (log_slots < 0) {
+                    continue;
+                }
+                btp_context->generate_sparse_bootstrapper(log_slots, sk, is_toy);
+
+                CArgument sp_arg;
+                sp_arg.id = ("btp_sp_log_slots_" + std::to_string(log_slots)).c_str();
+                sp_arg.type = DataType::TYPE_SPARSE_BTP_CONTEXT;
+                sp_arg.size = 1;
+                sp_arg.level = log_slots;
+                // TODO: avoid name ambiguity, now using level to sent the log_slots info
+                if (!is_heterogeneous) {
+                    static std::vector<std::unique_ptr<std::vector<Handle*>>> sp_handles_pool;
+                    auto handle_vec = std::make_unique<std::vector<Handle*>>();
+                    handle_vec->push_back((Handle*)btp_context->get_sparse_context(log_slots));
+                    sp_arg.data = (void*)handle_vec->data();
+                    sp_handles_pool.push_back(std::move(handle_vec));
+                    input_args.push_back(sp_arg);
+                }
+                // TODO: is_heterogeneous == true case, export the context
+            }
+        }
+    }
+
     if (key_signature["rlk"].get<int>() >= 0) {
         CArgument rlk_arg;
         int rlk_level = key_signature["rlk"].get<int>();

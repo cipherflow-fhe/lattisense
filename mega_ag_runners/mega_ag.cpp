@@ -119,6 +119,15 @@ MegaAG MegaAG::from_json(const std::string& json_path, Processor processor) {
             ComputeNode::ExtraProperty prop;
             prop.sum_cnt = value["sum_cnt"].get<int32_t>();
             node.p = prop;
+        } else if (node.op_type == OperationType::BOOTSTRAP) {
+            ComputeNode::ExtraProperty prop;
+            // potentially without this property for older JSONs, default to -1 (invalid) if not present
+            if (value.contains("btp_log_slots")) {
+                prop.btp_log_slots = value["btp_log_slots"].get<int32_t>();
+            } else {
+                prop.btp_log_slots = -1;
+            }
+            node.p = prop;
         }
 
         auto input_indices = value["inputs"].get<std::vector<NodeIndex>>();

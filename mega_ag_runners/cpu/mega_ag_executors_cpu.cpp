@@ -461,8 +461,9 @@ template <HEScheme SchemeType> void bind_cpu_cmp_sum(ComputeNode& node) {
 
 template <HEScheme SchemeType> void bind_cpu_bootstrap(ComputeNode& node) {
     if constexpr (SchemeType == HEScheme::CKKS) {
-        node.executor = [](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
-                           std::any& output, const ComputeNode& self) -> void {
+        int log_slots = node.p ? node.p->btp_log_slots : -1;
+        node.executor = [log_slots](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
+                                    std::any& output, const ComputeNode& self) -> void {
             CPU_EXECUTOR_SETUP(SchemeType);
             auto* btp_context = dynamic_cast<CkksBtpContext*>(context);
             if (!btp_context) {
@@ -470,7 +471,8 @@ template <HEScheme SchemeType> void bind_cpu_bootstrap(ComputeNode& node) {
             }
             auto input_scale = ciphertexts[0]->get_scale();
             ciphertexts[0]->set_scale(btp_context->get_parameter().get_default_scale());
-            auto result = btp_context->bootstrap(*ciphertexts[0]);
+            // if not specified, btp_context will use full slots by default
+            auto result = btp_context->bootstrap(*ciphertexts[0], log_slots);
             result.set_scale(input_scale);
             output = std::static_pointer_cast<Handle>(std::make_shared<CiphertextType>(std::move(result)));
         };

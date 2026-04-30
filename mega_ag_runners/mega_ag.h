@@ -118,6 +118,7 @@ struct ComputeNode {
 
     struct ExtraProperty {
         int32_t rotation_step = 0;
+        int32_t btp_log_slots = -1;
         int32_t sum_cnt = 0;
     };
     std::optional<ExtraProperty> p;

@@ -786,6 +786,15 @@ class RotateRowUnitNode(FheComputeNode):
     def __init__(self, lib=Lib.Lattigo) -> None:
         super().__init__(type=OperationType.RotateRow)
         self.lib = lib
+        
+class BootstrapComputeNode(FheComputeNode):
+    """
+    @class BootstrapComputeNode
+    @brief Bootstrap compute node type
+    """
+    def __init__(self, log_slots: int = -1) -> None:
+        super().__init__(type=OperationType.Bootstrap)
+        self.btp_log_slots = log_slots
 
 
 def add(
@@ -1760,7 +1769,7 @@ def ct_pt_mult_accumulate_1(
     return partial_sum
 
 
-def bootstrap(x: CkksCiphertextNode, output_id: Optional[str] = None) -> CkksCiphertextNode:
+def bootstrap(x: CkksCiphertextNode, log_slots: int = -1, output_id: Optional[str] = None) -> CkksCiphertextNode:
     global g_dag, g_param
     if g_param is None:
         raise RuntimeError('Please call set_fhe_param() before using bootstrap operation.')
@@ -1769,7 +1778,7 @@ def bootstrap(x: CkksCiphertextNode, output_id: Optional[str] = None) -> CkksCip
     if x.level != 0:
         raise ValueError(f'Unsupported input level "{x.level}" for bootstrap.')
 
-    op = FheComputeNode(OperationType.Bootstrap)
+    op = BootstrapComputeNode(log_slots=log_slots)
     g_dag.add_edge(x, op)
 
     global g_swk_node_dict
@@ -1910,10 +1919,16 @@ def process_custom_task(
             ckks_btp_swk_signature[k] = (v.level, v.sp_level)
             all_input_list.append(v)
     all_input_list_with_key = all_input_list
+    
+    required_btp_slots = set()
+    for node in g_dag.nodes():
+        if isinstance(node, BootstrapComputeNode):
+            if node.btp_log_slots >= 0:
+                required_btp_slots.add(node.btp_log_slots) 
 
     interface_json = {
         'algorithm': g_param.algo.value,
-        'key': {'rlk': rlk_signature, 'glk': glk_signature},
+        'key': {'rlk': rlk_signature, 'glk': glk_signature, 'btp_sp_log_slots': list(required_btp_slots)},
         'online': input_sigdata_list + output_sigdata_list,
         'offline': offline_sigdata_list,
     }
@@ -1989,6 +2004,8 @@ def process_custom_task(
             elif isinstance(op, CmpSumComputeNode) or isinstance(op, CmpacSumComputeNode):
                 compute[op.index]['sum_cnt'] = op.sum_cnt
                 compute[op.index]['pt_type'] = op.pt_type.value
+            elif isinstance(op, BootstrapComputeNode):
+                compute[op.index]['log_slots'] = op.btp_log_slots
             if op.compressed_block_info is not None:
                 compute[op.index]['compressed_block_info'] = op.compressed_block_info
 

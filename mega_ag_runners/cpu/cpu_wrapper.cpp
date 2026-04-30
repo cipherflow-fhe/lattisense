@@ -90,6 +90,18 @@ std::vector<Handle*> extract_input_handles(CArgument* input_args, uint64_t n_in_
                 }
                 break;
             }
+            case TYPE_SPARSE_BTP_CONTEXT: {
+                if constexpr (std::is_same_v<TContext, CkksBtpContext>) {
+                    Handle** handle_array = static_cast<Handle**>(arg.data);
+                    CkksBtpContext* sp_ctx_ptr = static_cast<CkksBtpContext*>(handle_array[0]);
+                    int log_slots = arg.level;
+                    // TODO: avoid name ambiguity, now using level to sent the log_slots info
+                    context.inject_sparse_context(log_slots, sp_ctx_ptr);
+                } else {
+                    throw std::runtime_error("TYPE_SPARSE_BTP_CONTEXT requires CkksBtpContext");
+                }
+                break;
+            }
             default: throw std::runtime_error("Unknown argument type in extract_input_handles");
         }
     }

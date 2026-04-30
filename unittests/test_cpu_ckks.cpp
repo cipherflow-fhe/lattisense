@@ -1301,6 +1301,138 @@ TEST_CASE_METHOD(CkksCpuFixture, "CKKS bootstrap", "[.]") {
     }
 }
 
+TEST_CASE_METHOD(CkksCpuFixture, "CKKS toy sparse bootstrap", "[.]") {
+    CkksBtpParameter btp_param = CkksBtpParameter::create_toy_parameter();
+    CkksBtpContext btp_context = CkksBtpContext::create_random_context(btp_param);
+    default_scale = pow(2, 40);
+
+    int n_op = 4;
+    vector<int> sparse_slots = {2, 8, 6, 10};
+
+    SecretKey sk = btp_context.extract_secret_key();
+    for (int slots : sparse_slots) {
+        REQUIRE_NOTHROW(btp_context.generate_sparse_bootstrapper(slots, sk, true));
+    }
+
+    for (int level = 0; level <= 0; level++) {
+        SECTION("n=" + to_string(n_op) + ", lv=" + to_string(level)) {
+            vector<CkksCiphertext> x_list;
+            vector<CkksCiphertext> y_list;
+            vector<vector<double>> x_true_list;
+
+            for (int i = 0; i < n_op; i++) {
+                int current_slots = sparse_slots[i % sparse_slots.size()];
+                int num_slots = 1 << current_slots;
+                int verify_data_len = std::min(10, num_slots);
+
+                vector<double> x_mg(num_slots);
+                for (int j = 0; j < verify_data_len; j++) {
+                    x_mg[j] = double(0.5 + j * 0.1);
+                }
+                x_true_list.push_back(x_mg);
+
+                auto x_pt = btp_context.encode_with_slots(x_mg, level, default_scale, current_slots);
+                auto x_ct = btp_context.encrypt_symmetric(x_pt);
+                x_list.push_back(std::move(x_ct));
+                y_list.push_back(btp_context.new_ciphertext(9, default_scale));
+            }
+
+            string slots_str = "[2, 8, 6, 10]";
+            string project_path = cpu_base_path + "/CKKS_" + to_string(n_op) + "_sparse_bootstrap/level_" +
+                                  to_string(level) + "/slots_" + slots_str;
+
+            FheTaskCpu cpu_project(project_path);
+            vector<CxxVectorArgument> cxx_args = {
+                CxxVectorArgument{"in_x_list", &x_list},
+                CxxVectorArgument{"out_y_list", &y_list},
+            };
+
+            REQUIRE_NOTHROW(cpu_project.run(&btp_context, cxx_args));
+
+            double tolerance = 0.01;
+            for (int i = 0; i < n_op; i++) {
+                int current_slots = sparse_slots[i % sparse_slots.size()];
+                int num_slots = 1 << current_slots;
+
+                auto z_pt = btp_context.decrypt(y_list[i]);
+                auto z_mg = btp_context.decode_with_slots(z_pt, current_slots);
+
+                int verify_data_len = std::min(10, num_slots);
+                print_double_message(z_mg.data(), ("z_mg (slots=" + to_string(current_slots) + ")").c_str(),
+                                     verify_data_len);
+
+                REQUIRE(compare_double_vectors(z_mg, x_true_list[i], verify_data_len, tolerance) == false);
+            }
+        }
+    }
+}
+
+TEST_CASE_METHOD(CkksCpuFixture, "CKKS sparse bootstrap", "[.]") {
+    CkksBtpParameter btp_param = CkksBtpParameter::create_parameter();
+    CkksBtpContext btp_context = CkksBtpContext::create_random_context(btp_param);
+    default_scale = pow(2, 40);
+
+    int n_op = 4;
+    vector<int> sparse_slots = {2, 8, 6, 10};
+
+    SecretKey sk = btp_context.extract_secret_key();
+    for (int slots : sparse_slots) {
+        REQUIRE_NOTHROW(btp_context.generate_sparse_bootstrapper(slots, sk));
+    }
+
+    for (int level = 0; level <= 0; level++) {
+        SECTION("n=" + to_string(n_op) + ", lv=" + to_string(level)) {
+            vector<CkksCiphertext> x_list;
+            vector<CkksCiphertext> y_list;
+            vector<vector<double>> x_true_list;
+
+            for (int i = 0; i < n_op; i++) {
+                int current_slots = sparse_slots[i % sparse_slots.size()];
+                int num_slots = 1 << current_slots;
+                int verify_data_len = std::min(10, num_slots);
+
+                vector<double> x_mg(num_slots);
+                for (int j = 0; j < verify_data_len; j++) {
+                    x_mg[j] = double(0.5 + j * 0.1);
+                }
+                x_true_list.push_back(x_mg);
+
+                auto x_pt = btp_context.encode_with_slots(x_mg, level, default_scale, current_slots);
+                auto x_ct = btp_context.encrypt_symmetric(x_pt);
+                x_list.push_back(std::move(x_ct));
+                y_list.push_back(btp_context.new_ciphertext(9, default_scale));
+            }
+
+            string slots_str = "[2, 8, 6, 10]";
+            string project_path = cpu_base_path + "/CKKS_" + to_string(n_op) + "_sparse_bootstrap/level_" +
+                                  to_string(level) + "/slots_" + slots_str;
+
+            FheTaskCpu cpu_project(project_path);
+            vector<CxxVectorArgument> cxx_args = {
+                CxxVectorArgument{"in_x_list", &x_list},
+                CxxVectorArgument{"out_y_list", &y_list},
+            };
+
+            REQUIRE_NOTHROW(cpu_project.run(&btp_context, cxx_args));
+
+            double tolerance = 0.01;
+            for (int i = 0; i < n_op; i++) {
+                int current_slots = sparse_slots[i % sparse_slots.size()];
+                int num_slots = 1 << current_slots;
+
+                auto z_pt = btp_context.decrypt(y_list[i]);
+                auto z_mg = btp_context.decode_with_slots(z_pt, current_slots);
+
+                int verify_data_len = std::min(10, num_slots);
+                print_double_message(z_mg.data(), ("z_mg (slots=" + to_string(current_slots) + ")").c_str(),
+                                     verify_data_len);
+
+                REQUIRE(compare_double_vectors(z_mg, x_true_list[i], verify_data_len, tolerance) == false);
+            }
+        }
+    }
+}
+
 TEST_CASE_METHOD(CkksCpuFixture, "CKKS cmc_relin rescale and bootstrap", "[.]") {
     CkksBtpParameter btp_param = CkksBtpParameter::create_parameter();
     CkksBtpContext btp_context = CkksBtpContext::create_random_context(btp_param);
