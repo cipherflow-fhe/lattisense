@@ -16,14 +16,19 @@ target_compile_definitions(fhe_ops_lib_obj PRIVATE CMAKE_CURRENT_SOURCE_DIR="${C
 add_library(fhe_ops_lib SHARED $<TARGET_OBJECTS:fhe_ops_lib_obj>)
 target_include_directories(fhe_ops_lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/lattigo/go_sdk/)
 
-if(LATTISENSE_CLIENT_ONLY)
-    target_link_libraries(fhe_ops_lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/lattigo/go_sdk/liblattigo.so dl m)
+if(WIN32)
+    # Link against static archive — Go runtime is embedded into fhe_ops_lib.dll.
+    # c-shared (.dll) is not built on Windows because bridge_func is unresolved
+    # during Go's link phase (it's defined in bridge.c on the C++ side).
+    target_link_libraries(fhe_ops_lib PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/lattigo/go_sdk/liblattigo.a ws2_32 winmm)
+    set_target_properties(fhe_ops_lib PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
 else()
-    target_link_libraries(fhe_ops_lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/lattigo/go_sdk/liblattigo.so dl m)
+    target_link_libraries(fhe_ops_lib PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/lattigo/go_sdk/liblattigo.so dl m)
+    set_target_properties(fhe_ops_lib PROPERTIES
+        INSTALL_RPATH "$ORIGIN"
+        BUILD_WITH_INSTALL_RPATH OFF
+        INSTALL_RPATH_USE_LINK_PATH FALSE
+    )
 endif()
-
-set_target_properties(fhe_ops_lib PROPERTIES
-    INSTALL_RPATH "$ORIGIN"
-    BUILD_WITH_INSTALL_RPATH OFF
-    INSTALL_RPATH_USE_LINK_PATH FALSE
-)
