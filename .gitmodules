@@ -3,7 +3,7 @@
 	url = https://github.com/cipherflow-fhe/HEonGPU.git
 [submodule "fhe_ops_lib/lattigo"]
 	path = fhe_ops_lib/lattigo
-	url = https://github.com/cipherflow-fhe/lattigo.git
+	url = https://github.com/JYH1878/lattigo.git
 [submodule "backends/lattisense-fpga/lattisense-fpga-runtime"]
 	path = backends/lattisense-fpga/lattisense-fpga-runtime
 	url = https://github.com/cipherflow-fhe/lattisense-fpga-runtime.git
