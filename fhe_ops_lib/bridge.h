@@ -17,47 +17,10 @@
  */
 
 #pragma once
-#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-typedef struct {
-    int n;
-    uint64_t* data;
-} CComponent;
-
-typedef struct {
-    int n_component;
-    CComponent* components;
-} CPolynomial;
-
-typedef struct {
-    int level;  // Todo: add support
-    CPolynomial poly;
-} CPlaintext;
-
-typedef struct {
-    int level;
-    int degree;
-    CPolynomial* polys;
-} CCiphertext;
-
-typedef CCiphertext CPublicKey;
-
-typedef struct {
-    int n_public_key;
-    CPublicKey* public_keys;
-} CKeySwitchKey;
-
-typedef CKeySwitchKey CRelinKey;
-
-typedef struct {
-    int n_key_switch_key;
-    uint64_t* galois_elements;
-    CKeySwitchKey* key_switch_keys;
-} CGaloisKey;
 
 typedef double (*Operation)(double);
 double bridge_func(Operation f, double x);

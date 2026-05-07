@@ -19,7 +19,7 @@
 #pragma once
 
 extern "C" {
-#include "fhe_types_v2.h"
+#include "c_types.h"
 #include "c_argument.h"
 }
 #include <stdexcept>

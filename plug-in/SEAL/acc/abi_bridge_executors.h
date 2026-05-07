@@ -41,7 +41,7 @@
 #include <unordered_map>
 
 extern "C" {
-#include "../../../fhe_ops_lib/structs_v2.h"
+#include "../../../abi/c_structs.h"
 #include "../../../mega_ag_runners/c_argument.h"
 }
 
@@ -96,7 +96,7 @@ inline ExecutorFunc create_seal_abi_export_executor(int mf_nbits) {
                 auto* src = static_cast<seal::Ciphertext*>(input_ptr.get());
                 _export_ciphertext(param_id, ntt_tables, src, c_ct);
                 output = std::shared_ptr<CCiphertext>(c_ct, [](CCiphertext* p) {
-                    free_ciphertext(p, false);
+                    free_ciphertext(p);
                     free(p);
                 });
                 break;
@@ -106,7 +106,7 @@ inline ExecutorFunc create_seal_abi_export_executor(int mf_nbits) {
                 auto* c_pt = (CPlaintext*)malloc(sizeof(CPlaintext));
                 _export_plaintext(param_id, N, ntt_tables, src, c_pt);
                 output = std::shared_ptr<CPlaintext>(c_pt, [](CPlaintext* p) {
-                    free_plaintext(p, false);
+                    free_plaintext(p);
                     free(p);
                 });
                 break;
@@ -116,7 +116,7 @@ inline ExecutorFunc create_seal_abi_export_executor(int mf_nbits) {
                 auto* c_rlk = (CRelinKey*)malloc(sizeof(CRelinKey));
                 _export_relin_key(param_id, scheme, ntt_tables, src, c_rlk, level, mf_nbits);
                 output = std::shared_ptr<CRelinKey>(c_rlk, [](CRelinKey* p) {
-                    free_relin_key(p, false);
+                    free_relin_key(p);
                     free(p);
                 });
                 break;
@@ -127,7 +127,7 @@ inline ExecutorFunc create_seal_abi_export_executor(int mf_nbits) {
                 set_galois_key_steps(c_glk, &galois_element, 1);
                 _export_galois_key(param_id, scheme, ntt_tables, src, c_glk, level, mf_nbits);
                 output = std::shared_ptr<CGaloisKey>(c_glk, [](CGaloisKey* p) {
-                    free_galois_key(p, false);
+                    free_galois_key(p);
                     free(p);
                 });
                 break;

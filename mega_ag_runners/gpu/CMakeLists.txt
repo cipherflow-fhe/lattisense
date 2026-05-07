@@ -8,9 +8,6 @@ target_compile_definitions(gpu_mega_ag_runner_obj PRIVATE
 target_include_directories(gpu_mega_ag_runner_obj PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/..
     ${CMAKE_CURRENT_SOURCE_DIR}/../../lib/
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../backends/HEonGPU/install/include/GPUNTT-1.0/common
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../backends/HEonGPU/install/include/GPUNTT-1.0/ntt_merge
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../backends/HEonGPU/install/include/GPUNTT-1.0/ntt_4step
 )
 target_link_libraries(gpu_mega_ag_runner_obj PUBLIC HEonGPU::heongpu CUDA::cudart)
 set_target_properties(gpu_mega_ag_runner_obj PROPERTIES
@@ -22,7 +19,7 @@ add_library(gpu_mega_ag_runner SHARED
     $<TARGET_OBJECTS:gpu_mega_ag_runner_obj>
     $<TARGET_OBJECTS:mega_ag_obj>
 )
-target_link_libraries(gpu_mega_ag_runner PUBLIC HEonGPU::heongpu CUDA::cudart)
+target_link_libraries(gpu_mega_ag_runner PUBLIC fhe_ops_lib abi HEonGPU::heongpu CUDA::cudart)
 if(LATTISENSE_DEV)
     target_link_libraries(gpu_mega_ag_runner PUBLIC nvidia-ml)
 endif()

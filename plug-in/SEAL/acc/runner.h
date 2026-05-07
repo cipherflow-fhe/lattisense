@@ -10,9 +10,9 @@
 extern "C" {
 #include "fpga_ops_wrapper.h"
 #include "log/log.h"
-#include "fhe_types_v2.h"
+#include "c_types.h"
 #include "wrapper.h"
-#include "structs_v2.h"
+#include "c_structs.h"
 }
 #include <seal/seal.h>
 #include "argument.h"

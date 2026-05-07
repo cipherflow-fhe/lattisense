@@ -19,9 +19,9 @@
 package acc
 
 /*
-#cgo CFLAGS: -I ../../../fhe_ops_lib -I ../../../mega_ag_runners
+#cgo CFLAGS: -I ../../../abi -I ../../../mega_ag_runners
 
-#include "fhe_types_v2.h"
+#include "c_types.h"
 #include "c_argument.h"
 #include <stdlib.h>
 #include <stdint.h>

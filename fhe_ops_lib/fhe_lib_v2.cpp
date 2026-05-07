@@ -768,16 +768,24 @@ CkksPlaintext CkksContext::encode(const std::vector<double>& x_mg, int level, do
     return CkksPlaintext(CkksEncode(this->get(), (double*)x_mg.data(), x_mg.size(), level, scale));
 }
 
-CkksPlaintext CkksContext::encode_complex(const std::vector<double>& x_mg, int level, double scale) {
-    return CkksPlaintext(CkksEncodeComplex(this->get(), (double*)x_mg.data(), x_mg.size() / 2, level, scale));
+CkksPlaintext CkksContext::encode(const std::vector<std::complex<double>>& x_mg, int level, double scale) {
+    return CkksPlaintext(CkksEncodeComplex(this->get(), (double*)x_mg.data(), x_mg.size(), level, scale));
 }
 
 CkksPlaintextRingt CkksContext::encode_ringt(const std::vector<double>& x_mg, double scale) {
     return CkksPlaintextRingt(CkksEncodeRingt(this->get(), (double*)x_mg.data(), x_mg.size(), scale));
 }
 
+CkksPlaintextRingt CkksContext::encode_ringt(const std::vector<std::complex<double>>& x_mg, double scale) {
+    return CkksPlaintextRingt(CkksEncodeRingtComplex(this->get(), (double*)x_mg.data(), x_mg.size(), scale));
+}
+
 CkksPlaintextMul CkksContext::encode_mul(const std::vector<double>& x_mg, int level, double scale) {
     return CkksPlaintextMul(CkksEncodeMul(this->get(), (double*)x_mg.data(), x_mg.size(), level, scale));
+}
+
+CkksPlaintextMul CkksContext::encode_mul(const std::vector<std::complex<double>>& x_mg, int level, double scale) {
+    return CkksPlaintextMul(CkksEncodeMulComplex(this->get(), (double*)x_mg.data(), x_mg.size(), level, scale));
 }
 
 CkksPlaintext CkksContext::encode_coeffs(const std::vector<double>& x_mg, int level, double scale) {
@@ -805,13 +813,13 @@ std::vector<double> CkksContext::decode(const CkksPlaintext& x_pt) {
     return message;
 }
 
-std::vector<double> CkksContext::decode_complex(const CkksPlaintext& x_pt) {
+std::vector<std::complex<double>> CkksContext::decode_complex(const CkksPlaintext& x_pt) {
     double* raw_data;
     uint64_t length;
     uint64_t binary_data_handle = CkksDecode(this->get(), x_pt.get(), &raw_data, &length);
-    std::vector<double> message(length * 2);
-    for (int i = 0; i < length * 2; i++) {
-        message[i] = raw_data[i];
+    std::vector<std::complex<double>> message(length);
+    for (int i = 0; i < length; i++) {
+        message[i] = std::complex<double>(raw_data[i * 2], raw_data[i * 2 + 1]);
     }
     ReleaseHandle(binary_data_handle);
     return message;

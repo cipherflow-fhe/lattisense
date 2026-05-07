@@ -1,10 +1,10 @@
 package acc
 
 /*
-#cgo CFLAGS: -I ../../../fhe_ops_lib -I ../../../mega_ag_runners
+#cgo CFLAGS: -I ../../../abi -I ../../../mega_ag_runners
 
-#include "fhe_types_v2.h"
-#include "structs_v2.h"
+#include "c_types.h"
+#include "c_structs.h"
 #include "wrapper.h"
 #include <stdlib.h>
 */
@@ -23,7 +23,9 @@ import (
 func export_component(src *[]uint64, dest *C.CComponent) {
 	N := len(*src)
 	dest.n = C.int(N)
-	dest.data = (*C.ulong)(unsafe.Pointer(&(*src)[0]))
+	// dest.data = (*C.ulong)(unsafe.Pointer(&(*src)[0]))
+	dest.data = (*C.ulong)(C.malloc(C.size_t(N) * C.size_t(unsafe.Sizeof(C.ulong(0)))))
+	copy(unsafe.Slice((*uint64)(unsafe.Pointer(dest.data)), N), *src)
 }
 
 func export_polynomial(src *ring.Poly, dest *C.CPolynomial) {
@@ -56,6 +58,18 @@ func export_polynomial_qp(src *ringqp.Poly, dest *C.CPolynomial, level int) {
 	}
 }
 
+// wrap_c_components_as_ring_poly creates a ring.Poly whose Coeffs slices
+// point directly into C-allocated CComponent data. This allows ring
+// operations (InvMForm, MulByPow2, etc.) to transform C memory in-place
+// without an additional copy.
+func wrap_c_components_as_ring_poly(comps []C.CComponent) *ring.Poly {
+	poly := &ring.Poly{Coeffs: make([][]uint64, len(comps))}
+	for i := range comps {
+		poly.Coeffs[i] = unsafe.Slice((*uint64)(unsafe.Pointer(comps[i].data)), int(comps[i].n))
+	}
+	return poly
+}
+
 func export_public_key(src *rlwe.CiphertextQP, dest *C.CPublicKey, level int) {
 	dest.level = C.int(level)
 	dest.degree = C.int(1)
@@ -74,27 +88,49 @@ func export_key_switch_key(params rlwe.Parameters, src *rlwe.SwitchingKey, dest 
 		n_public_key = (level + 1 + src.LevelP()) / (src.LevelP() + 1)
 	}
 
-	gcv2 := src.GadgetCiphertext.CopyNew()
-	ringq := params.RingQ()
-	ringp := params.RingP()
-
-	for i := 0; i < len(src.Value); i++ {
-		for j := 0; j < len(src.Value[i][0].Value); j++ {
-			ringq.InvMForm(src.Value[i][0].Value[j].Q, gcv2.Value[i][0].Value[j].Q)
-			ringp.InvMForm(src.Value[i][0].Value[j].P, gcv2.Value[i][0].Value[j].P)
-
-			if mf_nbits != 0 {
-				ringq.MulByPow2(gcv2.Value[i][0].Value[j].Q, mf_nbits, gcv2.Value[i][0].Value[j].Q)
-				ringp.MulByPow2(gcv2.Value[i][0].Value[j].P, mf_nbits, gcv2.Value[i][0].Value[j].P)
-			}
-		}
-	}
-
+	// Export directly from src (single copy: Go → C)
 	dest.n_public_key = C.int(n_public_key)
 	dest.public_keys = (*C.CPublicKey)(C.malloc(C.size_t(unsafe.Sizeof(C.CPublicKey{})) * C.ulong(n_public_key)))
 	public_key_slice := unsafe.Slice(dest.public_keys, n_public_key)
 	for i := 0; i < n_public_key; i++ {
-		export_public_key(&gcv2.Value[i][0], &public_key_slice[i], level)
+		export_public_key(&src.Value[i][0], &public_key_slice[i], level)
+	}
+
+	// Transform C memory in-place (avoids CopyNew double-copy)
+	diff := mf_nbits - 64
+	if diff != 0 {
+		ringq := params.RingQ()
+		ringp := params.RingP()
+
+		// Determine Q/P component counts
+		var n_q_component int
+		if level == -1 {
+			n_q_component = src.Value[0][0].Value[0].LevelQ() + 1
+		} else {
+			n_q_component = level + 1
+		}
+
+		for i := 0; i < n_public_key; i++ {
+			pk_poly_slice := unsafe.Slice(public_key_slice[i].polys, 2)
+			for j := 0; j < 2; j++ {
+				comp_slice := unsafe.Slice(pk_poly_slice[j].components, int(pk_poly_slice[j].n_component))
+				q_poly := wrap_c_components_as_ring_poly(comp_slice[:n_q_component])
+				p_poly := wrap_c_components_as_ring_poly(comp_slice[n_q_component:])
+
+				if diff == -64 {
+					ringq.InvMForm(q_poly, q_poly)
+					ringp.InvMForm(p_poly, p_poly)
+				} else if diff > 0 {
+					ringq.MulByPow2(q_poly, diff, q_poly)
+					ringp.MulByPow2(p_poly, diff, p_poly)
+				} else {
+					ringq.InvMForm(q_poly, q_poly)
+					ringq.MulByPow2(q_poly, 64+diff, q_poly)
+					ringp.InvMForm(p_poly, p_poly)
+					ringp.MulByPow2(p_poly, 64+diff, p_poly)
+				}
+			}
+		}
 	}
 }
 
@@ -152,12 +188,16 @@ func ExportLattigoBfvPlaintextMul(params_handle C.uintptr_t, src_handle C.uintpt
 	params := cgo.Handle(params_handle).Value().(rlwe.Parameters)
 	src := cgo.Handle(src_handle).Value().(*bfv.PlaintextMul)
 	dest.level = C.int(src.Level())
-	src_value_copy := src.Value.CopyNew()
-	params.RingQ().InvMFormLvl(src.Level(), src_value_copy, src_value_copy)
-	if int(mf_nbits) != 0 {
-		params.RingQ().MulByPow2(src_value_copy, int(mf_nbits), src_value_copy)
+	export_polynomial(src.Value, &dest.poly)
+	// Transform C memory in-place (avoids CopyNew double-copy)
+	if int(mf_nbits) != 64 {
+		comp_slice := unsafe.Slice(dest.poly.components, int(dest.poly.n_component))
+		c_poly := wrap_c_components_as_ring_poly(comp_slice)
+		params.RingQ().InvMFormLvl(src.Level(), c_poly, c_poly)
+		if int(mf_nbits) != 0 {
+			params.RingQ().MulByPow2(c_poly, int(mf_nbits), c_poly)
+		}
 	}
-	export_polynomial(src_value_copy, &dest.poly)
 }
 
 //export ExportLattigoRelinKey

@@ -25,7 +25,7 @@
 #include <set>
 #include <memory>
 #include <algorithm>
-#include <HEonGPU-1.1/heongpu.hpp>
+#include <HEonGPU-1.1/heongpu/heongpu.hpp>
 
 #include "nlohmann/json.hpp"
 #include "../lib/thread_pool/BS_thread_pool.hpp"
@@ -42,8 +42,8 @@
 #endif
 
 extern "C" {
-#include "../../fhe_ops_lib/fhe_types_v2.h"
-#include "../../fhe_ops_lib/structs_v2.h"
+#include "../../abi/c_types.h"
+#include "../../abi/c_structs.h"
 }
 
 namespace gpu_wrapper {
@@ -51,7 +51,7 @@ using namespace fhe_ops_lib;
 
 template <heongpu::Scheme SchemeType>
 void init_gpu_context(const nlohmann::json& param_json,
-                      std::unique_ptr<heongpu::HEContext<SchemeType>>& context,
+                      heongpu::HEContext<SchemeType>& context,
                       std::unique_ptr<heongpu::HEArithmeticOperator<SchemeType>>& operators) {
     auto n = param_json["n"].get<int>();
 
@@ -59,10 +59,14 @@ void init_gpu_context(const nlohmann::json& param_json,
     auto q = param_json["q"].get<std::vector<uint64_t>>();
     auto p = param_json["p"].get<std::vector<uint64_t>>();
 
+    heongpu::MemoryPoolConfig pool_config = heongpu::MemoryPoolConfig::Defaults();
+
     if constexpr (SchemeType == heongpu::Scheme::CKKS) {
-        context = std::make_unique<heongpu::HEContext<SchemeType>>(heongpu::keyswitching_type::KEYSWITCHING_METHOD_II,
-                                                                   heongpu::sec_level_type::none);
+        context = heongpu::GenHEContext<SchemeType>(heongpu::sec_level_type::none);
         context->set_poly_modulus_degree(n);
+
+        int slots = param_json["slots"].get<int>();
+        context->set_slot_count(slots);
 
         std::vector<Data64> Q, P;
         for (int i = 0; i <= max_level; i++) {
@@ -73,20 +77,38 @@ void init_gpu_context(const nlohmann::json& param_json,
             P.push_back(Data64(p[i]));
         }
         context->set_coeff_modulus_values(Q, P);
-        context->generate();
+        context->generate(pool_config);
 
-        auto gpu_encoder = std::make_unique<heongpu::HEEncoder<SchemeType>>(*context);
-        operators = std::make_unique<heongpu::HEArithmeticOperator<SchemeType>>(*context, *gpu_encoder);
+        auto gpu_encoder = std::make_unique<heongpu::HEEncoder<SchemeType>>(context);
+        operators = std::make_unique<heongpu::HEArithmeticOperator<SchemeType>>(context, *gpu_encoder);
 
         if (param_json.contains("btp_output_level")) {
             int cts_start_level = param_json["btp_cts_start_level"].get<int>();
+            int cts_depth = param_json["btp_cts_depth"].get<int>();
+            double cts_bsgs_ratio = param_json["btp_cts_bsgs_ratio"].get<double>();
+
+            uint64_t eval_mod_q = param_json["btp_eval_mod_q"].get<uint64_t>();
             int eval_mod_start_level = param_json["btp_eval_mod_start_level"].get<int>();
+            double eval_mod_scaling_factor = param_json["btp_eval_mod_scaling_factor"].get<double>();
+            double eval_mod_message_ratio = param_json["btp_eval_mod_message_ratio"].get<double>();
+            int eval_mod_k = param_json["btp_eval_mod_k"].get<int>();
+            int eval_mod_sine_deg = param_json["btp_eval_mod_sine_deg"].get<int>();
+            int eval_mod_double_angle = param_json["btp_eval_mod_double_angle"].get<int>();
+            int eval_mod_arcsine_deg = param_json["btp_eval_mod_arcsine_deg"].get<int>();
+
             int stc_start_level = param_json["btp_stc_start_level"].get<int>();
+            int stc_depth = param_json["btp_stc_depth"].get<int>();
+            double stc_bsgs_ratio = param_json["btp_stc_bsgs_ratio"].get<double>();
+
             double scale = param_json["scale"].get<double>();
 
-            heongpu::EncodingMatrixConfig cts_config(heongpu::LinearTransformType::COEFFS_TO_SLOTS, cts_start_level);
-            heongpu::EvalModConfig eval_mod_config(eval_mod_start_level);
-            heongpu::EncodingMatrixConfig stc_config(heongpu::LinearTransformType::SLOTS_TO_COEFFS, stc_start_level);
+            heongpu::EncodingMatrixConfig cts_config(heongpu::LinearTransformType::COEFFS_TO_SLOTS, cts_start_level,
+                                                     cts_bsgs_ratio, cts_depth);
+            heongpu::EvalModConfig eval_mod_config(eval_mod_q, eval_mod_start_level, eval_mod_message_ratio, eval_mod_k,
+                                                   eval_mod_sine_deg, eval_mod_double_angle, eval_mod_arcsine_deg,
+                                                   eval_mod_scaling_factor);
+            heongpu::EncodingMatrixConfig stc_config(heongpu::LinearTransformType::SLOTS_TO_COEFFS, stc_start_level,
+                                                     stc_bsgs_ratio, stc_depth);
 
             heongpu::BootstrappingConfigV2 boot_config(stc_config, eval_mod_config, cts_config);
 
@@ -95,8 +117,7 @@ void init_gpu_context(const nlohmann::json& param_json,
 
     } else {
         int t = param_json["t"].get<uint64_t>();
-        context = std::make_unique<heongpu::HEContext<SchemeType>>(heongpu::keyswitching_type::KEYSWITCHING_METHOD_II,
-                                                                   heongpu::sec_level_type::none);
+        context = heongpu::GenHEContext<SchemeType>(heongpu::sec_level_type::none);
         context->set_poly_modulus_degree(n);
 
         std::vector<Data64> Q, P;
@@ -108,10 +129,10 @@ void init_gpu_context(const nlohmann::json& param_json,
         }
         context->set_coeff_modulus_values(Q, P);
         context->set_plain_modulus(t);
-        context->generate();
+        context->generate(pool_config);
 
-        auto gpu_encoder = std::make_unique<heongpu::HEEncoder<SchemeType>>(*context);
-        operators = std::make_unique<heongpu::HEArithmeticOperator<SchemeType>>(*context, *gpu_encoder);
+        auto gpu_encoder = std::make_unique<heongpu::HEEncoder<SchemeType>>(context);
+        operators = std::make_unique<heongpu::HEArithmeticOperator<SchemeType>>(context, *gpu_encoder);
     }
 }
 
@@ -127,7 +148,7 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
     CHECK(cudaSetDevice(device));
 
     // Initialize GPU context and operators for GPU FHE operations
-    std::unique_ptr<heongpu::HEContext<SchemeType>> context;
+    heongpu::HEContext<SchemeType> context;
     std::unique_ptr<heongpu::HEArithmeticOperator<SchemeType>> operators;
 
     init_gpu_context<SchemeType>(mega_ag.parameter, context, operators);
@@ -251,7 +272,7 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
 
                     // LOAD_TO_BACKEND needs HEContext and galois_key parameters
                     if (op == OperationType::LOAD_TO_BACKEND) {
-                        exec_ctx.other_args.push_back(context.get());
+                        exec_ctx.other_args.push_back(&context);
                         exec_ctx.other_args.push_back(&galois_key);
                         exec_ctx.other_args.push_back(&galois_key_mutex);
                         exec_ctx.other_args.push_back(&all_galois_elts);
@@ -265,7 +286,7 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
                     // struct (not GPU memory)
                     if (op != OperationType::LOAD_TO_BACKEND && op != OperationType::STORE_FROM_BACKEND) {
                         int output_level = compute_output_node->fhe_prop->level;
-                        auto output_ptr = std::make_shared<heongpu::Ciphertext<SchemeType>>(*context, output_level,
+                        auto output_ptr = std::make_shared<heongpu::Ciphertext<SchemeType>>(context, output_level,
                                                                                             stream_options[stream_id]);
                         output = output_ptr;
                     }
@@ -447,13 +468,14 @@ protected:
 
         // Warm up the CUDA context so timing is more accurate and HEonGPU device-local resources are initialized on
         // the same device that will execute the task.
-        heongpu::HEContext<heongpu::Scheme::BFV> context(heongpu::keyswitching_type::KEYSWITCHING_METHOD_II,
-                                                         heongpu::sec_level_type::none);
-        context.set_poly_modulus_degree(8192);
-        context.set_coeff_modulus_values({18014398508400641, 18014398510645249, 18014398510661633},
-                                         {36028797018652673});
-        context.set_plain_modulus(65537);
-        context.generate();
+        heongpu::HEContext<heongpu::Scheme::BFV> context =
+            heongpu::GenHEContext<heongpu::Scheme::BFV>(heongpu::sec_level_type::none);
+        context->set_poly_modulus_degree(8192);
+        context->set_coeff_modulus_values({18014398508400641, 18014398510645249, 18014398510661633},
+                                          {36028797018652673});
+        context->set_plain_modulus(65537);
+        heongpu::MemoryPoolConfig pool_config = heongpu::MemoryPoolConfig::Defaults();
+        context->generate(pool_config);
         heongpu::HEKeyGenerator<heongpu::Scheme::BFV> keygen(context);
         heongpu::Secretkey<heongpu::Scheme::BFV> secret_key(context);
         keygen.generate_secret_key(secret_key);

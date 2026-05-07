@@ -105,9 +105,36 @@ if(LATTISENSE_ENABLE_GPU)
     set(HEONGPU_SOURCE_DIR "${LATTISENSE_ROOT_DIR}/backends/HEonGPU")
     set(HEONGPU_BUILD_DIR  "${HEONGPU_SOURCE_DIR}/build")
     set(HEONGPU_INSTALL_DIR "${HEONGPU_SOURCE_DIR}/install")
+    set(HEONGPU_CACHE_MARKER ".heongpu_cache_key")
 
-    if(NOT EXISTS "${HEONGPU_INSTALL_DIR}/lib")
-        message(STATUS "HEonGPU not found at ${HEONGPU_INSTALL_DIR}, building automatically...")
+    execute_process(
+        COMMAND git -C ${HEONGPU_SOURCE_DIR} rev-parse HEAD
+        OUTPUT_VARIABLE HEONGPU_COMMIT
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        RESULT_VARIABLE heongpu_commit_result
+        ERROR_QUIET
+    )
+    if(NOT heongpu_commit_result EQUAL 0 OR HEONGPU_COMMIT STREQUAL "")
+        message(FATAL_ERROR "Failed to determine HEonGPU commit for cache validation")
+    endif()
+    set(HEONGPU_CACHE_KEY "${HEONGPU_COMMIT}-arch${LATTISENSE_CUDA_ARCH}")
+    set(HEONGPU_INSTALL_CURRENT OFF)
+
+    if(EXISTS "${HEONGPU_INSTALL_DIR}/lib" AND EXISTS "${HEONGPU_INSTALL_DIR}/${HEONGPU_CACHE_MARKER}")
+        file(READ "${HEONGPU_INSTALL_DIR}/${HEONGPU_CACHE_MARKER}" HEONGPU_INSTALLED_CACHE_KEY)
+        string(STRIP "${HEONGPU_INSTALLED_CACHE_KEY}" HEONGPU_INSTALLED_CACHE_KEY)
+        if(HEONGPU_INSTALLED_CACHE_KEY STREQUAL HEONGPU_CACHE_KEY)
+            set(HEONGPU_INSTALL_CURRENT ON)
+        endif()
+    endif()
+
+    if(EXISTS "${HEONGPU_INSTALL_DIR}/lib" AND NOT HEONGPU_INSTALL_CURRENT)
+        message(STATUS "HEonGPU install cache key mismatch; rebuilding ${HEONGPU_CACHE_KEY}")
+        file(REMOVE_RECURSE "${HEONGPU_BUILD_DIR}" "${HEONGPU_INSTALL_DIR}")
+    endif()
+
+    if(NOT HEONGPU_INSTALL_CURRENT)
+        message(STATUS "HEonGPU not found for ${HEONGPU_CACHE_KEY}, building automatically...")
 
         # Determine parallel jobs
         include(ProcessorCount)
@@ -186,9 +213,10 @@ if(LATTISENSE_ENABLE_GPU)
         if(NOT heongpu_install_result EQUAL 0)
             message(FATAL_ERROR "[HEonGPU] Install failed (exit ${heongpu_install_result})")
         endif()
+        file(WRITE "${HEONGPU_INSTALL_DIR}/${HEONGPU_CACHE_MARKER}" "${HEONGPU_CACHE_KEY}\n")
         message(STATUS "[HEonGPU] Install done.")
     else()
-        message(STATUS "Found existing HEonGPU installation at ${HEONGPU_INSTALL_DIR}")
+        message(STATUS "Found existing HEonGPU installation at ${HEONGPU_INSTALL_DIR} (${HEONGPU_CACHE_KEY})")
     endif()
 
     # ── find HEonGPU and its dependencies ────────────────────────────────
@@ -332,6 +360,8 @@ else()
     add_custom_target(go_libs DEPENDS ${LIBLATTIGO_A} ${LIBLATTIGO_SHARED} ${LIBLATTIGO_H_SANITIZED})
 endif()
 
+add_subdirectory(abi)
+add_dependencies(abi go_libs)
 add_subdirectory(fhe_ops_lib)
 add_dependencies(fhe_ops_lib go_libs)
 

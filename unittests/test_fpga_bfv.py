@@ -37,8 +37,8 @@ except ImportError:
     FPGA_OUTPUT_BASE_DIR = os.path.join(current_dir, 'test_data', 'fpga_tests', 'noc_config_16c_3')
 
 
-_p1 = Param.create_bfv_fpga_param(t=0x1B4001)
-_p2 = Param.create_bfv_fpga_param(t=1 << 10)
+_p1 = BfvParam.create_fpga_param(t=0x1B4001)
+_p2 = BfvParam.create_fpga_param(t=1 << 10)
 
 N_OP = 4  # Number of parallel operators per test
 

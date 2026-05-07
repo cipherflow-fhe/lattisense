@@ -24,6 +24,7 @@
 #include <vector>
 
 #include "fhe_lib_v2.h"
+#include "../fhe_ops_lib/utils.h"  // rand_values, print_message, vec_mod_*, etc.
 
 using namespace fhe_ops_lib;
 

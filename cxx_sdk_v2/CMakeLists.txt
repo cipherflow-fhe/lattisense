@@ -20,7 +20,7 @@ target_include_directories(cxx_sdk_v2 PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/../lib/
 )
 
-set(LINK_LIBS fhe_ops_lib cpu_mega_ag_runner dl m)
+set(LINK_LIBS fhe_ops_lib abi cpu_mega_ag_runner dl m)
 
 if(LATTISENSE_ENABLE_FPGA)
     list(APPEND LINK_LIBS fpga_mega_ag_runner)

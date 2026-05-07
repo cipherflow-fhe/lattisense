@@ -19,11 +19,11 @@
 package acc
 
 /*
-#cgo CFLAGS: -I ${SRCDIR}/../../../fhe_ops_lib -I ${SRCDIR}/../../../mega_ag_runners -I ${SRCDIR}/../../../mega_ag_runners/fpga
-#cgo CXXFLAGS: -I ${SRCDIR}/../../../fhe_ops_lib -I ${SRCDIR}/../../../mega_ag_runners -I ${SRCDIR}/../../../mega_ag_runners/fpga -I ${SRCDIR}/../../../lib
-#cgo LDFLAGS: -L${SRCDIR}/../../../build/mega_ag_runners/fpga -L${SRCDIR}/../../../build/fhe_ops_lib -lfpga_mega_ag_runner -lfhe_ops_lib -Wl,-rpath,../../../build/mega_ag_runners/fpga -Wl,-rpath,../../../build/fhe_ops_lib
+#cgo CFLAGS: -I ${SRCDIR}/../../../abi -I ${SRCDIR}/../../../mega_ag_runners -I ${SRCDIR}/../../../mega_ag_runners/fpga
+#cgo CXXFLAGS: -I ${SRCDIR}/../../../abi -I ${SRCDIR}/../../../mega_ag_runners -I ${SRCDIR}/../../../mega_ag_runners/fpga -I ${SRCDIR}/../../../lib
+#cgo LDFLAGS: -L${SRCDIR}/../../../build/mega_ag_runners/fpga -L${SRCDIR}/../../../build/abi -lfpga_mega_ag_runner -labi -Wl,-rpath,../../../build/mega_ag_runners/fpga -Wl,-rpath,../../../build/abi
 
-#include "structs_v2.h"
+#include "c_structs.h"
 #include "stdlib.h"
 #include "fpga_ops_wrapper.h"
 #include "wrapper.h"

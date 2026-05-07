@@ -36,7 +36,7 @@ except ImportError:
     FPGA_OUTPUT_BASE_DIR = os.path.join(current_dir, 'test_data', 'fpga_tests', 'noc_config_16c_3')
 
 
-_p1 = Param.create_ckks_fpga_param()
+_p1 = CkksParam.create_fpga_param()
 
 N_OP = 4  # Number of parallel operators per test
 

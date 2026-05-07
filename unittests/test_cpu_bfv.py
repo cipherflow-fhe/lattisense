@@ -38,8 +38,8 @@ except ImportError:
     CPU_OUTPUT_BASE_DIR = os.path.join(current_dir, 'test_data', 'cpu')
 
 
-_p1 = Param.create_bfv_default_param(n=16384)
-_p2 = Param.create_bfv_custom_param(
+_p1 = BfvParam.create_default_param(n=16384)
+_p2 = BfvParam.create_custom_param(
     n=8192,
     q=[0x3FFFFFFFEF8001, 0x4000000011C001, 0x40000000120001],
     p=[0x7FFFFFFFFB4001],

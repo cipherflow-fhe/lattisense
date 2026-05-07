@@ -28,7 +28,7 @@
 #include "../fhe_ops_lib/fhe_lib_v2.h"
 
 extern "C" {
-#include "../fhe_ops_lib/structs_v2.h"
+#include "../abi/c_structs.h"
 #include "../mega_ag_runners/wrapper.h"
 }
 

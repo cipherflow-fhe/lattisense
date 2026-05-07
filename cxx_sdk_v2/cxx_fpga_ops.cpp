@@ -37,6 +37,7 @@ int FpgaDevice::init() {
         }
         if (c_preload_projects() != 0) {
             log_error("FpgaDevice preload failed.");
+            c_free_fpga_device();
             return 1;
         }
         _in_use = true;

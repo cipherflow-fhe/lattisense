@@ -18,6 +18,7 @@
 
 #include <chrono>
 #include <exception>
+#include <iostream>
 #include <unordered_map>
 
 #include "cxx_fhe_task.h"

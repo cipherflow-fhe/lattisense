@@ -41,8 +41,8 @@
 #include "mega_ag.h"
 
 extern "C" {
-#include "fhe_types_v2.h"
-#include "structs_v2.h"
+#include "c_types.h"
+#include "c_structs.h"
 #include "c_argument.h"
 
 // Go callbacks implemented in c_struct_import_export.go
@@ -83,7 +83,6 @@ extern "C" void* create_lattigo_abi_export_executor(int algo, int mf_nbits, int 
         }
 
         DataType data_type = input_node->datum_type;
-        bool is_external_input_node = input_node->is_input;
 
         int level = input_node->fhe_prop->level;
         bool is_ringt = input_node->fhe_prop->p.has_value() && input_node->fhe_prop->p->is_ringt;
@@ -93,8 +92,6 @@ extern "C" void* create_lattigo_abi_export_executor(int algo, int mf_nbits, int 
                                       0;
 
         uintptr_t params_handle = g_lattigo_params_handle;
-        // Keep input_sptr alive so Go GC cannot collect the object whose
-        // memory is referenced zero-copy by the exported C struct.
         auto input_sptr = std::any_cast<std::shared_ptr<void>>(inputs.at(input_node->index));
         uintptr_t input_handle = (uintptr_t)input_sptr.get();
 
@@ -106,14 +103,10 @@ extern "C" void* create_lattigo_abi_export_executor(int algo, int mf_nbits, int 
                 else
                     ExportLattigoCkksCiphertext(input_handle, c_ct);
 
-                if (is_external_input_node) {
-                    output = std::shared_ptr<CCiphertext>(c_ct, [input_sptr](CCiphertext*) {});
-                } else {
-                    output = std::shared_ptr<CCiphertext>(c_ct, [input_sptr](CCiphertext* p) {
-                        free_ciphertext(p, false);
-                        free(p);
-                    });
-                }
+                output = std::shared_ptr<CCiphertext>(c_ct, [](CCiphertext* p) {
+                    free_ciphertext(p);
+                    free(p);
+                });
                 break;
             }
             case TYPE_PLAINTEXT: {
@@ -127,21 +120,17 @@ extern "C" void* create_lattigo_abi_export_executor(int algo, int mf_nbits, int 
                 else
                     ExportLattigoCkksPlaintext(input_handle, c_pt);
 
-                if (is_external_input_node) {
-                    output = std::shared_ptr<CPlaintext>(c_pt, [input_sptr](CPlaintext*) {});
-                } else {
-                    output = std::shared_ptr<CPlaintext>(c_pt, [input_sptr](CPlaintext* p) {
-                        free_plaintext(p, false);
-                        free(p);
-                    });
-                }
+                output = std::shared_ptr<CPlaintext>(c_pt, [](CPlaintext* p) {
+                    free_plaintext(p);
+                    free(p);
+                });
                 break;
             }
             case TYPE_RELIN_KEY: {
                 auto* c_rlk = (CRelinKey*)malloc(sizeof(CRelinKey));
                 ExportLattigoRelinKey(params_handle, input_handle, level, key_mf_nbits, c_rlk);
-                output = std::shared_ptr<CRelinKey>(c_rlk, [input_sptr](CRelinKey* p) {
-                    free_relin_key(p, false);
+                output = std::shared_ptr<CRelinKey>(c_rlk, [](CRelinKey* p) {
+                    free_relin_key(p);
                     free(p);
                 });
                 break;
@@ -150,8 +139,8 @@ extern "C" void* create_lattigo_abi_export_executor(int algo, int mf_nbits, int 
                 auto* c_glk = (CGaloisKey*)malloc(sizeof(CGaloisKey));
                 ExportLattigoGaloisKey(params_handle, input_handle, galois_element, level, key_mf_nbits, c_glk);
 
-                output = std::shared_ptr<CGaloisKey>(c_glk, [input_sptr](CGaloisKey* p) {
-                    free_galois_key(p, false);
+                output = std::shared_ptr<CGaloisKey>(c_glk, [](CGaloisKey* p) {
+                    free_galois_key(p);
                     free(p);
                 });
                 break;

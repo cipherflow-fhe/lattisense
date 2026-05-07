@@ -52,16 +52,26 @@ public:
 
     FheTask(FheTask&& other) {
         std::swap(_project_path, other._project_path);
+        std::swap(_task_signature, other._task_signature);
+        std::swap(_param_json, other._param_json);
         std::swap(_algo, other._algo);
         std::swap(task_handle, other.task_handle);
+        std::swap(input_args, other.input_args);
+        std::swap(output_args, other.output_args);
+        std::swap(_key_storage, other._key_storage);
     }
 
     void operator=(const FheTask& other) = delete;
 
     void operator=(FheTask&& other) {
         std::swap(_project_path, other._project_path);
+        std::swap(_task_signature, other._task_signature);
+        std::swap(_param_json, other._param_json);
         std::swap(_algo, other._algo);
         std::swap(task_handle, other.task_handle);
+        std::swap(input_args, other.input_args);
+        std::swap(output_args, other.output_args);
+        std::swap(_key_storage, other._key_storage);
     }
 
     ~FheTask();

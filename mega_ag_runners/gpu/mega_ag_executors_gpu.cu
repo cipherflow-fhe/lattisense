@@ -22,7 +22,7 @@
 #include <stdexcept>
 #include <unordered_map>
 #include <tuple>
-#include <HEonGPU-1.1/heongpu.hpp>
+#include <HEonGPU-1.1/heongpu/heongpu.hpp>
 #include "../mega_ag_executors.h"
 
 template <heongpu::Scheme S> using Ct = heongpu::Ciphertext<S>;

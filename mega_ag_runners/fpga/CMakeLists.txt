@@ -13,7 +13,7 @@ add_library(fpga_mega_ag_runner SHARED
     $<TARGET_OBJECTS:fpga_mega_ag_runner_obj>
     $<TARGET_OBJECTS:mega_ag_obj>
 )
-target_link_libraries(fpga_mega_ag_runner PUBLIC fhe_ops_lib fpga_bfv -Wl,--whole-archive fpga_ops -Wl,--no-whole-archive ${CMAKE_CURRENT_SOURCE_DIR}/../../lib/wolfssl/lib/libwolfssl.a dl m)
+target_link_libraries(fpga_mega_ag_runner PUBLIC fhe_ops_lib abi fpga_bfv -Wl,--whole-archive fpga_ops -Wl,--no-whole-archive ${CMAKE_CURRENT_SOURCE_DIR}/../../lib/wolfssl/lib/libwolfssl.a dl m)
 set_target_properties(fpga_mega_ag_runner PROPERTIES
     INSTALL_RPATH "$ORIGIN"
     BUILD_WITH_INSTALL_RPATH OFF

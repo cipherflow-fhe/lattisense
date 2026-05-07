@@ -17,7 +17,7 @@
  */
 
 #include <stdlib.h>
-#include "structs_v2.h"
+#include "c_structs.h"
 #include "liblattigo.h"
 
 void alloc_component(CComponent* component, int n) {
@@ -64,35 +64,34 @@ void set_galois_key_steps(CGaloisKey* glk, uint64_t* galois_elements, int n_galo
     }
 }
 
-void free_polynomial(CPolynomial* polynomial, bool free_component_data) {
-    if (free_component_data) {
-        for (int i = 0; i < polynomial->n_component; i++) {
-            free(polynomial->components[i].data);
-        }
+void free_polynomial(CPolynomial* polynomial) {
+    for (int i = 0; i < polynomial->n_component; i++) {
+        free(polynomial->components[i].data);
     }
     free(polynomial->components);
 }
 
-void free_plaintext(CPlaintext* pt, bool free_component_data) {
-    free_polynomial(&pt->poly, free_component_data);
+void free_plaintext(CPlaintext* pt) {
+    free_polynomial(&pt->poly);
 }
 
-void free_ciphertext(CCiphertext* ct, bool free_component_data) {
+void free_ciphertext(CCiphertext* ct) {
     for (int i = 0; i < ct->degree + 1; i++) {
-        free_polynomial(&ct->polys[i], free_component_data);
+        free_polynomial(&ct->polys[i]);
     }
+    free(ct->polys);
 }
 
-void free_relin_key(CRelinKey* rlk, bool free_component_data) {
+void free_relin_key(CRelinKey* rlk) {
     for (int i = 0; i < rlk->n_public_key; i++) {
-        free_ciphertext(&rlk->public_keys[i], free_component_data);
+        free_ciphertext(&rlk->public_keys[i]);
     }
     free(rlk->public_keys);
 }
 
-void free_galois_key(CGaloisKey* gk, bool free_component_data) {
+void free_galois_key(CGaloisKey* gk) {
     for (int i = 0; i < gk->n_key_switch_key; i++) {
-        free_relin_key(&gk->key_switch_keys[i], free_component_data);
+        free_relin_key(&gk->key_switch_keys[i]);
     }
     free(gk->galois_elements);
     free(gk->key_switch_keys);
@@ -114,12 +113,18 @@ inline void export_ckks_plaintext_ringt(uint64_t plaintext_ringt_handle, CPlaint
     ExportCkksPlaintextRingt(plaintext_ringt_handle, plaintext);
 }
 
-inline void export_bfv_plaintext_mul(uint64_t plaintext_mul_handle, CPlaintext* plaintext) {
-    ExportBfvPlaintextMul(plaintext_mul_handle, plaintext);
+inline void export_bfv_plaintext_mul(uint64_t parameter_handle,
+                                     uint64_t plaintext_mul_handle,
+                                     int mf_nbits,
+                                     CPlaintext* plaintext) {
+    ExportBfvPlaintextMul(parameter_handle, plaintext_mul_handle, mf_nbits, plaintext);
 }
 
-inline void export_ckks_plaintext_mul(uint64_t plaintext_mul_handle, CPlaintext* plaintext) {
-    ExportCkksPlaintextMul(plaintext_mul_handle, plaintext);
+inline void export_ckks_plaintext_mul(uint64_t parameter_handle,
+                                      uint64_t plaintext_mul_handle,
+                                      int mf_nbits,
+                                      CPlaintext* plaintext) {
+    ExportCkksPlaintextMul(parameter_handle, plaintext_mul_handle, mf_nbits, plaintext);
 }
 
 inline void export_bfv_plaintext(uint64_t plaintext_handle, CPlaintext* plaintext) {
@@ -138,16 +143,45 @@ inline void export_ckks_ciphertext(uint64_t ciphertext_handle, CCiphertext* ciph
     ExportCkksCiphertext(ciphertext_handle, ciphertext);
 }
 
-inline void export_relin_key(uint64_t relin_key_handle, int level, CRelinKey* relin_key) {
-    ExportRelinKey(relin_key_handle, level, relin_key);
+inline void export_bfv_relin_key(uint64_t parameter_handle,
+                                 uint64_t relin_key_handle,
+                                 int level,
+                                 int key_mf_nbits,
+                                 CRelinKey* relin_key) {
+    ExportBfvRelinKey(parameter_handle, relin_key_handle, level, key_mf_nbits, relin_key);
 }
 
-inline void export_galois_key(uint64_t galois_key_handle, int level, CGaloisKey* galois_key) {
-    ExportGaloisKey(galois_key_handle, level, galois_key);
+inline void export_ckks_relin_key(uint64_t parameter_handle,
+                                  uint64_t relin_key_handle,
+                                  int level,
+                                  int key_mf_nbits,
+                                  CRelinKey* relin_key) {
+    ExportCkksRelinKey(parameter_handle, relin_key_handle, level, key_mf_nbits, relin_key);
 }
 
-inline void export_switching_key(uint64_t switching_key_handle, int level, int sp_level, CKeySwitchKey* switching_key) {
-    ExportSwitchingKey(switching_key_handle, level, sp_level, switching_key);
+inline void export_bfv_galois_key(uint64_t parameter_handle,
+                                  uint64_t galois_key_handle,
+                                  int level,
+                                  int key_mf_nbits,
+                                  CGaloisKey* galois_key) {
+    ExportBfvGaloisKey(parameter_handle, galois_key_handle, level, key_mf_nbits, galois_key);
+}
+
+inline void export_ckks_galois_key(uint64_t parameter_handle,
+                                   uint64_t galois_key_handle,
+                                   int level,
+                                   int key_mf_nbits,
+                                   CGaloisKey* galois_key) {
+    ExportCkksGaloisKey(parameter_handle, galois_key_handle, level, key_mf_nbits, galois_key);
+}
+
+inline void export_ckks_switching_key(uint64_t parameter_handle,
+                                      uint64_t switching_key_handle,
+                                      int level,
+                                      int sp_level,
+                                      int key_mf_nbits,
+                                      CKeySwitchKey* switching_key) {
+    ExportCkksSwitchingKey(parameter_handle, switching_key_handle, level, sp_level, key_mf_nbits, switching_key);
 }
 
 inline void bfv_component_ntt(uint64_t parameter_handle, uint64_t* coeff, int lvl_idx) {
@@ -172,82 +206,6 @@ inline void bfv_component_mul_by_pow2(uint64_t parameter_handle, uint64_t* coeff
 
 inline void ckks_component_mul_by_pow2(uint64_t parameter_handle, uint64_t* coeff, int lvl_idx, int pow2) {
     CkksComponentMulByPow2Inplace(parameter_handle, coeff, lvl_idx, pow2);
-}
-
-inline void
-bfv_plaintext_mul_inv_mform_and_mul_by_pow2(uint64_t parameter_handle, uint64_t plaintext_mul_handle, int pow2) {
-    BfvPlaintextMulInvMFormAndMulByPow2(parameter_handle, plaintext_mul_handle, pow2);
-}
-
-inline void
-ckks_plaintext_mul_inv_mform_and_mul_by_pow2(uint64_t parameter_handle, uint64_t plaintext_mul_handle, int pow2) {
-    CkksPlaintextMulInvMFormAndMulByPow2(parameter_handle, plaintext_mul_handle, pow2);
-}
-
-inline void bfv_rlk_inv_mform(uint64_t parameter_handle, uint64_t relin_key_handle) {
-    BfvRlkInvMForm(parameter_handle, relin_key_handle);
-}
-
-inline void bfv_rlk_inv_mform_and_mul_by_pow2(uint64_t parameter_handle, uint64_t relin_key_handle, int pow2) {
-    BfvRlkInvMFormAndMulByPow2(parameter_handle, relin_key_handle, pow2);
-}
-
-inline void bfv_glk_inv_mform(uint64_t parameter_handle, uint64_t galois_key_handle) {
-    BfvGlkInvMForm(parameter_handle, galois_key_handle);
-}
-
-inline void bfv_glk_inv_mform_and_mul_by_pow2(uint64_t parameter_handle, uint64_t galois_key_handle, int pow2) {
-    BfvGlkInvMFormAndMulByPow2(parameter_handle, galois_key_handle, pow2);
-}
-
-inline void ckks_rlk_inv_mform(uint64_t parameter_handle, uint64_t relin_key_handle) {
-    CkksRlkInvMForm(parameter_handle, relin_key_handle);
-}
-
-inline void ckks_rlk_inv_mform_and_mul_by_pow2(uint64_t parameter_handle, uint64_t relin_key_handle, int pow2) {
-    CkksRlkInvMFormAndMulByPow2(parameter_handle, relin_key_handle, pow2);
-}
-
-inline void ckks_glk_inv_mform(uint64_t parameter_handle, uint64_t galois_key_handle) {
-    CkksGlkInvMForm(parameter_handle, galois_key_handle);
-}
-
-inline void ckks_glk_inv_mform_and_mul_by_pow2(uint64_t parameter_handle, uint64_t galois_key_handle, int pow2) {
-    CkksGlkInvMFormAndMulByPow2(parameter_handle, galois_key_handle, pow2);
-}
-
-void set_bfv_rlk_n_mform_bits(uint64_t parameter_handle, uint64_t relin_key_handle, int n_mform_bits) {
-    SetBfvRlkNMFormBits(parameter_handle, relin_key_handle, n_mform_bits);
-}
-
-void set_ckks_rlk_n_mform_bits(uint64_t parameter_handle, uint64_t relin_key_handle, int n_mform_bits) {
-    SetCkksRlkNMFormBits(parameter_handle, relin_key_handle, n_mform_bits);
-}
-
-void set_bfv_glk_n_mform_bits(uint64_t parameter_handle, uint64_t galois_key_handle, int n_mform_bits) {
-    SetBfvGlkNMFormBits(parameter_handle, galois_key_handle, n_mform_bits);
-}
-
-void set_bfv_glk_n_mform_bits_for_gal(uint64_t parameter_handle,
-                                      uint64_t galois_key_handle,
-                                      uint64_t galois_element,
-                                      int n_mform_bits) {
-    SetBfvGlkNMFormBitsForGaloisElement(parameter_handle, galois_key_handle, galois_element, n_mform_bits);
-}
-
-void set_ckks_glk_n_mform_bits(uint64_t parameter_handle, uint64_t galois_key_handle, int n_mform_bits) {
-    SetCkksGlkNMFormBits(parameter_handle, galois_key_handle, n_mform_bits);
-}
-
-void set_ckks_glk_n_mform_bits_for_gal(uint64_t parameter_handle,
-                                       uint64_t galois_key_handle,
-                                       uint64_t galois_element,
-                                       int n_mform_bits) {
-    SetCkksGlkNMFormBitsForGaloisElement(parameter_handle, galois_key_handle, galois_element, n_mform_bits);
-}
-
-void set_ckks_swk_n_mform_bits(uint64_t parameter_handle, uint64_t switching_key_handle, int n_mform_bits) {
-    SetCkksSwkNMFormBits(parameter_handle, switching_key_handle, n_mform_bits);
 }
 
 inline uint64_t

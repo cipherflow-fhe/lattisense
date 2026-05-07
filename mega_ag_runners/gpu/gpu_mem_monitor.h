@@ -24,7 +24,7 @@
 #include <thread>
 #include <vector>
 
-#include "../../backends/HEonGPU/src/heongpu/include/util/memorypool.cuh"
+#include <heongpu/util/memorypool.cuh>
 
 // ---------------------------------------------------------------------------
 // GpuMemoryMonitor: background thread that samples HEonGPU RMM MemoryPool
@@ -51,8 +51,10 @@ struct GpuMemoryMonitor {
     std::chrono::steady_clock::time_point t0;
     std::ofstream ofs_live;  // written continuously
     std::string csv_path_;
+    heongpu::MemoryPool& pool_;
 
-    explicit GpuMemoryMonitor(int interval_ms_ = 100) : interval_ms(interval_ms_) {}
+    explicit GpuMemoryMonitor(int interval_ms_ = 100)
+        : pool_(heongpu::MemoryPool::instance()), interval_ms(interval_ms_) {}
 
     // Destructor ensures the file is flushed and closed even on abnormal exit
     // (uncaught exception, early return, etc.). SIGKILL cannot be caught, but
@@ -82,10 +84,9 @@ struct GpuMemoryMonitor {
     }
 
     // Read current pool usage and capacity via MemoryPool statistics adaptor.
-    static Sample read_pool(long elapsed_ms) {
-        auto& pool = MemoryPool::instance();
-        size_t used = pool.get_current_device_pool_memory_usage();
-        size_t free_ = pool.get_free_device_pool_memory();
+    Sample read_pool(long elapsed_ms) {
+        size_t used = pool_.get_current_device_pool_memory_usage();
+        size_t free_ = pool_.get_free_device_pool_memory();
         return {elapsed_ms, used / 1024.0 / 1024.0 / 1024.0, (used + free_) / 1024.0 / 1024.0 / 1024.0};
     }
 
@@ -98,7 +99,7 @@ struct GpuMemoryMonitor {
         ofs_live << "elapsed_ms,used_gb,pool_gb\n";
         ofs_live.flush();
 
-        used_at_start_gb = MemoryPool::instance().get_current_device_pool_memory_usage() / 1024.0 / 1024.0 / 1024.0;
+        used_at_start_gb = pool_.get_current_device_pool_memory_usage() / 1024.0 / 1024.0 / 1024.0;
         t0 = std::chrono::steady_clock::now();
         running = true;
         thr = std::thread([this] {

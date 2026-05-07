@@ -1161,17 +1161,20 @@ TEST_CASE_METHOD(LattigoCkksFixture, "CKKS encode coeffs-decode coeffs") {
     }
 }
 
-TEST_CASE_METHOD(LattigoCkksFixture, "CKKS encode_complex-encode_decode") {
-    vector<double> x_mg;
-    for (int i = 0; i < 10; i++) {
-        x_mg.push_back(double(i));
+TEST_CASE_METHOD(LattigoCkksFixture, "CKKS complex encode-decode") {
+    vector<complex<double>> x_mg;
+    for (int i = 0; i < 5; i++) {
+        x_mg.push_back(complex<double>(double(i * 2), double(i * 2 + 1)));
     }
 
     for (int level = 1; level <= max_level; level++) {
         SECTION("level " + to_string(level)) {
-            CkksPlaintext x_pt = context.encode_complex(x_mg, level, default_scale);
-            vector<double> y_mg = context.decode_complex(x_pt);
-            REQUIRE(compare_double_vectors(y_mg, x_mg, 10, 0.01) == false);
+            CkksPlaintext x_pt = context.encode(x_mg, level, default_scale);
+            vector<complex<double>> y_mg = context.decode_complex(x_pt);
+            for (int i = 0; i < 5; i++) {
+                REQUIRE(abs(y_mg[i].real() - x_mg[i].real()) < 0.01);
+                REQUIRE(abs(y_mg[i].imag() - x_mg[i].imag()) < 0.01);
+            }
         }
     }
 }
@@ -1590,26 +1593,21 @@ TEST_CASE_METHOD(LattigoCkksFixture, "CKKS ct multiply ct and relin") {
 }
 
 TEST_CASE_METHOD(LattigoCkksFixture, "CKKS complex ct multiply ct and relin") {
-    vector<double> x_mg;
-    vector<double> y_mg;
-    vector<double> z_true;
-    for (int i = 0; i < 10; i++) {
-        x_mg.push_back(double(i));
-        y_mg.push_back(double(i + 1));
+    vector<complex<double>> x_mg;
+    vector<complex<double>> y_mg;
+    vector<complex<double>> z_true;
+    for (int i = 0; i < 5; i++) {
+        x_mg.push_back(complex<double>(double(i * 2), double(i * 2 + 1)));
+        y_mg.push_back(complex<double>(double(i * 2 + 1), double(i * 2 + 2)));
     }
     for (int i = 0; i < 5; i++) {
-        double x_r = x_mg[i * 2];
-        double x_i = x_mg[i * 2 + 1];
-        double y_r = y_mg[i * 2];
-        double y_i = y_mg[i * 2 + 1];
-        z_true.push_back(x_r * y_r - x_i * y_i);
-        z_true.push_back(x_r * y_i + x_i * y_r);
+        z_true.push_back(x_mg[i] * y_mg[i]);
     }
 
     for (int level = 5; level <= 5; level++) {
         SECTION("level " + to_string(level)) {
-            CkksPlaintext x_pt = context.encode_complex(x_mg, level, default_scale);
-            CkksPlaintext y_pt = context.encode_complex(y_mg, level, default_scale);
+            CkksPlaintext x_pt = context.encode(x_mg, level, default_scale);
+            CkksPlaintext y_pt = context.encode(y_mg, level, default_scale);
             CkksCiphertext x_ct = context.encrypt_asymmetric(x_pt);
             CkksCiphertext y_ct = context.encrypt_asymmetric(y_pt);
 
@@ -1617,13 +1615,12 @@ TEST_CASE_METHOD(LattigoCkksFixture, "CKKS complex ct multiply ct and relin") {
             CkksCiphertext z_ct1 = context.relinearize(z_ct3);
 
             CkksPlaintext z_pt = context.decrypt(z_ct1);
-            vector<double> z_mg = context.decode_complex(z_pt);
+            vector<complex<double>> z_mg = context.decode_complex(z_pt);
 
-            for (int i = 0; i < 10; i++) {
-                cout << z_mg[i] << ", ";
+            for (int i = 0; i < 5; i++) {
+                REQUIRE(abs(z_mg[i].real() - z_true[i].real()) < 0.01);
+                REQUIRE(abs(z_mg[i].imag() - z_true[i].imag()) < 0.01);
             }
-
-            REQUIRE(compare_double_vectors(z_mg, z_true, 10, 0.01) == false);
         }
     }
 }

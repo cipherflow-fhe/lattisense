@@ -20,6 +20,7 @@
 #define CXX_FHE_LIB_H
 
 #include <cmath>
+#include <complex>
 #include <inttypes.h>
 #include <memory>
 #include <utility>
@@ -30,7 +31,6 @@
 #include <gsl/span>
 
 extern "C" {
-#include "fhe_types_v2.h"
 // Use the sanitized copy of the cgo-generated header. The original liblattigo.h
 // contains #line directives with virtual filenames (e.g. "cgo-builtin-export-prolog")
 // that NVCC's -MD dep scanner emits as Make prerequisites; since those names are not
@@ -40,7 +40,6 @@ extern "C" {
 // by the go_libs build step.
 #include "lattigo/go_sdk/liblattigo_sanitized.h"
 }
-#include "utils.h"
 
 namespace fhe_ops_lib {
 
@@ -921,8 +920,7 @@ public:
      * @return The encoded plaintext.
      */
     CkksPlaintext encode(const std::vector<double>& x_mg, int level, double scale);
-
-    CkksPlaintext encode_complex(const std::vector<double>& x_mg, int level, double scale);
+    CkksPlaintext encode(const std::vector<std::complex<double>>& x_mg, int level, double scale);
 
     /**
      * Encode message data into a CKKS plaintext in ring-t form for multiplication.
@@ -931,6 +929,7 @@ public:
      * @return The encoded plaintext for multiplication.
      */
     CkksPlaintextRingt encode_ringt(const std::vector<double>& x_mg, double scale);
+    CkksPlaintextRingt encode_ringt(const std::vector<std::complex<double>>& x_mg, double scale);
 
     /**
      * Encode message data into a CKKS plaintext for multiplication.
@@ -940,6 +939,7 @@ public:
      * @return The encoded plaintext for multiplication.
      */
     CkksPlaintextMul encode_mul(const std::vector<double>& x_mg, int level, double scale);
+    CkksPlaintextMul encode_mul(const std::vector<std::complex<double>>& x_mg, int level, double scale);
 
     /**
      * Encode a floating-point array into a CKKS plaintext, with array components directly embedded into plaintext
@@ -984,8 +984,7 @@ public:
      * @return The decoded message data.
      */
     std::vector<double> decode(const CkksPlaintext& x_pt);
-
-    std::vector<double> decode_complex(const CkksPlaintext& x_pt);
+    std::vector<std::complex<double>> decode_complex(const CkksPlaintext& x_pt);
 
     /**
      * Decode a CKKS plaintext into message data (coefficient encoding).

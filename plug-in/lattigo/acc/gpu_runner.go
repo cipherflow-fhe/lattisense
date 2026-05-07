@@ -1,11 +1,11 @@
 package acc
 
 /*
-#cgo CFLAGS: -I ${SRCDIR}/../../../fhe_ops_lib -I ${SRCDIR}/../../../mega_ag_runners -I ${SRCDIR}/../../../lib
-#cgo CXXFLAGS: -I ${SRCDIR}/../../../fhe_ops_lib -I ${SRCDIR}/../../../mega_ag_runners -I ${SRCDIR}/../../../lib
-#cgo LDFLAGS: -L${SRCDIR}/../../../build/mega_ag_runners/gpu -L${SRCDIR}/../../../build/fhe_ops_lib -lgpu_mega_ag_runner -lfhe_ops_lib -Wl,-rpath,../../../build/mega_ag_runners/gpu -Wl,-rpath,../../../build/fhe_ops_lib
+#cgo CFLAGS: -I ${SRCDIR}/../../../abi -I ${SRCDIR}/../../../mega_ag_runners -I ${SRCDIR}/../../../lib
+#cgo CXXFLAGS: -I ${SRCDIR}/../../../abi -I ${SRCDIR}/../../../mega_ag_runners -I ${SRCDIR}/../../../lib
+#cgo LDFLAGS: -L${SRCDIR}/../../../build/mega_ag_runners/gpu -L${SRCDIR}/../../../build/abi -lgpu_mega_ag_runner -labi -Wl,-rpath,../../../build/mega_ag_runners/gpu -Wl,-rpath,../../../build/abi
 
-#include "structs_v2.h"
+#include "c_structs.h"
 #include "stdlib.h"
 #include "wrapper.h"
 #include "../../sigsetup.h"

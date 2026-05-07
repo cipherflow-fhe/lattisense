@@ -38,11 +38,11 @@
 #include <any>
 #include <mutex>
 
-#include "heongpu.hpp"
+#include <heongpu/heongpu.hpp>
 
 extern "C" {
-#include "../../fhe_ops_lib/fhe_types_v2.h"
-#include "../../fhe_ops_lib/structs_v2.h"
+#include "../../abi/c_types.h"
+#include "../../abi/c_structs.h"
 }
 
 /**
@@ -267,8 +267,8 @@ template <heongpu::Scheme SchemeType> ExecutorFunc create_load_to_gpu_executor()
                 auto c_rlk_ptr = std::any_cast<std::shared_ptr<CRelinKey>>(c_struct);
                 const CRelinKey* c_rlk = c_rlk_ptr.get();
                 auto rlk_ptr = std::make_shared<heongpu::Relinkey<SchemeType>>(*context, *stream_option);
-                export_relin_key(*c_rlk, *rlk_ptr, context->get_ciphertext_modulus_count(),
-                                 context->get_key_modulus_count());
+                export_relin_key(*c_rlk, *rlk_ptr, (*context)->get_ciphertext_modulus_count(),
+                                 (*context)->get_key_modulus_count());
                 gpu_data = rlk_ptr;
                 break;
             }
@@ -287,8 +287,8 @@ template <heongpu::Scheme SchemeType> ExecutorFunc create_load_to_gpu_executor()
                 }
 
                 // Export data without holding the mutex
-                export_galois_key(*c_glk, **galois_key_ptr, galois_element, context->get_ciphertext_modulus_count(),
-                                  context->get_key_modulus_count());
+                export_galois_key(*c_glk, **galois_key_ptr, galois_element, (*context)->get_ciphertext_modulus_count(),
+                                  (*context)->get_key_modulus_count());
                 gpu_data = *galois_key_ptr;
                 break;
             }
@@ -296,8 +296,8 @@ template <heongpu::Scheme SchemeType> ExecutorFunc create_load_to_gpu_executor()
                 auto c_swk_ptr = std::any_cast<std::shared_ptr<CKeySwitchKey>>(c_struct);
                 const CKeySwitchKey* c_swk = c_swk_ptr.get();
                 auto swk_ptr = std::make_shared<heongpu::Switchkey<SchemeType>>(*context, *stream_option);
-                export_switching_key(*c_swk, *swk_ptr, context->get_ciphertext_modulus_count(),
-                                     context->get_key_modulus_count());
+                export_switching_key(*c_swk, *swk_ptr, (*context)->get_ciphertext_modulus_count(),
+                                     (*context)->get_key_modulus_count());
                 gpu_data = swk_ptr;
                 break;
             }
@@ -347,7 +347,7 @@ template <heongpu::Scheme SchemeType> ExecutorFunc create_store_from_gpu_executo
                 auto* c_ct = (CCiphertext*)malloc(sizeof(CCiphertext));
                 alloc_ciphertext(c_ct, gpu_ct->size() - 1, gpu_ct->level(), gpu_ct->ring_size());
                 c_struct = std::shared_ptr<CCiphertext>(c_ct, [](CCiphertext* ptr) {
-                    free_ciphertext(ptr, false);
+                    free_ciphertext(ptr);
                     free(ptr);
                 });
 

@@ -20,51 +20,13 @@
 #define CXX_UTILS_H
 
 #include <cassert>
-#include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <inttypes.h>
 #include <string>
 #include <vector>
 
-#include "indicators/block_progress_bar.hpp"
-
 namespace fhe_ops_lib {
-
-class TaskProgressBar {
-public:
-    explicit TaskProgressBar(size_t total)
-        : total_(total), bar_(indicators::BlockProgressBar{
-                             indicators::option::BarWidth{60},
-                             indicators::option::MaxProgress{total},
-                             indicators::option::ShowElapsedTime{true},
-                             indicators::option::ShowRemainingTime{true},
-                             indicators::option::Stream{std::cerr},
-                         }),
-          last_update_(std::chrono::steady_clock::now() - std::chrono::milliseconds(10)) {}
-
-    // Rate-limited update: redraws at most once per 100 ms.
-    void update(size_t done) {
-        auto now = std::chrono::steady_clock::now();
-        if (std::chrono::duration_cast<std::chrono::milliseconds>(now - last_update_).count() >= 100) {
-            bar_.set_option(indicators::option::PostfixText{std::to_string(done) + "/" + std::to_string(total_)});
-            bar_.set_progress(done);
-            last_update_ = now;
-        }
-    }
-
-    // Renders the final state and marks the bar as completed.
-    void finalize() {
-        bar_.set_option(indicators::option::PostfixText{std::to_string(total_) + "/" + std::to_string(total_)});
-        bar_.set_progress(total_);
-        bar_.mark_as_completed();
-    }
-
-private:
-    size_t total_;
-    indicators::BlockProgressBar bar_;
-    std::chrono::steady_clock::time_point last_update_;
-};
 
 long long get_current_us();
 

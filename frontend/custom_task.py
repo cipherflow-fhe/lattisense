@@ -24,6 +24,13 @@ from typing import List, Optional
 import networkx as nx
 from enum import Enum
 
+from frontend.bootstrap_params import (
+    LinearTransformType,
+    SineType,
+    EncodingMatrixParams,
+    EvalModParams,
+)
+
 DEFAULT_LEVEL = -1
 
 random_ids = set()
@@ -138,93 +145,6 @@ def get_galois_element_for_row_rotation(poly_degree: int):
     return (poly_degree << 1) - 1
 
 
-def get_rotations_for_bootstrapping(poly_degree: int):
-    if poly_degree == 1 << 13:
-        return [
-            1,
-            2,
-            3,
-            4,
-            8,
-            12,
-            16,
-            24,
-            32,
-            48,
-            64,
-            128,
-            192,
-            256,
-            512,
-            768,
-            1024,
-            2048,
-            3072,
-            3584,
-            3840,
-            3904,
-            3968,
-            4032,
-            4064,
-            4080,
-            4084,
-            4088,
-            4092,
-        ]
-    elif poly_degree == 1 << 16:
-        return [
-            1,
-            2,
-            3,
-            4,
-            5,
-            6,
-            7,
-            8,
-            16,
-            24,
-            32,
-            64,
-            96,
-            128,
-            160,
-            192,
-            224,
-            256,
-            384,
-            512,
-            768,
-            1024,
-            1536,
-            2048,
-            3072,
-            4096,
-            6144,
-            8192,
-            12288,
-            16384,
-            20480,
-            24576,
-            28672,
-            30720,
-            31232,
-            31744,
-            32000,
-            32256,
-            32512,
-            32640,
-            32672,
-            32704,
-            32736,
-            32744,
-            32752,
-            32760,
-            32764,
-        ]
-    else:
-        raise ValueError()
-
-
 def random_id():
     while True:
         asc = ''.join(random.choices(string.ascii_lowercase, k=12))
@@ -240,74 +160,7 @@ class Param:
         self.n: int = n
         self.p: list[int] = []
         self.q: list[int] = []
-        self.t: int = -1
         self.max_level: int = -1
-        self.scale: float = 0.0
-
-    @classmethod
-    def create_bfv_default_param(cls, n: int):
-        instance = cls(Algo.BFV, n)
-
-        param_json = instance._load_parameter()
-
-        for p in param_json['p']:
-            instance.p.append(p)
-        for q in param_json['q']:
-            instance.q.append(q)
-        instance.t = param_json['t']
-
-        instance.max_level = param_json['max_level']
-
-        return instance
-
-    @classmethod
-    def create_ckks_default_param(cls, n: int):
-        instance = cls(Algo.CKKS, n)
-
-        param_json = instance._load_parameter()
-
-        for p in param_json['p']:
-            instance.p.append(p)
-        for q in param_json['q']:
-            instance.q.append(q)
-
-        instance.max_level = param_json['max_level']
-
-        return instance
-
-    @classmethod
-    def create_bfv_custom_param(cls, n: int, q: List[int], p: List[int], t: int):
-        instance = cls(Algo.BFV, n)
-        instance.q = q
-        instance.p = p
-        instance.t = t
-        instance.max_level = len(q) - 1
-        return instance
-
-    @classmethod
-    def create_bfv_fpga_param(cls, t: int = 0x1B4001):
-        instance = cls(Algo.BFV, n=8192)
-        instance.q = [0x7F4E0001, 0x7FB40001, 0x7FD20001, 0x7FEA0001, 0x7FF80001, 0x7FFE0001]
-        instance.p = [0xFF5A0001]
-        instance.t = t
-        instance.max_level = len(instance.q) - 1
-        return instance
-
-    @classmethod
-    def create_ckks_custom_param(cls, n: int, q: List[int], p: List[int]):
-        instance = cls(Algo.CKKS, n)
-        instance.q = q
-        instance.p = p
-        instance.max_level = len(q) - 1
-        return instance
-
-    @classmethod
-    def create_ckks_fpga_param(cls):
-        instance = cls(Algo.CKKS, n=8192)
-        instance.q = [0x7F4E0001, 0x7FB40001, 0x7FD20001, 0x7FEA0001, 0x7FF80001, 0x7FFE0001]
-        instance.p = [0xFF5A0001]
-        instance.max_level = len(instance.q) - 1
-        return instance
 
     def get_max_sp_level(self):
         return len(self.p) - 1
@@ -328,7 +181,105 @@ class Param:
         return algo_params[str(self.n)]
 
 
-class CkksBtpParam(Param):
+class BfvParam(Param):
+    def __init__(self, n: int = 8192):
+        super().__init__(Algo.BFV, n)
+        self.t: int = -1
+
+    @classmethod
+    def create_default_param(cls, n: int):
+        instance = cls(n)
+
+        param_json = instance._load_parameter()
+
+        for p in param_json['p']:
+            instance.p.append(p)
+        for q in param_json['q']:
+            instance.q.append(q)
+        instance.t = param_json['t']
+
+        instance.max_level = param_json['max_level']
+
+        return instance
+
+    @classmethod
+    def create_custom_param(cls, n: int, q: List[int], p: List[int], t: int):
+        instance = cls(n)
+        instance.q = q
+        instance.p = p
+        instance.t = t
+        instance.max_level = len(q) - 1
+        return instance
+
+    @classmethod
+    def create_fpga_param(cls, t: int = 0x1B4001):
+        instance = cls(n=8192)
+        instance.q = [0x7F4E0001, 0x7FB40001, 0x7FD20001, 0x7FEA0001, 0x7FF80001, 0x7FFE0001]
+        instance.p = [0xFF5A0001]
+        instance.t = t
+        instance.max_level = len(instance.q) - 1
+        return instance
+
+
+class CkksParam(Param):
+    def __init__(self, n: int = 8192, slots: int = 0, scale: float = 0.0):
+        super().__init__(Algo.CKKS, n)
+        if slots == 0:
+            self.slots: int = n // 2
+        else:
+            self._validate_slots(slots)
+            self.slots: int = slots
+        self.scale: float = scale
+
+    def _validate_slots(self, slots: int):
+        if slots % 2 != 0:
+            raise ValueError(f'slots must be a multiple of 2, got {slots}')
+        if slots <= 0 or slots > self.n // 2:
+            raise ValueError(f'slots must be in range (0, {self.n // 2}], got {slots}')
+
+    def set_slots(self, slots: int):
+        self._validate_slots(slots)
+        self.slots = slots
+
+    def set_scale(self, scale: float):
+        self.scale = scale
+
+    @classmethod
+    def create_default_param(cls, n: int):
+        instance = cls(n)
+
+        param_json = instance._load_parameter()
+
+        for p in param_json['p']:
+            instance.p.append(p)
+        for q in param_json['q']:
+            instance.q.append(q)
+
+        instance.max_level = param_json['max_level']
+        instance.slots = param_json['slots']
+        instance.scale = param_json['scale']
+
+        return instance
+
+    @classmethod
+    def create_custom_param(cls, n: int, q: List[int], p: List[int], slots: int = 0, scale: float = 0.0):
+        instance = cls(n, slots, scale)
+        instance.q = q
+        instance.p = p
+        instance.max_level = len(q) - 1
+        return instance
+
+    @classmethod
+    def create_fpga_param(cls):
+        instance = cls(n=8192)
+        instance.q = [0x7F4E0001, 0x7FB40001, 0x7FD20001, 0x7FEA0001, 0x7FF80001, 0x7FFE0001]
+        instance.p = [0xFF5A0001]
+        instance.max_level = len(instance.q) - 1
+        instance.scale = 1 << 31
+        return instance
+
+
+class CkksBtpParam(CkksParam):
     """
     @class CkksBtpParam
     @brief CKKS Bootstrap parameter class.
@@ -337,11 +288,11 @@ class CkksBtpParam(Param):
     """
 
     def __init__(self, n: int = 1 << 16):
-        super().__init__(Algo.CKKS, n)
+        super().__init__(n)
+        self.cts_params: EncodingMatrixParams = None
+        self.stc_params: EncodingMatrixParams = None
+        self.eval_mod_params: EvalModParams = None
         self.btp_output_level: int = -1
-        self.btp_cts_start_level: int = -1
-        self.btp_eval_mod_start_level: int = -1
-        self.btp_stc_start_level: int = -1
 
     @classmethod
     def create_toy_param(cls):
@@ -349,46 +300,82 @@ class CkksBtpParam(Param):
         instance = cls(n=8192)
 
         instance.q = [
-            0x10000000006E0001,
-            0x10000140001,
-            0xFFFFE80001,
-            0xFFFFC40001,
-            0x100003E0001,
-            0xFFFFB20001,
-            0x10000500001,
-            0xFFFF940001,
-            0xFFFF8A0001,
-            0xFFFF820001,
-            0x7FFFE60001,
-            0x7FFFE40001,
-            0x7FFFE00001,
-            0xFFFFFFFFF840001,
-            0x1000000000860001,
-            0xFFFFFFFFF6A0001,
-            0x1000000000980001,
-            0xFFFFFFFFF5A0001,
-            0x1000000000B00001,
-            0x1000000000CE0001,
-            0xFFFFFFFFF2A0001,
-            0x100000000060001,
-            0xFFFFFFFFF00001,
-            0xFFFFFFFFD80001,
-            0x1000000002A0001,
+            0x10000000006E0001,  # 60 Q0
+            0x10000140001,  # 40
+            0xFFFFE80001,  # 40
+            0xFFFFC40001,  # 40
+            0x100003E0001,  # 40
+            0xFFFFB20001,  # 40
+            0x10000500001,  # 40
+            0xFFFF940001,  # 40
+            0xFFFF8A0001,  # 40
+            0xFFFF820001,  # 40
+            0x7FFFE60001,  # 39 StC
+            0x7FFFE40001,  # 39 StC
+            0x7FFFE00001,  # 39 StC
+            0xFFFFFFFFF840001,  # 60 Sine (double angle)
+            0x1000000000860001,  # 60 Sine (double angle)
+            0xFFFFFFFFF6A0001,  # 60 Sine
+            0x1000000000980001,  # 60 Sine
+            0xFFFFFFFFF5A0001,  # 60 Sine
+            0x1000000000B00001,  # 60 Sine
+            0x1000000000CE0001,  # 60 Sine
+            0xFFFFFFFFF2A0001,  # 60 Sine
+            0x100000000060001,  # 56 CtS
+            0xFFFFFFFFF00001,  # 56 CtS
+            0xFFFFFFFFD80001,  # 56 CtS
+            0x1000000002A0001,  # 56 CtS
         ]
         instance.p = [
-            0x1FFFFFFFFFE00001,
-            0x1FFFFFFFFFC80001,
-            0x1FFFFFFFFFB40001,
-            0x1FFFFFFFFF500001,
-            0x1FFFFFFFFF420001,
+            0x1FFFFFFFFFE00001,  # 61
+            0x1FFFFFFFFFC80001,  # 61
+            0x1FFFFFFFFFB40001,  # 61
+            0x1FFFFFFFFF500001,  # 61
+            0x1FFFFFFFFF420001,  # 61
         ]
         instance.max_level = len(instance.q) - 1
-        instance.scale = math.pow(2.0, 40)
+        instance.scale = 1 << 40
+
+        instance.stc_params = EncodingMatrixParams(
+            linear_transform_type=LinearTransformType.SlotsToCoeffs,
+            repack_imag_2_real=True,
+            level_start=12,
+            bsgs_ratio=2.0,
+            bit_reversed=False,
+            scaling_factor=[
+                [0x7FFFE60001],
+                [0x7FFFE40001],
+                [0x7FFFE00001],
+            ],
+        )
+
+        instance.eval_mod_params = EvalModParams(
+            q=0x10000000006E0001,
+            level_start=20,
+            sine_type=SineType.Cos1,
+            message_ratio=256.0,
+            k=16,
+            sine_deg=30,
+            double_angle=3,
+            arcsine_deg=0,
+            scaling_factor=1 << 60,
+        )
+
+        instance.cts_params = EncodingMatrixParams(
+            linear_transform_type=LinearTransformType.CoeffsToSlots,
+            repack_imag_2_real=True,
+            level_start=24,
+            bsgs_ratio=2.0,
+            bit_reversed=False,
+            scaling_factor=[
+                [0x100000000060001],
+                [0xFFFFFFFFF00001],
+                [0xFFFFFFFFD80001],
+                [0x1000000002A0001],
+            ],
+        )
 
         instance.btp_output_level = 9
-        instance.btp_cts_start_level = 24
-        instance.btp_eval_mod_start_level = 20
-        instance.btp_stc_start_level = 12
 
         return instance
 
@@ -398,48 +385,105 @@ class CkksBtpParam(Param):
         instance = cls(n=1 << 16)
 
         instance.q = [
-            0x10000000006E0001,
-            0x10000140001,
-            0xFFFFE80001,
-            0xFFFFC40001,
-            0x100003E0001,
-            0xFFFFB20001,
-            0x10000500001,
-            0xFFFF940001,
-            0xFFFF8A0001,
-            0xFFFF820001,
-            0x7FFFE60001,
-            0x7FFFE40001,
-            0x7FFFE00001,
-            0xFFFFFFFFF840001,
-            0x1000000000860001,
-            0xFFFFFFFFF6A0001,
-            0x1000000000980001,
-            0xFFFFFFFFF5A0001,
-            0x1000000000B00001,
-            0x1000000000CE0001,
-            0xFFFFFFFFF2A0001,
-            0x100000000060001,
-            0xFFFFFFFFF00001,
-            0xFFFFFFFFD80001,
-            0x1000000002A0001,
+            0x10000000006E0001,  # 60 Q0
+            0x10000140001,  # 40
+            0xFFFFE80001,  # 40
+            0xFFFFC40001,  # 40
+            0x100003E0001,  # 40
+            0xFFFFB20001,  # 40
+            0x10000500001,  # 40
+            0xFFFF940001,  # 40
+            0xFFFF8A0001,  # 40
+            0xFFFF820001,  # 40
+            0x7FFFE60001,  # 39 StC
+            0x7FFFE40001,  # 39 StC
+            0x7FFFE00001,  # 39 StC
+            0xFFFFFFFFF840001,  # 60 Sine (double angle)
+            0x1000000000860001,  # 60 Sine (double angle)
+            0xFFFFFFFFF6A0001,  # 60 Sine
+            0x1000000000980001,  # 60 Sine
+            0xFFFFFFFFF5A0001,  # 60 Sine
+            0x1000000000B00001,  # 60 Sine
+            0x1000000000CE0001,  # 60 Sine
+            0xFFFFFFFFF2A0001,  # 60 Sine
+            0x100000000060001,  # 56 CtS
+            0xFFFFFFFFF00001,  # 56 CtS
+            0xFFFFFFFFD80001,  # 56 CtS
+            0x1000000002A0001,  # 56 CtS
         ]
         instance.p = [
-            0x1FFFFFFFFFE00001,
-            0x1FFFFFFFFFC80001,
-            0x1FFFFFFFFFB40001,
-            0x1FFFFFFFFF500001,
-            0x1FFFFFFFFF420001,
+            0x1FFFFFFFFFE00001,  # 61
+            0x1FFFFFFFFFC80001,  # 61
+            0x1FFFFFFFFFB40001,  # 61
+            0x1FFFFFFFFF500001,  # 61
+            0x1FFFFFFFFF420001,  # 61
         ]
         instance.max_level = len(instance.q) - 1
-        instance.scale = math.pow(2.0, 40)
+        instance.scale = 1 << 40
+
+        instance.stc_params = EncodingMatrixParams(
+            linear_transform_type=LinearTransformType.SlotsToCoeffs,
+            repack_imag_2_real=True,
+            level_start=12,
+            bsgs_ratio=2.0,
+            bit_reversed=False,
+            scaling_factor=[
+                [0x7FFFE60001],
+                [0x7FFFE40001],
+                [0x7FFFE00001],
+            ],
+        )
+
+        instance.eval_mod_params = EvalModParams(
+            q=0x10000000006E0001,
+            level_start=20,
+            sine_type=SineType.Cos1,
+            message_ratio=256.0,
+            k=16,
+            sine_deg=30,
+            double_angle=3,
+            arcsine_deg=0,
+            scaling_factor=1 << 60,
+        )
+
+        instance.cts_params = EncodingMatrixParams(
+            linear_transform_type=LinearTransformType.CoeffsToSlots,
+            repack_imag_2_real=True,
+            level_start=24,
+            bsgs_ratio=2.0,
+            bit_reversed=False,
+            scaling_factor=[
+                [0x100000000060001],
+                [0xFFFFFFFFF00001],
+                [0xFFFFFFFFD80001],
+                [0x1000000002A0001],
+            ],
+        )
 
         instance.btp_output_level = 9
-        instance.btp_cts_start_level = 24
-        instance.btp_eval_mod_start_level = 20
-        instance.btp_stc_start_level = 12
 
         return instance
+
+    def rotations_for_bootstrapping(self) -> list[int]:
+        log_n = int(math.log2(self.n))
+        log_slots = int(math.log2(self.slots))
+
+        self.cts_params.log_n = log_n
+        self.cts_params.log_slots = log_slots
+        self.stc_params.log_n = log_n
+        self.stc_params.log_slots = log_slots
+
+        rots: list[int] = []
+
+        # SubSum rotations: needed when using sparse encoding (log_slots < log_n - 1)
+        for i in range(log_slots, log_n - 1):
+            if (1 << i) not in rots:
+                rots.append(1 << i)
+
+        rots += self.cts_params.rotations()
+        rots += self.stc_params.rotations()
+
+        return list(set(rots))
 
 
 def set_fhe_param(param: 'Param') -> None:
@@ -1925,7 +1969,7 @@ def bootstrap(x: CkksCiphertextNode, output_id: Optional[str] = None) -> CkksCip
         g_swk_node_dict[rlk].level = g_param.max_level
     g_dag.add_edge(g_swk_node_dict[rlk], op)
 
-    rots = get_rotations_for_bootstrapping(g_param.n)
+    rots = g_param.rotations_for_bootstrapping()
     for rot in rots:
         gal_elem = get_galois_element_for_column_rotation_by(rot, g_param.n)
         glk = f'glk_ntt_col_{gal_elem}'
@@ -1995,6 +2039,7 @@ def custom_compute(
 def _build_fpga_kernels(
     all_output_list: list,
     all_offline_list: list,
+    parameter: dict,
 ) -> list[tuple['FpgaKernelNode', dict, dict]]:
     """Partition g_dag at CustomComputeNode boundaries and replace each FPGA partition with a
     FpgaKernelNode. Returns a list of (kernel_node, sub_mag, sub_sig) for each partition.
@@ -2007,15 +2052,6 @@ def _build_fpga_kernels(
     interior FheComputeNodes and data nodes have been removed.
     """
     assert g_param is not None
-    parameter: dict = {'n': g_param.n, 'max_level': g_param.max_level, 'q': g_param.q, 'p': g_param.p}
-    if isinstance(g_param, CkksBtpParam):
-        parameter['scale'] = g_param.scale
-        parameter['btp_cts_start_level'] = g_param.btp_cts_start_level
-        parameter['btp_eval_mod_start_level'] = g_param.btp_eval_mod_start_level
-        parameter['btp_stc_start_level'] = g_param.btp_stc_start_level
-        parameter['btp_output_level'] = g_param.btp_output_level
-    if g_param.algo == Algo.BFV:
-        parameter['t'] = g_param.t
 
     result: list[tuple[FpgaKernelNode, dict, dict]] = []
 
@@ -2269,15 +2305,28 @@ def process_custom_task(
     mag['offline_inputs'] = [x.index for x in all_offline_list]
 
     parameter = {'n': g_param.n, 'max_level': g_param.max_level, 'q': g_param.q, 'p': g_param.p}
-    if isinstance(g_param, CkksBtpParam):
-        parameter['scale'] = g_param.scale
-        parameter['btp_cts_start_level'] = g_param.btp_cts_start_level
-        parameter['btp_eval_mod_start_level'] = g_param.btp_eval_mod_start_level
-        parameter['btp_stc_start_level'] = g_param.btp_stc_start_level
-        parameter['btp_output_level'] = g_param.btp_output_level
-
     if g_param.algo == Algo.BFV:
         parameter['t'] = g_param.t
+    if isinstance(g_param, CkksParam):
+        parameter['slots'] = g_param.slots
+        parameter['scale'] = g_param.scale
+    if isinstance(g_param, CkksBtpParam):
+        parameter['btp_cts_start_level'] = g_param.cts_params.level_start
+        parameter['btp_cts_depth'] = g_param.cts_params.depth()
+        parameter['btp_cts_bsgs_ratio'] = g_param.cts_params.bsgs_ratio
+        parameter['btp_eval_mod_q'] = g_param.eval_mod_params.q
+        parameter['btp_eval_mod_start_level'] = g_param.eval_mod_params.level_start
+        parameter['btp_eval_mod_scaling_factor'] = g_param.eval_mod_params.scaling_factor
+        parameter['btp_eval_mod_sine_type'] = g_param.eval_mod_params.sine_type.name
+        parameter['btp_eval_mod_message_ratio'] = g_param.eval_mod_params.message_ratio
+        parameter['btp_eval_mod_k'] = g_param.eval_mod_params.k
+        parameter['btp_eval_mod_sine_deg'] = g_param.eval_mod_params.sine_deg
+        parameter['btp_eval_mod_double_angle'] = g_param.eval_mod_params.double_angle
+        parameter['btp_eval_mod_arcsine_deg'] = g_param.eval_mod_params.arcsine_deg
+        parameter['btp_stc_start_level'] = g_param.stc_params.level_start
+        parameter['btp_stc_depth'] = g_param.stc_params.depth()
+        parameter['btp_stc_bsgs_ratio'] = g_param.stc_params.bsgs_ratio
+        parameter['btp_output_level'] = g_param.btp_output_level
 
     mag['parameter'] = parameter
 
@@ -2319,7 +2368,7 @@ def process_custom_task(
         # FPGA supports only n = 8192 now
         if g_param.n != 8192:
             raise ValueError('FPGA mode only supports n = 8192')
-        kernel_mags = _build_fpga_kernels(all_output_list, all_offline_list)
+        kernel_mags = _build_fpga_kernels(all_output_list, all_offline_list, parameter)
     else:
         kernel_mags = []
 

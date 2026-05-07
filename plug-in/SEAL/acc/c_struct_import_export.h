@@ -1,10 +1,10 @@
 #pragma once
 
 extern "C" {
-#include "fhe_types_v2.h"
+#include "c_types.h"
 #include "wrapper.h"
 #include "c_argument.h"
-#include "structs_v2.h"
+#include "c_structs.h"
 }
 #include <algorithm>
 #include <cstring>

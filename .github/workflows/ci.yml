@@ -46,12 +46,21 @@ jobs:
           submodules: recursive
           token: ${{ secrets.PRIVATE_REPO_ACCESS_TOKEN }}
 
-      - name: Init FPGA submodules (CI only)
+      - name: Sync submodules
         env:
           TOKEN: ${{ secrets.PRIVATE_REPO_ACCESS_TOKEN }}
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           git config --global url."https://x-access-token:${TOKEN}@github.com/".insteadOf "https://github.com/"
+          git submodule sync --recursive
+          git submodule update --init --recursive --force
+          echo "=== Submodule status ==="
+          git submodule status --recursive
+
+      - name: Init FPGA submodules (CI only)
+        env:
+          TOKEN: ${{ secrets.PRIVATE_REPO_ACCESS_TOKEN }}
+        run: |
           git -c submodule."backends/lattisense-fpga/lattisense-fpga-runtime".update=checkout \
               -c submodule."backends/lattisense-fpga/lattisense-fpga-linker".update=checkout \
               submodule update --init --recursive \
@@ -81,16 +90,29 @@ jobs:
         run: |
           HEONGPU_COMMIT=$(git -C backends/HEonGPU rev-parse HEAD)
           CUDA_ARCH=86
-          CACHE_DIR="/opt/heongpu-cache/${HEONGPU_COMMIT}-arch${CUDA_ARCH}"
-          if [ -d "${CACHE_DIR}/install/lib" ]; then
-            echo "Using cached HEonGPU (${HEONGPU_COMMIT:0:8}, arch=${CUDA_ARCH})"
-            cp -a "${CACHE_DIR}/install" backends/HEonGPU/install
-            cp -a "${CACHE_DIR}/build" backends/HEonGPU/build
-            # Fix absolute paths from old cache (HEonGPU/ → backends/HEonGPU/)
-            find backends/HEonGPU/install -name '*.cmake' -exec sed -i \
-              "s|${GITHUB_WORKSPACE}/HEonGPU/|${GITHUB_WORKSPACE}/backends/HEonGPU/|g" {} +
+          HEONGPU_CACHE_KEY="${HEONGPU_COMMIT}-arch${CUDA_ARCH}"
+          HEONGPU_CACHE_MARKER=".heongpu_cache_key"
+          CACHE_DIR="/opt/heongpu-cache/${HEONGPU_CACHE_KEY}"
+
+          if [ -d backends/HEonGPU/install/lib ] && \
+             [ -d backends/HEonGPU/build ] && \
+             [ -f "backends/HEonGPU/install/${HEONGPU_CACHE_MARKER}" ] && \
+             [ "$(cat "backends/HEonGPU/install/${HEONGPU_CACHE_MARKER}")" = "${HEONGPU_CACHE_KEY}" ]; then
+            echo "Using existing HEonGPU build (${HEONGPU_COMMIT:0:8}, arch=${CUDA_ARCH})"
           else
-            echo "No cache found, HEonGPU will be built automatically during cmake configure"
+            rm -rf backends/HEonGPU/build backends/HEonGPU/install
+            if [ -d "${CACHE_DIR}/install/lib" ] && \
+               [ -d "${CACHE_DIR}/build" ] && \
+               [ -f "${CACHE_DIR}/install/${HEONGPU_CACHE_MARKER}" ] && \
+               [ "$(cat "${CACHE_DIR}/install/${HEONGPU_CACHE_MARKER}")" = "${HEONGPU_CACHE_KEY}" ]; then
+              echo "Using cached HEonGPU (${HEONGPU_COMMIT:0:8}, arch=${CUDA_ARCH})"
+              cp -a "${CACHE_DIR}/install" backends/HEonGPU/install
+              cp -a "${CACHE_DIR}/build" backends/HEonGPU/build
+              find backends/HEonGPU/install -name '*.cmake' -exec sed -i \
+                "s|${GITHUB_WORKSPACE}/HEonGPU/|${GITHUB_WORKSPACE}/backends/HEonGPU/|g" {} +
+            else
+              echo "No matching HEonGPU cache found; HEonGPU will be built during cmake configure"
+            fi
           fi
 
       - name: Build SDK (CPU + GPU + FPGA + Examples)
@@ -108,9 +130,16 @@ jobs:
         run: |
           HEONGPU_COMMIT=$(git -C backends/HEonGPU rev-parse HEAD)
           CUDA_ARCH=86
-          CACHE_DIR="/opt/heongpu-cache/${HEONGPU_COMMIT}-arch${CUDA_ARCH}"
-          if [ ! -d "${CACHE_DIR}/install/lib" ] && [ -d "backends/HEonGPU/install/lib" ]; then
+          HEONGPU_CACHE_KEY="${HEONGPU_COMMIT}-arch${CUDA_ARCH}"
+          HEONGPU_CACHE_MARKER=".heongpu_cache_key"
+          CACHE_DIR="/opt/heongpu-cache/${HEONGPU_CACHE_KEY}"
+          if [ -d "backends/HEonGPU/install/lib" ] && \
+             { [ ! -d "${CACHE_DIR}/install/lib" ] || \
+               [ ! -f "${CACHE_DIR}/install/${HEONGPU_CACHE_MARKER}" ] || \
+               [ "$(cat "${CACHE_DIR}/install/${HEONGPU_CACHE_MARKER}" 2>/dev/null)" != "${HEONGPU_CACHE_KEY}" ]; }; then
             echo "Saving HEonGPU build to cache"
+            echo "${HEONGPU_CACHE_KEY}" > "backends/HEonGPU/install/${HEONGPU_CACHE_MARKER}"
+            rm -rf "${CACHE_DIR}"
             mkdir -p "${CACHE_DIR}"
             cp -a backends/HEonGPU/install "${CACHE_DIR}/"
             cp -a backends/HEonGPU/build "${CACHE_DIR}/"

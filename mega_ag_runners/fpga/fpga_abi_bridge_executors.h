@@ -36,21 +36,36 @@
 #include <any>
 
 extern "C" {
-#include "../../fhe_ops_lib/fhe_types_v2.h"
-#include "../../fhe_ops_lib/structs_v2.h"
+#include "../../abi/c_types.h"
+#include "../../abi/c_structs.h"
 #include "../../backends/lattisense-fpga/lattisense-fpga-runtime/libbfv2/include/poly.h"
 #include "../../backends/lattisense-fpga/lattisense-fpga-runtime/fpga_ops/utils.h"
 #include "log/log.h"
 }
 
 /**
- * @brief Export CCiphertext pointers to FPGA polyvec_64 structure
+ * @brief Set polyvec_64 term from component data (pointer assign or copy).
+ * @param need_copy  true = malloc + memcpy (caller must free term later);
+ *                   false = pointer assign (zero-copy, data must outlive polyvec usage).
  */
-inline int export_ct_pointers(CCiphertext* ct, polyvec_64* pv, int offset) {
+inline void set_pv_term(polyvec_64* pv, int offset, CComponent* comp, bool need_copy) {
+    if (need_copy) {
+        pv->p[offset].term = (uint64_t*)malloc(comp->n * sizeof(uint64_t));
+        memcpy(pv->p[offset].term, comp->data, comp->n * sizeof(uint64_t));
+    } else {
+        pv->p[offset].term = comp->data;
+    }
+}
+
+/**
+ * @brief Export CCiphertext to FPGA polyvec_64 structure
+ * @param need_copy  true for input polyvec (data may be freed before run_project)
+ */
+inline int export_ct_pointers(CCiphertext* ct, polyvec_64* pv, int offset, bool need_copy = true) {
     for (int i = 0; i < ct->degree + 1; i++) {
         for (int j = 0; j < ct->polys->n_component; j++) {
             if (offset < pv->len) {
-                pv->p[offset].term = ct->polys[i].components[j].data;
+                set_pv_term(pv, offset, &ct->polys[i].components[j], need_copy);
                 offset++;
             } else {
                 log_error("Error: Index %d out of range %d", offset, pv->len);
@@ -61,12 +76,12 @@ inline int export_ct_pointers(CCiphertext* ct, polyvec_64* pv, int offset) {
 }
 
 /**
- * @brief Export CPlaintext pointers to FPGA polyvec_64 structure
+ * @brief Export CPlaintext to FPGA polyvec_64 structure
  */
-inline int export_pt_pointers(CPlaintext* pt, polyvec_64* pv, int offset) {
+inline int export_pt_pointers(CPlaintext* pt, polyvec_64* pv, int offset, bool need_copy = true) {
     for (int j = 0; j < pt->poly.n_component; j++) {
         if (offset < pv->len) {
-            pv->p[offset].term = pt->poly.components[j].data;
+            set_pv_term(pv, offset, &pt->poly.components[j], need_copy);
             offset++;
         } else {
             log_error("Error: Index %d out of range %d", offset, pv->len);
@@ -76,14 +91,14 @@ inline int export_pt_pointers(CPlaintext* pt, polyvec_64* pv, int offset) {
 }
 
 /**
- * @brief Export CRelinKey pointers to FPGA polyvec_64 structure
+ * @brief Export CRelinKey to FPGA polyvec_64 structure
  */
-inline int export_rlk_pointers(CRelinKey* rlk, polyvec_64* pv, int offset) {
+inline int export_rlk_pointers(CRelinKey* rlk, polyvec_64* pv, int offset, bool need_copy = true) {
     for (int m = 0; m < rlk->n_public_key; m++) {
         for (int i = 0; i < 2; i++) {
             for (int j = 0; j < rlk->public_keys->polys->n_component; j++) {
                 if (offset < pv->len) {
-                    pv->p[offset].term = rlk->public_keys[m].polys[i].components[j].data;
+                    set_pv_term(pv, offset, &rlk->public_keys[m].polys[i].components[j], need_copy);
                     offset++;
                 } else {
                     log_error("Error: Index %d out of range %d", offset, pv->len);
@@ -95,15 +110,16 @@ inline int export_rlk_pointers(CRelinKey* rlk, polyvec_64* pv, int offset) {
 }
 
 /**
- * @brief Export CGaloisKey pointers to FPGA polyvec_64 structure
+ * @brief Export CGaloisKey to FPGA polyvec_64 structure
  */
-inline int export_glk_pointers(CGaloisKey* glk, polyvec_64* pv, int offset) {
+inline int export_glk_pointers(CGaloisKey* glk, polyvec_64* pv, int offset, bool need_copy = true) {
     for (int gal_idx = 0; gal_idx < glk->n_key_switch_key; gal_idx++) {
         for (int m = 0; m < glk->key_switch_keys->n_public_key; m++) {
             for (int i = 0; i < 2; i++) {
                 for (int j = 0; j < glk->key_switch_keys->public_keys->polys->n_component; j++) {
                     if (offset < pv->len) {
-                        pv->p[offset].term = glk->key_switch_keys[gal_idx].public_keys[m].polys[i].components[j].data;
+                        set_pv_term(pv, offset, &glk->key_switch_keys[gal_idx].public_keys[m].polys[i].components[j],
+                                    need_copy);
                         offset++;
                     } else {
                         log_error("Error: Index %d out of range %d", offset, pv->len);
@@ -113,6 +129,16 @@ inline int export_glk_pointers(CGaloisKey* glk, polyvec_64* pv, int offset) {
         }
     }
     return offset;
+}
+
+/**
+ * @brief Free all term pointers in a polyvec_64 (for cleaning up copied input data after run_project)
+ */
+inline void free_polyvec_64_terms(polyvec_64* pv) {
+    for (int i = 0; i < pv->len; i++) {
+        free(pv->p[i].term);
+        pv->p[i].term = NULL;
+    }
 }
 
 /**
