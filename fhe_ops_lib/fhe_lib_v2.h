@@ -288,6 +288,13 @@ public:
 
     static CkksBtpParameter create_toy_parameter();
 
+    /**
+     * @brief Create bootstrapping parameters by preset ID.
+     * @param preset_id 0-3: Sparse (H=192/768 + H=32), 4-7: Dense (H=N/2 + H=32)
+     * @return Bootstrapping parameter handle
+     */
+    static CkksBtpParameter create_parameter_by_preset(int preset_id);
+
     CkksParameter& get_ckks_parameter();
 
 protected:

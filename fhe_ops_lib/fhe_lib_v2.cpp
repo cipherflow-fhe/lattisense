@@ -617,6 +617,10 @@ CkksBtpParameter CkksBtpParameter::create_toy_parameter() {
     return CkksBtpParameter(CreateCkksToyBtpParameter());
 }
 
+CkksBtpParameter CkksBtpParameter::create_parameter_by_preset(int preset_id) {
+    return CkksBtpParameter(CreateCkksBtpParameterByPreset(preset_id));
+}
+
 // CkksParameter
 CkksParameter CkksParameter::create_parameter(uint64_t N) {
     return CkksParameter(CreateCkksParameter(N));
