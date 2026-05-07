@@ -280,11 +280,9 @@ class CkksParam(Param):
 
 
 class CkksBtpParam(CkksParam):
-    """
-    @class CkksBtpParam
-    @brief CKKS Bootstrap parameter class.
-
-    Contains additional parameters required for CKKS bootstrapping.
+    """CKKS bootstrap parameter class. Set sparse packing via create_sparse_param()
+    or by inheriting from CkksParam.set_slots(); trace compensation is handled by
+    the bootstrap op via rotations_for_bootstrapping().
     """
 
     def __init__(self, n: int = 1 << 16):
@@ -293,6 +291,12 @@ class CkksBtpParam(CkksParam):
         self.stc_params: EncodingMatrixParams = None
         self.eval_mod_params: EvalModParams = None
         self.btp_output_level: int = -1
+        self.btp_cts_start_level: int = -1
+        self.btp_eval_mod_start_level: int = -1
+        self.btp_stc_start_level: int = -1
+
+    def is_sparse(self) -> bool:
+        return self.slots < (self.n // 2)
 
     @classmethod
     def create_toy_param(cls):
@@ -463,6 +467,24 @@ class CkksBtpParam(CkksParam):
         instance.btp_output_level = 9
 
         return instance
+
+    # Lattigo's genWfftIndexMap panics below this (CTS/STC depth exceeds slots).
+    _MIN_LOG_SLOTS = 4
+
+    @classmethod
+    def create_sparse_param(cls, log_slots: int, n: int = 1 << 16):
+        """Create sparse CKKS bootstrap params: 2^log_slots active slots."""
+        max_log_slots = int(math.log2(n)) - 2
+        if log_slots < cls._MIN_LOG_SLOTS or log_slots > max_log_slots:
+            raise ValueError(f'log_slots must be in [{cls._MIN_LOG_SLOTS}, {max_log_slots}] for n={n}, got {log_slots}')
+        instance = cls.create_default_param() if n == (1 << 16) else cls.create_toy_param()
+        instance.set_slots(1 << log_slots)
+        return instance
+
+    @classmethod
+    def create_toy_sparse_param(cls, log_slots: int):
+        """Sparse toy params (n=8192). Insecure; for development only."""
+        return cls.create_sparse_param(log_slots, n=1 << 13)
 
     def rotations_for_bootstrapping(self) -> list[int]:
         log_n = int(math.log2(self.n))
@@ -1969,6 +1991,7 @@ def bootstrap(x: CkksCiphertextNode, output_id: Optional[str] = None) -> CkksCip
         g_swk_node_dict[rlk].level = g_param.max_level
     g_dag.add_edge(g_swk_node_dict[rlk], op)
 
+    assert isinstance(g_param, CkksBtpParam)
     rots = g_param.rotations_for_bootstrapping()
     for rot in rots:
         gal_elem = get_galois_element_for_column_rotation_by(rot, g_param.n)
@@ -2260,6 +2283,8 @@ def process_custom_task(
 
     used_id = []
 
+    slots_for_task: Optional[int] = g_param.slots if isinstance(g_param, CkksParam) else None
+
     all_input_list, input_sigdata_list = process_data_args(input_args, 'in')
     all_output_list, output_sigdata_list = process_data_args(output_args, 'out')
     all_offline_list, offline_sigdata_list = process_data_args(offline_input_args, 'offline')
@@ -2308,7 +2333,9 @@ def process_custom_task(
     if g_param.algo == Algo.BFV:
         parameter['t'] = g_param.t
     if isinstance(g_param, CkksParam):
-        parameter['slots'] = g_param.slots
+        # slots_for_task was computed above (with optional sparse inference).
+        assert slots_for_task is not None
+        parameter['slots'] = slots_for_task
         parameter['scale'] = g_param.scale
     if isinstance(g_param, CkksBtpParam):
         parameter['btp_cts_start_level'] = g_param.cts_params.level_start

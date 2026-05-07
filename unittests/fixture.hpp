@@ -126,6 +126,31 @@ struct CkksBtpParams {
     }
 };
 
+struct CkksToySparseBtpParamsLs8 {
+    static constexpr int32_t log_slots = 8;
+    static CkksBtpParameter create() {
+        return CkksBtpParameter::create_toy_sparse_parameter(log_slots);
+    }
+    static string get_tag() {
+        int n = create().get_ckks_parameter().get_n();
+        return "ckks_param_btp_n" + to_string(n);
+    }
+};
+
+// Bottom of the valid log_slots range. Exercises the piece-count clamp:
+// default (cts=4, stc=3) gets clamped to (2, 2) for log_slots=4 to satisfy
+// log_slots >= 2 * max(cts, stc) (see ckks_sparse_piece_counts in HEonGPU).
+struct CkksToySparseBtpParamsLs4 {
+    static constexpr int32_t log_slots = 4;
+    static CkksBtpParameter create() {
+        return CkksBtpParameter::create_toy_sparse_parameter(log_slots);
+    }
+    static string get_tag() {
+        int n = create().get_ckks_parameter().get_n();
+        return "ckks_param_btp_n" + to_string(n);
+    }
+};
+
 template <typename P> class BfvFixture {
 protected:
     BfvParameter param;

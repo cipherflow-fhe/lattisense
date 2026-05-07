@@ -45,6 +45,8 @@ _p2 = CkksParam.create_custom_param(
 )
 _p_toy_btp = CkksBtpParam.create_toy_param()
 _p_btp = CkksBtpParam.create_default_param()
+_p_toy_sparse_btp_ls8 = CkksBtpParam.create_toy_sparse_param(log_slots=8)
+_p_toy_sparse_btp_ls4 = CkksBtpParam.create_toy_sparse_param(log_slots=4)
 
 N_OP = 4  # Number of parallel operators per test
 
@@ -677,6 +679,87 @@ class TestBootstrap:
             input_args=[Argument('in_x_list', x_list), Argument('in_y_list', y_list)],
             offline_input_args=[],
             output_args=[Argument('out_z_list', result_list)],
+            output_instruction_path=task_dir,
+            fpga_acc=False,
+        )
+
+
+class TestSparseBootstrap:
+    @pytest.mark.parametrize('lv', [0], ids=['lv0'])
+    def test_toy_sparse_bootstrap_ls8(self, lv):
+        set_fhe_param(_p_toy_sparse_btp_ls8)
+        param_tag = f'ckks_param_btp_n{_p_toy_sparse_btp_ls8.n}'
+        task_dir = os.path.join(CPU_OUTPUT_BASE_DIR, param_tag, f'CKKS_{N_OP}_toy_sparse_bootstrap_ls8', f'level_{lv}')
+        x_list = [CkksCiphertextNode(f'x_{i}', level=lv) for i in range(N_OP)]
+        y_list = [bootstrap(x_list[i], f'y_{i}') for i in range(N_OP)]
+        process_custom_task(
+            input_args=[Argument('in_x_list', x_list)],
+            offline_input_args=[],
+            output_args=[Argument('out_y_list', y_list)],
+            output_instruction_path=task_dir,
+            fpga_acc=False,
+        )
+
+    @pytest.mark.parametrize('lv', [3], ids=['lv3'])
+    def test_toy_sparse_cmc_relin_rescale_bootstrap_ls8(self, lv):
+        set_fhe_param(_p_toy_sparse_btp_ls8)
+        param_tag = f'ckks_param_btp_n{_p_toy_sparse_btp_ls8.n}'
+        task_dir = os.path.join(
+            CPU_OUTPUT_BASE_DIR, param_tag, f'CKKS_{N_OP}_toy_sparse_cmc_relin_rescale_bootstrap_ls8', f'level_{lv}'
+        )
+        x_list = [CkksCiphertextNode(f'x_{i}', level=lv) for i in range(N_OP)]
+        y_list = [CkksCiphertextNode(f'y_{i}', level=lv) for i in range(N_OP)]
+        result_list = []
+        for i in range(N_OP):
+            z = mult_relin(x_list[i], y_list[i], f'z_{i}')
+            z_rescaled = rescale(z, f'z_rescaled_{i}')
+            z_dropped = drop_level(z_rescaled, drop_level=2)
+            result_list.append(bootstrap(z_dropped, f'result_{i}'))
+        process_custom_task(
+            input_args=[Argument('in_x_list', x_list), Argument('in_y_list', y_list)],
+            offline_input_args=[],
+            output_args=[Argument('out_z_list', result_list)],
+            output_instruction_path=task_dir,
+            fpga_acc=False,
+        )
+
+    # Double bootstrap: verifies the sparse-encoding invariant survives across
+    # a bootstrap boundary — bootstrap(x)'s output must itself be a valid
+    # sparse-encoded ciphertext that the next sparse bootstrap can consume.
+    @pytest.mark.parametrize('lv', [0], ids=['lv0'])
+    def test_toy_sparse_double_bootstrap_ls8(self, lv):
+        set_fhe_param(_p_toy_sparse_btp_ls8)
+        param_tag = f'ckks_param_btp_n{_p_toy_sparse_btp_ls8.n}'
+        task_dir = os.path.join(
+            CPU_OUTPUT_BASE_DIR, param_tag, f'CKKS_{N_OP}_toy_sparse_double_bootstrap_ls8', f'level_{lv}'
+        )
+        x_list = [CkksCiphertextNode(f'x_{i}', level=lv) for i in range(N_OP)]
+        y_list = []
+        for i in range(N_OP):
+            z = bootstrap(x_list[i], f'z_{i}')
+            z_dropped = drop_level(z, drop_level=9)
+            y_list.append(bootstrap(z_dropped, f'y_{i}'))
+        process_custom_task(
+            input_args=[Argument('in_x_list', x_list)],
+            offline_input_args=[],
+            output_args=[Argument('out_y_list', y_list)],
+            output_instruction_path=task_dir,
+            fpga_acc=False,
+        )
+
+    # Bottom-of-range log_slots=4 exercises the piece-count clamp: default
+    # (cts=4, stc=3) gets clamped to (2, 2) to satisfy log_slots >= 2*max(...).
+    @pytest.mark.parametrize('lv', [0], ids=['lv0'])
+    def test_toy_sparse_bootstrap_ls4(self, lv):
+        set_fhe_param(_p_toy_sparse_btp_ls4)
+        param_tag = f'ckks_param_btp_n{_p_toy_sparse_btp_ls4.n}'
+        task_dir = os.path.join(CPU_OUTPUT_BASE_DIR, param_tag, f'CKKS_{N_OP}_toy_sparse_bootstrap_ls4', f'level_{lv}')
+        x_list = [CkksCiphertextNode(f'x_{i}', level=lv) for i in range(N_OP)]
+        y_list = [bootstrap(x_list[i], f'y_{i}') for i in range(N_OP)]
+        process_custom_task(
+            input_args=[Argument('in_x_list', x_list)],
+            offline_input_args=[],
+            output_args=[Argument('out_y_list', y_list)],
             output_instruction_path=task_dir,
             fpga_acc=False,
         )

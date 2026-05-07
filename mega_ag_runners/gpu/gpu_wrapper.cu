@@ -65,17 +65,23 @@ void init_gpu_context(const nlohmann::json& param_json,
         context = heongpu::GenHEContext<SchemeType>(heongpu::sec_level_type::none);
         context->set_poly_modulus_degree(n);
 
-        int slots = param_json["slots"].get<int>();
+        const int slots = param_json["slots"].get<int>();
         context->set_slot_count(slots);
 
-        std::vector<Data64> Q, P;
-        for (int i = 0; i <= max_level; i++) {
-            Q.push_back(Data64(q[i]));
+        // Sparse packing on GPU is only validated for N=2^16. Toy sparse
+        // (N=2^13) is documented in fhe_lib_v2.h as CPU-only via lattigo;
+        // fail fast here so the unsupported path doesn't crash inside CUDA.
+        if (slots < n / 2 && n != (1 << 16)) {
+            throw std::runtime_error("GPU sparse bootstrap supports N=2^16 only (toy sparse runs on CPU). "
+                                     "Got slots=" +
+                                     std::to_string(slots) + ", n=" + std::to_string(n));
         }
 
-        for (int i = 0; i < p.size(); i++) {
+        std::vector<Data64> Q, P;
+        for (int i = 0; i <= max_level; i++)
+            Q.push_back(Data64(q[i]));
+        for (int i = 0; i < p.size(); i++)
             P.push_back(Data64(p[i]));
-        }
         context->set_coeff_modulus_values(Q, P);
         context->generate(pool_config);
 
@@ -83,35 +89,30 @@ void init_gpu_context(const nlohmann::json& param_json,
         operators = std::make_unique<heongpu::HEArithmeticOperator<SchemeType>>(context, *gpu_encoder);
 
         if (param_json.contains("btp_output_level")) {
-            int cts_start_level = param_json["btp_cts_start_level"].get<int>();
-            int cts_depth = param_json["btp_cts_depth"].get<int>();
-            double cts_bsgs_ratio = param_json["btp_cts_bsgs_ratio"].get<double>();
-
-            uint64_t eval_mod_q = param_json["btp_eval_mod_q"].get<uint64_t>();
-            int eval_mod_start_level = param_json["btp_eval_mod_start_level"].get<int>();
-            double eval_mod_scaling_factor = param_json["btp_eval_mod_scaling_factor"].get<double>();
-            double eval_mod_message_ratio = param_json["btp_eval_mod_message_ratio"].get<double>();
-            int eval_mod_k = param_json["btp_eval_mod_k"].get<int>();
-            int eval_mod_sine_deg = param_json["btp_eval_mod_sine_deg"].get<int>();
-            int eval_mod_double_angle = param_json["btp_eval_mod_double_angle"].get<int>();
-            int eval_mod_arcsine_deg = param_json["btp_eval_mod_arcsine_deg"].get<int>();
-
-            int stc_start_level = param_json["btp_stc_start_level"].get<int>();
-            int stc_depth = param_json["btp_stc_depth"].get<int>();
-            double stc_bsgs_ratio = param_json["btp_stc_bsgs_ratio"].get<double>();
-
             double scale = param_json["scale"].get<double>();
 
-            heongpu::EncodingMatrixConfig cts_config(heongpu::LinearTransformType::COEFFS_TO_SLOTS, cts_start_level,
-                                                     cts_bsgs_ratio, cts_depth);
-            heongpu::EvalModConfig eval_mod_config(eval_mod_q, eval_mod_start_level, eval_mod_message_ratio, eval_mod_k,
-                                                   eval_mod_sine_deg, eval_mod_double_angle, eval_mod_arcsine_deg,
-                                                   eval_mod_scaling_factor);
-            heongpu::EncodingMatrixConfig stc_config(heongpu::LinearTransformType::SLOTS_TO_COEFFS, stc_start_level,
-                                                     stc_bsgs_ratio, stc_depth);
+            heongpu::EncodingMatrixConfig cts_config(
+                heongpu::LinearTransformType::COEFFS_TO_SLOTS, param_json["btp_cts_start_level"].get<int>(),
+                param_json["btp_cts_bsgs_ratio"].get<double>(), param_json["btp_cts_depth"].get<int>());
 
-            heongpu::BootstrappingConfigV2 boot_config(stc_config, eval_mod_config, cts_config);
+            heongpu::EncodingMatrixConfig stc_config(
+                heongpu::LinearTransformType::SLOTS_TO_COEFFS, param_json["btp_stc_start_level"].get<int>(),
+                param_json["btp_stc_bsgs_ratio"].get<double>(), param_json["btp_stc_depth"].get<int>());
 
+            heongpu::EvalModConfig eval_mod_config(
+                param_json["btp_eval_mod_q"].get<uint64_t>(), param_json["btp_eval_mod_start_level"].get<int>(),
+                param_json["btp_eval_mod_message_ratio"].get<double>(), param_json["btp_eval_mod_k"].get<int>(),
+                param_json["btp_eval_mod_sine_deg"].get<int>(), param_json["btp_eval_mod_double_angle"].get<int>(),
+                param_json["btp_eval_mod_arcsine_deg"].get<int>(),
+                param_json["btp_eval_mod_scaling_factor"].get<double>());
+
+            // 4-arg ctor flips on HEonGPU's gap_>1 sparse-packing path
+            // (Trace SubSum + CtoS fuse + single EvalMod). 3-arg ctor is the
+            // dense path. Q/P/level_starts come from the same JSON either way.
+            heongpu::BootstrappingConfigV2 boot_config =
+                (slots < n / 2) ? heongpu::BootstrappingConfigV2(stc_config, eval_mod_config, cts_config,
+                                                                 __builtin_ctz(static_cast<unsigned>(slots))) :
+                                  heongpu::BootstrappingConfigV2(stc_config, eval_mod_config, cts_config);
             operators->generate_bootstrapping_params_v2(scale, boot_config);
         }
 

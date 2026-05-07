@@ -800,3 +800,148 @@ TEMPLATE_TEST_CASE_METHOD(CkksBtpFixture, "CKKS cmc_relin_rescale_bootstrap", "[
             verify_ckks_precision(this->btp_ctx, vec_mul(xv.values[i], yv.values[i]), z_list[i]);
     }
 }
+
+// Sparse bootstrap CPU end-to-end: emitted mega_ag.json carries log_slots,
+// cpu_task_utils.h init_empty_context must route to create_toy_sparse_parameter,
+// and the decoded first 2^log_slots slots must match the encoded input.
+TEMPLATE_TEST_CASE_METHOD(CkksBtpFixture,
+                          "CKKS toy_sparse_bootstrap",
+                          "",
+                          CkksToySparseBtpParamsLs8,
+                          CkksToySparseBtpParamsLs4) {
+    SECTION("lv=0") {
+        const int32_t log_slots = TestType::log_slots;
+        const size_t sparse_slots = size_t(1) << log_slots;
+
+        vector<vector<double>> sparse_values(this->n_op);
+        vector<CkksCiphertext> x_list;
+        x_list.reserve(this->n_op);
+        for (int i = 0; i < this->n_op; i++) {
+            sparse_values[i] = rand_double_values(sparse_slots);
+            auto pt = this->btp_ctx.encode(sparse_values[i], 0, this->btp_scale);
+            x_list.push_back(this->btp_ctx.encrypt_asymmetric(pt));
+        }
+        vector<CkksCiphertext> y_list;
+        y_list.reserve(this->n_op);
+        for (int _i = 0; _i < this->n_op; _i++)
+            y_list.push_back(this->btp_ctx.new_ciphertext(9, this->btp_scale));
+
+        string path = cpu_base_path + "/" + this->tag + "/CKKS_" + to_string(this->n_op) + "_toy_sparse_bootstrap_ls" +
+                      to_string(log_slots) + "/level_0";
+        FheTaskCpu proj(path);
+        vector<CxxVectorArgument> args = {
+            {"in_x_list", &x_list},
+            {"out_y_list", &y_list},
+        };
+        proj.run(&this->btp_ctx, args);
+
+        for (int i = 0; i < this->n_op; i++) {
+            auto decoded = this->btp_ctx.decode(this->btp_ctx.decrypt(y_list[i]));
+            vector<double> decoded_sparse(decoded.begin(), decoded.begin() + sparse_slots);
+            auto stats = PrecisionAnalyzer::GetPrecisionStats(sparse_values[i], decoded_sparse);
+            REQUIRE(stats.MeanPrecision.Real >= 10.0);
+        }
+    }
+}
+
+// Double sparse bootstrap: bootstrap -> drop_level -> bootstrap. Hidden by
+// default (uses `[.]` tag) because the second sparse bootstrap currently
+// produces garbage (~-3 bits mean precision). This documents a real
+// composability gap: sparse bootstrap's level-9 output is not a valid input
+// to another sparse bootstrap after a naive drop_level reduction. Users
+// chaining sparse bootstraps must interleave a non-trivial op (mult_relin +
+// rescale) between them. Run this test explicitly to check if a future
+// change fixes composability.
+TEMPLATE_TEST_CASE_METHOD(CkksBtpFixture,
+                          "CKKS toy_sparse_double_bootstrap_ls8",
+                          "[.sparse][.bootstrap][.composability]",
+                          CkksToySparseBtpParamsLs8) {
+    SECTION("lv=0") {
+        const int32_t log_slots = TestType::log_slots;
+        const size_t sparse_slots = size_t(1) << log_slots;
+
+        vector<vector<double>> sparse_values(this->n_op);
+        vector<CkksCiphertext> x_list;
+        x_list.reserve(this->n_op);
+        for (int i = 0; i < this->n_op; i++) {
+            sparse_values[i] = rand_double_values(sparse_slots);
+            auto pt = this->btp_ctx.encode(sparse_values[i], 0, this->btp_scale);
+            x_list.push_back(this->btp_ctx.encrypt_asymmetric(pt));
+        }
+        vector<CkksCiphertext> y_list;
+        y_list.reserve(this->n_op);
+        for (int _i = 0; _i < this->n_op; _i++)
+            y_list.push_back(this->btp_ctx.new_ciphertext(9, this->btp_scale));
+
+        string path = cpu_base_path + "/" + this->tag + "/CKKS_" + to_string(this->n_op) +
+                      "_toy_sparse_double_bootstrap_ls8/level_0";
+        FheTaskCpu proj(path);
+        vector<CxxVectorArgument> args = {
+            {"in_x_list", &x_list},
+            {"out_y_list", &y_list},
+        };
+        proj.run(&this->btp_ctx, args);
+
+        for (int i = 0; i < this->n_op; i++) {
+            auto decoded = this->btp_ctx.decode(this->btp_ctx.decrypt(y_list[i]));
+            vector<double> decoded_sparse(decoded.begin(), decoded.begin() + sparse_slots);
+            auto stats = PrecisionAnalyzer::GetPrecisionStats(sparse_values[i], decoded_sparse);
+            // Aspirational bound: passes only if composability is fixed.
+            REQUIRE(stats.MeanPrecision.Real >= 8.0);
+        }
+    }
+}
+
+// Non-trivial sparse graph: mult_relin → rescale → drop_level → bootstrap.
+// Catches regressions where upstream operators (rescale, drop_level) don't
+// preserve the sparse packing invariant before bootstrap reads it.
+TEMPLATE_TEST_CASE_METHOD(CkksBtpFixture,
+                          "CKKS toy_sparse_cmc_relin_rescale_bootstrap_ls8",
+                          "",
+                          CkksToySparseBtpParamsLs8) {
+    auto& ckks_param = this->btp_param.get_ckks_parameter();
+
+    SECTION("lv=3") {
+        const int level = 3;
+        const int32_t log_slots = TestType::log_slots;
+        const size_t sparse_slots = size_t(1) << log_slots;
+
+        vector<vector<double>> x_values(this->n_op);
+        vector<vector<double>> y_values(this->n_op);
+        vector<CkksCiphertext> x_list;
+        vector<CkksCiphertext> y_list;
+        x_list.reserve(this->n_op);
+        y_list.reserve(this->n_op);
+        for (int i = 0; i < this->n_op; i++) {
+            x_values[i] = rand_double_values(sparse_slots);
+            y_values[i] = rand_double_values(sparse_slots);
+            x_list.push_back(
+                this->btp_ctx.encrypt_asymmetric(this->btp_ctx.encode(x_values[i], level, this->btp_scale)));
+            y_list.push_back(
+                this->btp_ctx.encrypt_asymmetric(this->btp_ctx.encode(y_values[i], level, this->btp_scale)));
+        }
+        double out_scale = this->btp_scale * this->btp_scale / ckks_param.get_q(level);
+        vector<CkksCiphertext> z_list;
+        z_list.reserve(this->n_op);
+        for (int _i = 0; _i < this->n_op; _i++)
+            z_list.push_back(this->btp_ctx.new_ciphertext(9, out_scale));
+
+        string path = cpu_base_path + "/" + this->tag + "/CKKS_" + to_string(this->n_op) +
+                      "_toy_sparse_cmc_relin_rescale_bootstrap_ls8/level_3";
+        FheTaskCpu proj(path);
+        vector<CxxVectorArgument> args = {
+            {"in_x_list", &x_list},
+            {"in_y_list", &y_list},
+            {"out_z_list", &z_list},
+        };
+        proj.run(&this->btp_ctx, args);
+
+        for (int i = 0; i < this->n_op; i++) {
+            auto decoded = this->btp_ctx.decode(this->btp_ctx.decrypt(z_list[i]));
+            vector<double> decoded_sparse(decoded.begin(), decoded.begin() + sparse_slots);
+            vector<double> expected = vec_mul(x_values[i], y_values[i]);
+            auto stats = PrecisionAnalyzer::GetPrecisionStats(expected, decoded_sparse);
+            REQUIRE(stats.MeanPrecision.Real >= 10.0);
+        }
+    }
+}

@@ -287,6 +287,14 @@ public:
 
     static CkksBtpParameter create_toy_parameter();
 
+    // Sparse-packing CKKS bootstrap (LogSlots < LogN-1). The CPU runner
+    // (lattigo) handles any log_slots in [4, LogN-2]. The GPU runner
+    // (HEonGPU) currently only supports N=2^16 sparse, so create_toy_sparse_*
+    // is CPU-only and will error if routed to GPU; use the production-N
+    // create_sparse_parameter for end-to-end CPU+GPU sparse runs.
+    static CkksBtpParameter create_sparse_parameter(int32_t log_slots);
+    static CkksBtpParameter create_toy_sparse_parameter(int32_t log_slots);
+
     CkksParameter& get_ckks_parameter();
 
 protected:

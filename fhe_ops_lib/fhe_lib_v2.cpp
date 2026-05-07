@@ -617,6 +617,18 @@ CkksBtpParameter CkksBtpParameter::create_toy_parameter() {
     return CkksBtpParameter(CreateCkksToyBtpParameter());
 }
 
+CkksBtpParameter CkksBtpParameter::create_sparse_parameter(int32_t log_slots) {
+    CkksBtpParameter btp(CreateCkksBtpParameter());
+    SetCkksParameterLogSlots(btp.get_ckks_parameter().get(), log_slots);
+    return btp;
+}
+
+CkksBtpParameter CkksBtpParameter::create_toy_sparse_parameter(int32_t log_slots) {
+    CkksBtpParameter btp(CreateCkksToyBtpParameter());
+    SetCkksParameterLogSlots(btp.get_ckks_parameter().get(), log_slots);
+    return btp;
+}
+
 // CkksParameter
 CkksParameter CkksParameter::create_parameter(uint64_t N) {
     return CkksParameter(CreateCkksParameter(N));

@@ -407,6 +407,8 @@ template <heongpu::Scheme S> void bind_gpu_cmp_sum(ComputeNode& node) {
     }
 }
 
+// GPU bootstrap: regular_bootstrapping_v2 dispatches sparse vs dense internally
+// via gap_>1 (set by context->set_slot_count() in gpu_wrapper.cu).
 template <heongpu::Scheme S> void bind_gpu_bootstrap(ComputeNode& node) {
     if constexpr (S == heongpu::Scheme::CKKS) {
         node.executor = [](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
@@ -418,6 +420,7 @@ template <heongpu::Scheme S> void bind_gpu_bootstrap(ComputeNode& node) {
             auto& swk0 = _get_input_data<Swk<S>>(inputs, *self.input_nodes[self.input_nodes.size() - 2]);
             auto& swk1 = _get_input_data<Swk<S>>(inputs, *self.input_nodes[self.input_nodes.size() - 1]);
             auto& output0 = *std::any_cast<std::shared_ptr<Ct<S>>>(output);
+
             output0 = operators.regular_bootstrapping_v2(input0, glk, rlk, &swk0, &swk1, stream_option);
         };
     } else {

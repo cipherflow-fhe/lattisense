@@ -86,11 +86,17 @@ void init_empty_context(const nlohmann::json& param_json, std::unique_ptr<TConte
             int stc_start_level = param_json["btp_stc_start_level"].get<int>();
             double scale = param_json["scale"].get<double>();
 
+            int slots = param_json["slots"].get<int>();
+            bool is_sparse = (slots < n / 2);
+            int32_t log_slots = is_sparse ? __builtin_ctz(static_cast<unsigned>(slots)) : 0;
+
             if (n == 1 << 13) {
-                CkksBtpParameter btp_param = CkksBtpParameter::create_toy_parameter();
+                CkksBtpParameter btp_param = is_sparse ? CkksBtpParameter::create_toy_sparse_parameter(log_slots) :
+                                                         CkksBtpParameter::create_toy_parameter();
                 context = std::make_unique<TContext>(CkksBtpContext::create_empty_context(btp_param));
             } else if (n == 1 << 16) {
-                CkksBtpParameter btp_param = CkksBtpParameter::create_parameter();
+                CkksBtpParameter btp_param = is_sparse ? CkksBtpParameter::create_sparse_parameter(log_slots) :
+                                                         CkksBtpParameter::create_parameter();
                 context = std::make_unique<TContext>(CkksBtpContext::create_empty_context(btp_param));
             }
         } else {

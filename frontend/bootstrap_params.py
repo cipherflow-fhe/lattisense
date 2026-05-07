@@ -198,10 +198,15 @@ def _find_best_bsgs_split(diag_matrix: Dict[int, bool], max_n: int, max_ratio: f
         _, rot_n1, rot_n2 = _bsgs_index(diag_matrix, max_n, n1)
         nb_n1, nb_n2 = len(rot_n1) - 1, len(rot_n2) - 1
 
-        if nb_n2 / nb_n1 == max_ratio:
-            return n1
-        if nb_n2 / nb_n1 > max_ratio:
-            return n1 // 2
+        # At small n1 (or sparse matrices), one of the partitions can collapse
+        # to a single element (nb_n1 == 0). Skip the ratio check in that case
+        # and double n1 to broaden the partition; only stop once nb_n1 > 0 and
+        # the ratio threshold is crossed.
+        if nb_n1 > 0:
+            if nb_n2 / nb_n1 == max_ratio:
+                return n1
+            if nb_n2 / nb_n1 > max_ratio:
+                return n1 // 2
 
         n1 <<= 1
 
