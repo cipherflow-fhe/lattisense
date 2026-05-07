@@ -45,16 +45,6 @@ extern "C" {
 #include "../abi/c_structs.h"
 }
 
-/// Progress callback for tracking mega_ag execution.
-/// @param completed Number of compute nodes completed so far.
-/// @param total Total number of compute nodes.
-using ProgressCallback = std::function<void(int completed, int total)>;
-
-/// Progress callback for tracking mega_ag execution.
-/// @param completed Number of compute nodes completed so far.
-/// @param total Total number of compute nodes.
-using ProgressCallback = std::function<void(int completed, int total)>;
-
 using namespace fhe_ops_lib;
 
 /**

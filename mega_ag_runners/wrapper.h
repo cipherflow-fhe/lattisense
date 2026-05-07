@@ -81,8 +81,7 @@ int run_fhe_gpu_task(fhe_task_handle handle,
                      CArgument* output_args,
                      uint64_t n_out_args,
                      progress_callback_t progress_cb,
-                     void* user_data,
-                     int gpu_device);
+                     void* user_data);
 
 // ========== FPGA Task Functions ==========
 

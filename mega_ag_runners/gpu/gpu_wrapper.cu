@@ -404,6 +404,23 @@ void _run_mega_ag(gsl::span<CArgument> input_args,
     }
 }
 
+void warm_up_device(int gpu_device) {
+    CHECK(cudaSetDevice(gpu_device));
+
+    // Warm up the CUDA context so timing is more accurate and HEonGPU device-local resources are initialized on
+    // the same device that will execute the task.
+    heongpu::HEContext<heongpu::Scheme::BFV> context =
+        heongpu::GenHEContext<heongpu::Scheme::BFV>(heongpu::sec_level_type::none);
+    context->set_poly_modulus_degree(8192);
+    context->set_coeff_modulus_values({18014398508400641, 18014398510645249, 18014398510661633}, {36028797018652673});
+    context->set_plain_modulus(65537);
+    heongpu::MemoryPoolConfig pool_config = heongpu::MemoryPoolConfig::Defaults();
+    context->generate(pool_config);
+    heongpu::HEKeyGenerator<heongpu::Scheme::BFV> keygen(context);
+    heongpu::Secretkey<heongpu::Scheme::BFV> secret_key(context);
+    keygen.generate_secret_key(secret_key);
+}
+
 class FheGpuTask {
 public:
     FheGpuTask(const std::string& project_path, int gpu_device = 0) : gpu_device_(gpu_device) {
@@ -436,16 +453,8 @@ public:
         mega_ag_.bind_custom_executors(custom_executors);
     }
 
-    int run(gsl::span<CArgument> input_args,
-            gsl::span<CArgument> output_args,
-            ProgressCallback progress_cb = nullptr,
-            int gpu_device = 0) {
-        if (gpu_device != gpu_device_) {
-            gpu_device_ = gpu_device;
-            warm_up_device(gpu_device_);
-        } else {
-            CHECK(cudaSetDevice(gpu_device_));
-        }
+    int run(gsl::span<CArgument> input_args, gsl::span<CArgument> output_args, ProgressCallback progress_cb = nullptr) {
+        CHECK(cudaSetDevice(gpu_device_));
 
         switch (mega_ag_.algo) {
             case Algo::ALGO_BFV:
@@ -463,24 +472,6 @@ public:
     }
 
 protected:
-    void warm_up_device(int gpu_device) {
-        CHECK(cudaSetDevice(gpu_device));
-
-        // Warm up the CUDA context so timing is more accurate and HEonGPU device-local resources are initialized on
-        // the same device that will execute the task.
-        heongpu::HEContext<heongpu::Scheme::BFV> context =
-            heongpu::GenHEContext<heongpu::Scheme::BFV>(heongpu::sec_level_type::none);
-        context->set_poly_modulus_degree(8192);
-        context->set_coeff_modulus_values({18014398508400641, 18014398510645249, 18014398510661633},
-                                          {36028797018652673});
-        context->set_plain_modulus(65537);
-        heongpu::MemoryPoolConfig pool_config = heongpu::MemoryPoolConfig::Defaults();
-        context->generate(pool_config);
-        heongpu::HEKeyGenerator<heongpu::Scheme::BFV> keygen(context);
-        heongpu::Secretkey<heongpu::Scheme::BFV> secret_key(context);
-        keygen.generate_secret_key(secret_key);
-    }
-
     MegaAG mega_ag_;
     int gpu_device_;
 };
@@ -523,8 +514,7 @@ int run_fhe_gpu_task(fhe_task_handle handle,
                      CArgument* output_args,
                      uint64_t n_out_args,
                      progress_callback_t progress_cb,
-                     void* user_data,
-                     int gpu_device) {
+                     void* user_data) {
     gpu_wrapper::FheGpuTask* task = (gpu_wrapper::FheGpuTask*)handle;
     gsl::span<CArgument> input_arg_span{input_args, n_in_args};
     gsl::span<CArgument> output_arg_span{output_args, n_out_args};
@@ -533,6 +523,6 @@ int run_fhe_gpu_task(fhe_task_handle handle,
     if (progress_cb) {
         cb = [progress_cb, user_data](int completed, int total) { progress_cb(completed, total, user_data); };
     }
-    return task->run(input_arg_span, output_arg_span, cb, gpu_device);
+    return task->run(input_arg_span, output_arg_span, cb);
 }
 }  // extern "C"

@@ -36,11 +36,7 @@ namespace lattisense {
 
 using namespace fhe_ops_lib;
 
-/// Progress callback for tracking mega_ag execution.
-/// @param completed Number of compute nodes completed so far.
-/// @param total Total number of compute nodes.
-/// @note Called from worker threads. Throttled to at most once per 100ms internally.
-using ProgressCallback = std::function<void(int completed, int total)>;
+using ::ProgressCallback;
 
 class FheTask {
 public:
@@ -136,10 +132,8 @@ public:
     ~FheTaskGpu();
 
     void bind_custom_executors(const std::unordered_map<std::string, ExecutorFunc>& custom_executors) override;
-    uint64_t run(FheContext* context,
-                 const std::vector<CxxVectorArgument>& cxx_args,
-                 ProgressCallback progress_cb = nullptr,
-                 int gpu_device = 0);
+    uint64_t
+    run(FheContext* context, const std::vector<CxxVectorArgument>& cxx_args, ProgressCallback progress_cb = nullptr);
 
 protected:
     void bind_abi_executors() override;
