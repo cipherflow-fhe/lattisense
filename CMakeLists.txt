@@ -344,6 +344,7 @@ if(LATTISENSE_BUILD_MODE STREQUAL "SHARED")
     add_library(lattisense SHARED
         $<TARGET_OBJECTS:cxx_sdk_v2_obj>
         $<TARGET_OBJECTS:fhe_ops_lib_obj>
+        $<TARGET_OBJECTS:abi_obj>
     )
 
     target_sources(lattisense PRIVATE

@@ -47,9 +47,13 @@ import (
 	"github.com/tuneinsight/lattigo/v4/rlwe"
 )
 
+const (
+	FpgaLogN       = 13
+	FpgaMFormNBits = 34
+)
+
 var (
-	FpgaQ    = []uint64{0x7f4e0001, 0x7fb40001, 0x7fd20001, 0x7fea0001, 0x7ff80001, 0x7ffe0001}
-	FpgaLogN = 13
+	FpgaQ = []uint64{0x7f4e0001, 0x7fb40001, 0x7fd20001, 0x7fea0001, 0x7ff80001, 0x7ffe0001}
 
 	BfvFpgaParametersLiteral = bfv.ParametersLiteral{
 		LogN:  FpgaLogN,
@@ -66,8 +70,6 @@ var (
 		Sigma:        rlwe.DefaultSigma,
 		DefaultScale: float64(1 << 31),
 	}
-
-	FpgaMFormNBits = 34
 )
 
 // FpgaDevice FPGA accelerator device class (singleton pattern)
