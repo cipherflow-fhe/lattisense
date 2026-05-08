@@ -659,6 +659,14 @@ double CkksParameter::get_default_scale() const {
     return GetDefaultScale(this->get());
 }
 
+int CkksParameter::get_log_slots() const {
+    return GetCkksLogSlots(this->get());
+}
+
+void CkksParameter::set_log_slots(int log_slots) {
+    _value = SetCkksParameterLogSlots(_value, log_slots);
+}
+
 // CkksContext
 CkksContext CkksContext::create_empty_context(const CkksParameter& param, bool support_big_complex) {
     return CkksContext(CreateEmptyCkksContext(param.get(), support_big_complex));
@@ -908,6 +916,11 @@ CkksParameter& CkksBtpParameter::get_ckks_parameter() {
         _parameter = CkksParameter(GetCkksParameterFromBtpParameter(this->get()));
     }
     return _parameter;
+}
+
+void CkksBtpParameter::set_log_slots(int log_slots) {
+    _value = SetCkksBtpParameterLogSlots(_value, log_slots);
+    _parameter = CkksParameter(0);
 }
 
 CkksBtpContext CkksBtpContext::make_public_context() {

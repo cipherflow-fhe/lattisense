@@ -106,6 +106,17 @@ struct CkksTestCustomParams {
     }
 };
 
+struct CkksTestSparseDefaultParams {
+    static CkksParameter create() {
+        auto param = CkksParameter::create_parameter(16384);
+        param.set_log_slots(11);  // 2048 slots
+        return param;
+    }
+    static string get_tag() {
+        return "ckks_param_default_n16384_slots2048";
+    }
+};
+
 struct CkksToyBtpParams {
     static CkksBtpParameter create() {
         return CkksBtpParameter::create_toy_parameter();
@@ -123,6 +134,30 @@ struct CkksBtpParams {
     static string get_tag() {
         int n = create().get_ckks_parameter().get_n();
         return "ckks_param_btp_n" + to_string(n);
+    }
+};
+
+struct CkksToySparseBtpParams {
+    static CkksBtpParameter create() {
+        auto param = CkksBtpParameter::create_toy_parameter();
+        param.set_log_slots(11);  // 2048 slots
+        return param;
+    }
+    static string get_tag() {
+        int n = create().get_ckks_parameter().get_n();
+        return "ckks_param_btp_n" + to_string(n) + "_slots2048";
+    }
+};
+
+struct CkksSparseBtpParams {
+    static CkksBtpParameter create() {
+        auto param = CkksBtpParameter::create_parameter();
+        param.set_log_slots(11);  // 2048 slots
+        return param;
+    }
+    static string get_tag() {
+        int n = create().get_ckks_parameter().get_n();
+        return "ckks_param_btp_n" + to_string(n) + "_slots2048";
     }
 };
 
@@ -155,7 +190,8 @@ protected:
 public:
     CkksFixture()
         : param(P::create()), ctx(CkksContext::create_random_context(param)), tag(P::get_tag()),
-          n_slot(param.get_n() / 2), max_level(param.get_max_level()), default_scale(param.get_default_scale()) {}
+          n_slot(1 << param.get_log_slots()), max_level(param.get_max_level()),
+          default_scale(param.get_default_scale()) {}
 };
 
 template <typename P> class CkksBtpFixture {
@@ -170,7 +206,7 @@ protected:
 public:
     CkksBtpFixture()
         : btp_param(P::create()), btp_ctx(CkksBtpContext::create_random_context(btp_param)), tag(P::get_tag()),
-          n_slot(btp_param.get_ckks_parameter().get_n() / 2), btp_scale(pow(2.0, 40)) {}
+          n_slot(1 << btp_param.get_ckks_parameter().get_log_slots()), btp_scale(pow(2.0, 40)) {}
 };
 
 #ifdef LATTISENSE_ENABLE_GPU
@@ -261,7 +297,8 @@ protected:
 public:
     CkksFpgaFixture()
         : param(P::create()), ctx(CkksContext::create_random_context(param)), tag(P::get_tag()),
-          n_slot(param.get_n() / 2), max_level(param.get_max_level()), default_scale(param.get_default_scale()) {}
+          n_slot(1 << param.get_log_slots()), max_level(param.get_max_level()),
+          default_scale(param.get_default_scale()) {}
 };
 
 #endif  // LATTISENSE_ENABLE_FPGA

@@ -160,7 +160,7 @@ std::vector<uint64_t> decrypt_and_decode(BfvContext& ctx, const BfvCiphertext& c
 
 CkksTestCt new_ckks_test_ct(int n_data, CkksContext& ctx, int level, double scale) {
     CkksTestCt tv;
-    int n_slot = ctx.get_parameter().get_n() / 2;
+    int n_slot = 1 << ctx.get_parameter().get_log_slots();
     for (int i = 0; i < n_data; i++) {
         tv.values.push_back(rand_double_values(n_slot));
         auto pt = ctx.encode(tv.values[i], level, scale);
@@ -171,7 +171,7 @@ CkksTestCt new_ckks_test_ct(int n_data, CkksContext& ctx, int level, double scal
 
 CkksTestPt new_ckks_test_pt(int n_data, CkksContext& ctx, int level, double scale) {
     CkksTestPt tv;
-    int n_slot = ctx.get_parameter().get_n() / 2;
+    int n_slot = 1 << ctx.get_parameter().get_log_slots();
     for (int i = 0; i < n_data; i++) {
         tv.values.push_back(rand_double_values(n_slot));
         tv.plaintexts.push_back(ctx.encode(tv.values[i], level, scale));
@@ -181,7 +181,7 @@ CkksTestPt new_ckks_test_pt(int n_data, CkksContext& ctx, int level, double scal
 
 CkksTestPtRingt new_ckks_test_pt_ringt(int n_data, CkksContext& ctx, double scale) {
     CkksTestPtRingt tv;
-    int n_slot = ctx.get_parameter().get_n() / 2;
+    int n_slot = 1 << ctx.get_parameter().get_log_slots();
     for (int i = 0; i < n_data; i++) {
         tv.values.push_back(rand_double_values(n_slot));
         tv.plaintexts.push_back(ctx.encode_ringt(tv.values[i], scale));
@@ -191,7 +191,7 @@ CkksTestPtRingt new_ckks_test_pt_ringt(int n_data, CkksContext& ctx, double scal
 
 CkksTestPtMul new_ckks_test_pt_mul(int n_data, CkksContext& ctx, int level, double scale) {
     CkksTestPtMul tv;
-    int n_slot = ctx.get_parameter().get_n() / 2;
+    int n_slot = 1 << ctx.get_parameter().get_log_slots();
     for (int i = 0; i < n_data; i++) {
         tv.values.push_back(rand_double_values(n_slot));
         tv.plaintexts.push_back(ctx.encode_mul(tv.values[i], level, scale));
