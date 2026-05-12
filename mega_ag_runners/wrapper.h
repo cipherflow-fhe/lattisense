@@ -30,6 +30,9 @@ extern "C" {
 
 typedef struct fhe_task_handle_st* fhe_task_handle;
 
+#define FHE_TASK_OK 0
+#define FHE_TASK_CANCELLED -1
+
 /**
  * @brief Progress callback function type for tracking mega_ag execution progress.
  * @param completed Number of compute nodes completed so far.
@@ -46,6 +49,8 @@ typedef void (*progress_callback_t)(int completed, int total, void* user_data);
 fhe_task_handle create_fhe_cpu_task(const char* project_path);
 
 void release_fhe_cpu_task(fhe_task_handle handle);
+
+void cancel_fhe_cpu_task(fhe_task_handle handle);
 
 void bind_cpu_task_custom_executors(fhe_task_handle handle,
                                     const char** custom_types,
@@ -64,9 +69,11 @@ int run_fhe_cpu_task(fhe_task_handle handle,
 
 // ========== GPU Task Functions ==========
 
-fhe_task_handle create_fhe_gpu_task(const char* project_path, int gpu_device);
+fhe_task_handle create_fhe_gpu_task(const char* project_path);
 
 void release_fhe_gpu_task(fhe_task_handle handle);
+
+void cancel_fhe_gpu_task(fhe_task_handle handle);
 
 void bind_gpu_task_abi_bridge_executors(fhe_task_handle handle, void* abi_export_executor, void* abi_import_executor);
 
@@ -81,7 +88,8 @@ int run_fhe_gpu_task(fhe_task_handle handle,
                      CArgument* output_args,
                      uint64_t n_out_args,
                      progress_callback_t progress_cb,
-                     void* user_data);
+                     void* user_data,
+                     int gpu_device);
 
 // ========== FPGA Task Functions ==========
 

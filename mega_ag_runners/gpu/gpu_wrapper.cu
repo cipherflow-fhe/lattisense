@@ -141,7 +141,8 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
                        gsl::span<CArgument> output_args,
                        const MegaAG& mega_ag,
                        ProgressCallback progress_cb = nullptr,
-                       int gpu_device = 0) {
+                       int gpu_device = 0,
+                       const std::atomic<bool>* cancel_flag = nullptr) {
     // cudaSetDevice is thread-local; new threads in the pool default to device 0.
     // Use the runtime-specified device so all worker threads bind to the same device.
     const int device = gpu_device;
@@ -210,8 +211,11 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
                 [task_index, pool_priority, device, &gpu_pool, &mega_ag, &m_mutex, &task_queue, &queued_computes,
                  &completed_tasks, &total_tasks, &completion_cv, &completion_mutex, &available_data, &operators,
                  &data_ready_events, &stream_options, &streams, &context, &galois_key, &galois_key_mutex,
-                 &data_ref_counts, &all_galois_elts]() {
+                 &data_ref_counts, &all_galois_elts, cancel_flag]() {
                     CHECK(cudaSetDevice(device));
+                    if (cancel_flag && cancel_flag->load()) {
+                        return;
+                    }
                     auto stream_id = BS::this_thread::get_index().value();
 
                     const ComputeNode& compute_node = mega_ag.computes.at(task_index);
@@ -363,25 +367,36 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
         return other_args_vec;
     };
 
-    // Run tasks using common run_tasks function
-    // CPU pool handles CPU nodes, GPU tasks submitted via submit_gpu_task
-    // Pass cleanup to wait for GPU pool and clean up events before returning
 #ifdef LATTISENSE_DEV
     GpuMemoryMonitor gpu_mem_monitor(100);  // sample every 100 ms
     gpu_mem_monitor.start(GpuMemoryMonitor::next_csv_path("mem_usage_gpu"));
 #endif
-    run_tasks(
-        mega_ag, cpu_pool, base_cpu_context, available_data, get_other_args, submit_gpu_task,
-        [&gpu_pool, &data_ready_events]() {
-            gpu_pool.wait();
-            for (auto& pair : data_ready_events) {
-                cudaEvent_t event = pair.second;
-                gpu_pool.detach_task([event]() { CHECK(cudaEventDestroy(event)); });
-            }
-            gpu_pool.wait();
-        },
-        progress_cb);
+    RunTasksOptions options;
+    options.get_other_args = get_other_args;
+    options.submit_backend_task = submit_gpu_task;
+    options.cleanup = [&gpu_pool, &data_ready_events, &streams]() {
+        gpu_pool.wait();
+        for (auto stream : streams) {
+            CHECK(cudaStreamSynchronize(stream));
+        }
+        for (auto& pair : data_ready_events) {
+            cudaEvent_t event = pair.second;
+            gpu_pool.detach_task([event]() { CHECK(cudaEventDestroy(event)); });
+        }
+        gpu_pool.wait();
+    };
+    options.progress_callback = progress_cb;
+    options.cancel_flag = cancel_flag;
+
 #ifdef LATTISENSE_DEV
+    try {
+#endif
+        run_tasks(mega_ag, cpu_pool, base_cpu_context, available_data, options);
+#ifdef LATTISENSE_DEV
+    } catch (...) {
+        gpu_mem_monitor.stop();
+        throw;
+    }
     gpu_mem_monitor.stop();
 #endif
 }
@@ -392,40 +407,41 @@ void _run_mega_ag(gsl::span<CArgument> input_args,
                   gsl::span<CArgument> output_args,
                   const MegaAG& mega_ag,
                   ProgressCallback progress_cb = nullptr,
-                  int gpu_device = 0) {
+                  int gpu_device = 0,
+                  const std::atomic<bool>* cancel_flag = nullptr) {
     if constexpr (SchemeType == heongpu::Scheme::CKKS) {
         if (mega_ag.parameter.contains("btp_output_level")) {
-            _run_mega_ag_impl<SchemeType, CkksBtpContext>(input_args, output_args, mega_ag, progress_cb, gpu_device);
+            _run_mega_ag_impl<SchemeType, CkksBtpContext>(input_args, output_args, mega_ag, progress_cb, gpu_device,
+                                                          cancel_flag);
         } else {
-            _run_mega_ag_impl<SchemeType, CkksContext>(input_args, output_args, mega_ag, progress_cb, gpu_device);
+            _run_mega_ag_impl<SchemeType, CkksContext>(input_args, output_args, mega_ag, progress_cb, gpu_device,
+                                                       cancel_flag);
         }
     } else {
-        _run_mega_ag_impl<SchemeType, BfvContext>(input_args, output_args, mega_ag, progress_cb, gpu_device);
+        _run_mega_ag_impl<SchemeType, BfvContext>(input_args, output_args, mega_ag, progress_cb, gpu_device,
+                                                  cancel_flag);
     }
-}
-
-void warm_up_device(int gpu_device) {
-    CHECK(cudaSetDevice(gpu_device));
-
-    // Warm up the CUDA context so timing is more accurate and HEonGPU device-local resources are initialized on
-    // the same device that will execute the task.
-    heongpu::HEContext<heongpu::Scheme::BFV> context =
-        heongpu::GenHEContext<heongpu::Scheme::BFV>(heongpu::sec_level_type::none);
-    context->set_poly_modulus_degree(8192);
-    context->set_coeff_modulus_values({18014398508400641, 18014398510645249, 18014398510661633}, {36028797018652673});
-    context->set_plain_modulus(65537);
-    heongpu::MemoryPoolConfig pool_config = heongpu::MemoryPoolConfig::Defaults();
-    context->generate(pool_config);
-    heongpu::HEKeyGenerator<heongpu::Scheme::BFV> keygen(context);
-    heongpu::Secretkey<heongpu::Scheme::BFV> secret_key(context);
-    keygen.generate_secret_key(secret_key);
 }
 
 class FheGpuTask {
 public:
-    FheGpuTask(const std::string& project_path, int gpu_device = 0) : gpu_device_(gpu_device) {
+    FheGpuTask(const std::string& project_path) {
         mega_ag_ = MegaAG::load(project_path + "/mega_ag.json", Processor::GPU);
-        warm_up_device(gpu_device_);
+
+        cudaSetDevice(0);  // Warm up default device; actual device is selected at run time
+
+        // Warm up the CUDA context, so that the computation time measurment is more accurate.
+        heongpu::HEContext<heongpu::Scheme::BFV> context =
+            heongpu::GenHEContext<heongpu::Scheme::BFV>(heongpu::sec_level_type::none);
+        context->set_poly_modulus_degree(8192);
+        context->set_coeff_modulus_values({18014398508400641, 18014398510645249, 18014398510661633},
+                                          {36028797018652673});
+        context->set_plain_modulus(65537);
+        heongpu::MemoryPoolConfig pool_config = heongpu::MemoryPoolConfig::Defaults();
+        context->generate(pool_config);
+        heongpu::HEKeyGenerator<heongpu::Scheme::BFV> keygen(context);
+        heongpu::Secretkey<heongpu::Scheme::BFV> secret_key(context);
+        keygen.generate_secret_key(secret_key);
     }
 
     ~FheGpuTask() {}
@@ -453,39 +469,81 @@ public:
         mega_ag_.bind_custom_executors(custom_executors);
     }
 
-    int run(gsl::span<CArgument> input_args, gsl::span<CArgument> output_args, ProgressCallback progress_cb = nullptr) {
-        CHECK(cudaSetDevice(gpu_device_));
+    void request_cancel() noexcept {
+        std::lock_guard<std::mutex> lock(cancel_mutex_);
+        if (cancel_flag_) {
+            cancel_flag_->store(true);
+        }
+    }
 
-        switch (mega_ag_.algo) {
-            case Algo::ALGO_BFV:
-                _run_mega_ag<heongpu::Scheme::BFV>(input_args, output_args, mega_ag_, progress_cb, gpu_device_);
-                break;
-            case Algo::ALGO_CKKS:
-                _run_mega_ag<heongpu::Scheme::CKKS>(input_args, output_args, mega_ag_, progress_cb, gpu_device_);
-                break;
-            default: throw std::invalid_argument("algo not supported"); break;
+    int run(gsl::span<CArgument> input_args,
+            gsl::span<CArgument> output_args,
+            ProgressCallback progress_cb = nullptr,
+            int gpu_device = 0) {
+        std::lock_guard<std::mutex> run_lock(run_mutex_);
+        auto cancel_flag = std::make_shared<std::atomic<bool>>(false);
+        {
+            std::lock_guard<std::mutex> lock(cancel_mutex_);
+            cancel_flag_ = cancel_flag;
         }
 
-        CHECK(cudaDeviceSynchronize());
+        try {
+            switch (mega_ag_.algo) {
+                case Algo::ALGO_BFV:
+                    _run_mega_ag<heongpu::Scheme::BFV>(input_args, output_args, mega_ag_, progress_cb, gpu_device,
+                                                       cancel_flag.get());
+                    break;
+                case Algo::ALGO_CKKS:
+                    _run_mega_ag<heongpu::Scheme::CKKS>(input_args, output_args, mega_ag_, progress_cb, gpu_device,
+                                                        cancel_flag.get());
+                    break;
+                default: throw std::invalid_argument("algo not supported"); break;
+            }
+            CHECK(cudaDeviceSynchronize());
+        } catch (const mega_ag_runner::TaskCancelled&) {
+            CHECK(cudaDeviceSynchronize());
+            clear_cancel_flag(cancel_flag);
+            return FHE_TASK_CANCELLED;
+        } catch (...) {
+            clear_cancel_flag(cancel_flag);
+            throw;
+        }
 
-        return 0;
+        clear_cancel_flag(cancel_flag);
+        return FHE_TASK_OK;
     }
 
 protected:
+    void clear_cancel_flag(const std::shared_ptr<std::atomic<bool>>& cancel_flag) noexcept {
+        std::lock_guard<std::mutex> lock(cancel_mutex_);
+        if (cancel_flag_ == cancel_flag) {
+            cancel_flag_.reset();
+        }
+    }
+
     MegaAG mega_ag_;
-    int gpu_device_;
+    std::shared_ptr<std::atomic<bool>> cancel_flag_;
+    std::mutex cancel_mutex_;
+    std::mutex run_mutex_;
 };
 };  // namespace gpu_wrapper
 
 extern "C" {
-fhe_task_handle create_fhe_gpu_task(const char* project_path, int gpu_device) {
-    gpu_wrapper::FheGpuTask* task = new gpu_wrapper::FheGpuTask(project_path, gpu_device);
+fhe_task_handle create_fhe_gpu_task(const char* project_path) {
+    gpu_wrapper::FheGpuTask* task = new gpu_wrapper::FheGpuTask(project_path);
     return (fhe_task_handle)task;
 }
 
 void release_fhe_gpu_task(fhe_task_handle handle) {
     gpu_wrapper::FheGpuTask* task = (gpu_wrapper::FheGpuTask*)handle;
     delete task;
+}
+
+void cancel_fhe_gpu_task(fhe_task_handle handle) {
+    gpu_wrapper::FheGpuTask* task = (gpu_wrapper::FheGpuTask*)handle;
+    if (task) {
+        task->request_cancel();
+    }
 }
 
 void bind_gpu_task_abi_bridge_executors(fhe_task_handle handle, void* abi_export_executor, void* abi_import_executor) {
@@ -514,7 +572,8 @@ int run_fhe_gpu_task(fhe_task_handle handle,
                      CArgument* output_args,
                      uint64_t n_out_args,
                      progress_callback_t progress_cb,
-                     void* user_data) {
+                     void* user_data,
+                     int gpu_device) {
     gpu_wrapper::FheGpuTask* task = (gpu_wrapper::FheGpuTask*)handle;
     gsl::span<CArgument> input_arg_span{input_args, n_in_args};
     gsl::span<CArgument> output_arg_span{output_args, n_out_args};
@@ -523,6 +582,6 @@ int run_fhe_gpu_task(fhe_task_handle handle,
     if (progress_cb) {
         cb = [progress_cb, user_data](int completed, int total) { progress_cb(completed, total, user_data); };
     }
-    return task->run(input_arg_span, output_arg_span, cb);
+    return task->run(input_arg_span, output_arg_span, cb, gpu_device);
 }
 }  // extern "C"

@@ -19,6 +19,7 @@
 #ifndef CXX_FHE_TASK_H
 #define CXX_FHE_TASK_H
 
+#include <stdexcept>
 #include <unordered_map>
 #include <vector>
 #include "nlohmann/json.hpp"
@@ -36,7 +37,16 @@ namespace lattisense {
 
 using namespace fhe_ops_lib;
 
-using ::ProgressCallback;
+/// Progress callback for tracking mega_ag execution.
+/// @param completed Number of compute nodes completed so far.
+/// @param total Total number of compute nodes.
+/// @note Called from worker threads. Throttled to at most once per 100ms internally.
+using ProgressCallback = std::function<void(int completed, int total)>;
+
+class TaskCancelledException : public std::runtime_error {
+public:
+    TaskCancelledException() : std::runtime_error("FHE task was cancelled") {}
+};
 
 class FheTask {
 public:
@@ -118,6 +128,7 @@ public:
     ~FheTaskCpu();
 
     void bind_custom_executors(const std::unordered_map<std::string, ExecutorFunc>& custom_executors) override;
+    void request_cancel() noexcept;
     uint64_t
     run(FheContext* context, const std::vector<CxxVectorArgument>& cxx_args, ProgressCallback progress_cb = nullptr);
 
@@ -127,13 +138,18 @@ protected:
 
 class FheTaskGpu : public FheTask {
 public:
-    FheTaskGpu(const std::string& project_path, int gpu_device = 0);
+    using FheTask::FheTask;
+
+    FheTaskGpu(const std::string& project_path);
 
     ~FheTaskGpu();
 
     void bind_custom_executors(const std::unordered_map<std::string, ExecutorFunc>& custom_executors) override;
-    uint64_t
-    run(FheContext* context, const std::vector<CxxVectorArgument>& cxx_args, ProgressCallback progress_cb = nullptr);
+    void request_cancel() noexcept;
+    uint64_t run(FheContext* context,
+                 const std::vector<CxxVectorArgument>& cxx_args,
+                 ProgressCallback progress_cb = nullptr,
+                 int gpu_device = 0);
 
 protected:
     void bind_abi_executors() override;
