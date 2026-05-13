@@ -8,7 +8,7 @@ using namespace std;
 int GPU_MFORM_BITS = 0;
 
 FheTaskGpu::FheTaskGpu(const std::string& project_path) : FheTask{project_path} {
-    task_handle = create_fhe_gpu_task(project_path.c_str());
+    task_handle = create_fhe_gpu_task(project_path.c_str(), 0);
     bind_abi_executors(GPU_MFORM_BITS);
 }
 

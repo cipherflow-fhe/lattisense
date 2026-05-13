@@ -38,6 +38,7 @@
 #include "../fhe_ops_lib/fhe_lib_v2.h"
 #include "../lib/thread_pool/BS_thread_pool.hpp"
 #include "mega_ag.h"
+#include "task_cancellation.h"
 #include "../lib/gsl/span"
 #include "../tools/task_progress_bar.h"
 
@@ -346,6 +347,25 @@ struct TaskInfo {
     }
 };
 
+using OtherArgsCallback = std::function<std::vector<std::any>(const ComputeNode&)>;
+using BackendTaskSubmitter = std::function<void(NodeIndex,
+                                                std::mutex&,
+                                                std::priority_queue<TaskInfo>&,
+                                                std::set<NodeIndex>&,
+                                                std::atomic<size_t>&,
+                                                std::atomic<size_t>&,
+                                                std::condition_variable&,
+                                                std::mutex&,
+                                                std::unordered_map<NodeIndex, std::atomic<int>>&)>;
+
+struct RunTasksOptions {
+    OtherArgsCallback get_other_args;
+    BackendTaskSubmitter submit_backend_task;
+    std::function<void()> cleanup;
+    ProgressCallback progress_callback;
+    const std::atomic<bool>* cancel_flag = nullptr;
+};
+
 /**
  * @brief Run tasks with CPU thread pool and optional backend task submission
  *
@@ -358,33 +378,14 @@ struct TaskInfo {
  * @param pool CPU thread pool for parallel execution
  * @param base_context Base context to create thread-local copies from
  * @param available_data Map of available data indexed by NodeIndex
- * @param get_other_args Optional callback to get other_args for each CPU task (for FPGA offset_map, etc.)
- * @param submit_backend_task Optional callback to submit backend tasks (for GPU heterogeneous mode)
- *                             Receives: task_index, m_mutex, task_queue, queued_computes,
- *                                      completed_tasks, total_tasks, completion_cv, completion_mutex,
- *                                      data_ref_counts
- *                             If provided, total_tasks = all tasks; otherwise total_tasks = CPU tasks only
- *
- * @note If submit_backend_task is provided, this function handles GPU heterogeneous mode.
- *       Otherwise, it handles pure CPU or FPGA mode (only CPU tasks executed).
+ * @param options Optional callbacks and cancellation flag for backend submission, cleanup, and progress.
  */
 template <typename TContext>
 void run_tasks(const MegaAG& mega_ag,
                BS::priority_thread_pool& pool,
                const std::unique_ptr<TContext>& base_context,
                std::unordered_map<NodeIndex, std::any>& available_data,
-               std::function<std::vector<std::any>(const ComputeNode&)> get_other_args = nullptr,
-               std::function<void(NodeIndex,
-                                  std::mutex&,
-                                  std::priority_queue<TaskInfo>&,
-                                  std::set<NodeIndex>&,
-                                  std::atomic<size_t>&,
-                                  std::atomic<size_t>&,
-                                  std::condition_variable&,
-                                  std::mutex&,
-                                  std::unordered_map<NodeIndex, std::atomic<int>>&)> submit_backend_task = nullptr,
-               std::function<void()> cleanup = nullptr,
-               ProgressCallback progress_callback = nullptr) {
+               const RunTasksOptions& options = {}) {
     // Create thread-local contexts for CPU pool
     std::vector<std::unique_ptr<TContext>> context_ptrs = create_thread_contexts(pool, base_context);
 
@@ -416,8 +417,8 @@ void run_tasks(const MegaAG& mega_ag,
             const BS::priority_t pool_priority = mega_ag.computes.at(task_index).priority;
             pool.detach_task(
                 [task_index, &mega_ag, &completed_tasks, &total_tasks, &m_mutex, &completion_mutex, &completion_cv,
-                 &available_data, &context_ptrs, &task_queue, &queued_computes, &data_ref_counts, other_args,
-                 &progress_callback, &last_progress_time, progress_interval]() {
+                 &available_data, &context_ptrs, &task_queue, &queued_computes, &data_ref_counts, other_args, &options,
+                 &last_progress_time, progress_interval]() {
                     auto thread_id = BS::this_thread::get_index().value();
 
                     const ComputeNode& compute_node = mega_ag.computes.at(task_index);
@@ -442,6 +443,9 @@ void run_tasks(const MegaAG& mega_ag,
                     // Execute the compute node using its bound executor
                     std::any output;
                     try {
+                        if (options.cancel_flag && options.cancel_flag->load()) {
+                            return;
+                        }
                         compute_node.executor(exec_ctx, thread_input_cache, output, compute_node);
                     } catch (const std::exception& e) {
                         // Still increment completed_tasks to avoid deadlock
@@ -480,7 +484,7 @@ void run_tasks(const MegaAG& mega_ag,
 
                     // Check if all tasks are completed
                     size_t prev = completed_tasks.fetch_add(1);
-                    if (progress_callback) {
+                    if (options.progress_callback) {
                         auto now = SteadyClock::now().time_since_epoch().count();
                         auto last = last_progress_time.load(std::memory_order_relaxed);
                         bool is_final = (prev + 1 >= total_tasks);
@@ -488,7 +492,7 @@ void run_tasks(const MegaAG& mega_ag,
                                            std::chrono::duration_cast<SteadyClock::duration>(progress_interval).count();
                         if (is_final || throttle_ok) {
                             last_progress_time.store(now, std::memory_order_relaxed);
-                            progress_callback(static_cast<int>(prev + 1), static_cast<int>(total_tasks.load()));
+                            options.progress_callback(static_cast<int>(prev + 1), static_cast<int>(total_tasks.load()));
                         }
                     }
                     if (prev + 1 >= total_tasks) {
@@ -507,8 +511,19 @@ void run_tasks(const MegaAG& mega_ag,
         queued_computes.insert(task_index);
     }
 
+    bool cancelled = false;
+
     // Main task dispatcher loop
     while (true) {
+        if (options.cancel_flag && options.cancel_flag->load()) {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            while (!task_queue.empty()) {
+                task_queue.pop();
+            }
+            cancelled = true;
+            break;
+        }
+
         NodeIndex next_task;
         bool has_task = false;
 
@@ -528,13 +543,13 @@ void run_tasks(const MegaAG& mega_ag,
             if (compute_node.on_cpu) {
                 // Submit to CPU thread pool
                 std::vector<std::any> other_args_vec;
-                if (get_other_args) {
-                    other_args_vec = get_other_args(compute_node);
+                if (options.get_other_args) {
+                    other_args_vec = options.get_other_args(compute_node);
                 }
                 submit_task(next_task, other_args_vec);
-            } else if (submit_backend_task) {
+            } else if (options.submit_backend_task) {
                 // Submit to backend handler (GPU/FPGA) with shared state references
-                submit_backend_task(next_task, m_mutex, task_queue, queued_computes, completed_tasks, total_tasks,
+                options.submit_backend_task(next_task, m_mutex, task_queue, queued_computes, completed_tasks, total_tasks,
                                     completion_cv, completion_mutex, data_ref_counts);
             }
             // else: skip non-CPU tasks if no handler provided (shouldn't happen in well-formed graphs)
@@ -547,17 +562,20 @@ void run_tasks(const MegaAG& mega_ag,
     }
 
     // Wait for all tasks to complete
-    {
+    if (!cancelled) {
         std::unique_lock<std::mutex> lock(completion_mutex);
         completion_cv.wait(lock, [&] { return completed_tasks.load() >= total_tasks; });
     }
 
     pool.wait();
 
+    if (options.cleanup) {
+        options.cleanup();
+    }
+
     progress_bar.finalize();
 
-    // Call cleanup function if provided (e.g., gpu_pool.wait() for GPU mode)
-    if (cleanup) {
-        cleanup();
+    if (cancelled) {
+        throw mega_ag_runner::TaskCancelled();
     }
 }

@@ -54,6 +54,8 @@ find_package(Threads REQUIRED)
 
 set(LATTISENSE_CUDA_ARCH "" CACHE STRING
     "CUDA architecture (e.g., 80 for A100, 86 for RTX 30xx, 89 for RTX 40xx, 90 for H100). Required when LATTISENSE_ENABLE_GPU=ON")
+set(HEONGPU_CCCL_GIT_URL "" CACHE STRING "Optional CCCL mirror URL for HEonGPU dependency fetch")
+set(HEONGPU_SPDLOG_GIT_URL "" CACHE STRING "Optional spdlog mirror URL for HEonGPU dependency fetch")
 
 find_package(CUDAToolkit QUIET)
 
@@ -153,15 +155,24 @@ if(LATTISENSE_ENABLE_GPU)
             list(APPEND _heongpu_extra_args "-DCPM_SOURCE_CACHE=${CPM_SOURCE_CACHE}")
         endif()
 
-        # Generate a rapids-cmake override file to use a CCCL mirror if specified.
-        # Usage: cmake -DHEONGPU_CCCL_GIT_URL=https://gitee.com/nvidia_mirror/cccl.git ...
-        if(DEFINED HEONGPU_CCCL_GIT_URL)
-            set(_override_json [=[{"packages":{"CCCL":{"git_url":"@HEONGPU_CCCL_GIT_URL@"}}}]=])
+        # Generate a rapids-cmake override file to use dependency mirrors if specified.
+        set(_override_packages)
+        if(HEONGPU_CCCL_GIT_URL)
+            list(APPEND _override_packages [=["CCCL":{"git_url":"@HEONGPU_CCCL_GIT_URL@"}]=])
+            message(STATUS "[HEonGPU] Using CCCL mirror: ${HEONGPU_CCCL_GIT_URL}")
+        endif()
+        if(HEONGPU_SPDLOG_GIT_URL)
+            list(APPEND _override_packages [=["spdlog":{"git_url":"@HEONGPU_SPDLOG_GIT_URL@"}]=])
+            message(STATUS "[HEonGPU] Using spdlog mirror: ${HEONGPU_SPDLOG_GIT_URL}")
+        endif()
+        if(_override_packages)
+            list(JOIN _override_packages "," _override_packages_json)
+            set(_override_json "{\"packages\":{${_override_packages_json}}}")
             string(REPLACE "@HEONGPU_CCCL_GIT_URL@" "${HEONGPU_CCCL_GIT_URL}" _override_json "${_override_json}")
-            set(_override_file "${HEONGPU_BUILD_DIR}/cccl_override.json")
+            string(REPLACE "@HEONGPU_SPDLOG_GIT_URL@" "${HEONGPU_SPDLOG_GIT_URL}" _override_json "${_override_json}")
+            set(_override_file "${HEONGPU_BUILD_DIR}/dependency_overrides.json")
             file(WRITE "${_override_file}" "${_override_json}")
             list(APPEND _heongpu_extra_args "-DRAPIDS_CMAKE_CPM_OVERRIDE_VERSION_FILE=${_override_file}")
-            message(STATUS "[HEonGPU] Using CCCL mirror: ${HEONGPU_CCCL_GIT_URL}")
         endif()
 
         message(STATUS "[HEonGPU] Configuring...")
@@ -238,28 +249,32 @@ endif()
 # standard
 # set(CMAKE_C_COMPILER "/usr/local/bin/gcc")
 # set(CMAKE_CXX_COMPILER "/usr/local/bin/g++")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -maes")
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -maes")
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -lstdc++")
+    set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -lstdc++")
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -m64")
+    add_compile_definitions(_GLIBCXX_USE_CXX11_ABI=1)
+endif()
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED TRUE)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
-# Force linking with the correct standard library
-set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -lstdc++")
-set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -lstdc++")
-
-
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release)
 endif()
-set(CMAKE_CXX_FLAGS_DEBUG "-g")
-set(CMAKE_CXX_FLAGS_RELEASE "-O3")
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+    set(CMAKE_CXX_FLAGS_DEBUG "-g")
+    set(CMAKE_CXX_FLAGS_RELEASE "-O3")
+endif()
 set(CMAKE_CUDA_FLAGS_DEBUG "${CMAKE_CUDA_FLAGS_DEBUG} -g")
 set(CMAKE_CUDA_FLAGS_RELEASE "${CMAKE_CUDA_FLAGS_RELEASE} -O3")
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -m64")
-add_compile_definitions(_GLIBCXX_USE_CXX11_ABI=1)
-add_definitions(-D_FILE_OFFSET_BITS=64 -D_GNU_SOURCE -D_LARGE_FILE_SOURCE -D_AIO_AIX_SOURCE)
+
+if(NOT WIN32)
+    add_definitions(-D_FILE_OFFSET_BITS=64 -D_GNU_SOURCE -D_LARGE_FILE_SOURCE -D_AIO_AIX_SOURCE)
+endif()
 
 message(STATUS "The CXX compiler : ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}")
 message(STATUS "The C   compiler : ${CMAKE_C_COMPILER_ID} ${CMAKE_C_COMPILER_VERSION}")
@@ -295,11 +310,18 @@ message(STATUS "LATTISENSE_BUILD_MODE: ${LATTISENSE_BUILD_MODE}")
 option(LATTISENSE_BUILD_TESTS "Build lattisense tests" ON)
 message(STATUS "LATTISENSE_BUILD_TESTS: ${LATTISENSE_BUILD_TESTS}")
 
+option(LATTISENSE_CLIENT_ONLY "Client-only build (keygen/encrypt/decrypt, no server-side components)" OFF)
+message(STATUS "LATTISENSE_CLIENT_ONLY: ${LATTISENSE_CLIENT_ONLY}")
+
 include_directories(${LATTISENSE_ROOT_DIR}/lib ${LATTISENSE_ROOT_DIR}/common)
 
 set(GO_SDK_DIR ${LATTISENSE_ROOT_DIR}/fhe_ops_lib/lattigo/go_sdk)
-set(LIBLATTIGO_A   ${GO_SDK_DIR}/liblattigo.a)
-set(LIBLATTIGO_SO  ${GO_SDK_DIR}/liblattigo.so)
+set(LIBLATTIGO_A ${GO_SDK_DIR}/liblattigo.a)
+if(WIN32)
+    set(LIBLATTIGO_SHARED ${GO_SDK_DIR}/liblattigo.dll)
+else()
+    set(LIBLATTIGO_SHARED ${GO_SDK_DIR}/liblattigo.so)
+endif()
 set(LIBLATTIGO_H   ${GO_SDK_DIR}/liblattigo.h)
 # Sanitized copy of liblattigo.h with cgo #line virtual-filename directives stripped.
 # NVCC's -MD dep scanner emits those virtual names (e.g. "cgo-builtin-export-prolog")
@@ -308,38 +330,67 @@ set(LIBLATTIGO_H   ${GO_SDK_DIR}/liblattigo.h)
 # all declarations intact but replaces offending #line markers with blank lines.
 set(LIBLATTIGO_H_SANITIZED ${GO_SDK_DIR}/liblattigo_sanitized.h)
 
-add_custom_command(
-    OUTPUT ${LIBLATTIGO_A} ${LIBLATTIGO_SO} ${LIBLATTIGO_H_SANITIZED}
-    COMMAND bash build.sh
-    COMMAND ${CMAKE_COMMAND} -P ${GO_SDK_DIR}/strip_cgo_line.cmake
-    WORKING_DIRECTORY ${GO_SDK_DIR}
-    DEPENDS
-        ${GO_SDK_DIR}/main.go
-        ${GO_SDK_DIR}/bootstrap.go
-        ${GO_SDK_DIR}/c_struct_import_export.go
-        ${GO_SDK_DIR}/conversion.go
-        ${GO_SDK_DIR}/multiparty.go
-    COMMENT "Building Go dynamic libraries"
-)
-
-add_custom_target(go_libs DEPENDS ${LIBLATTIGO_A} ${LIBLATTIGO_SO} ${LIBLATTIGO_H_SANITIZED})
+set(GO_SOURCES main.go bootstrap.go c_struct_import_export.go conversion.go multiparty.go)
+if(WIN32)
+    # Windows: only build c-archive. c-shared fails because bridge_func (defined in
+    # bridge.c on the C++ side) is unresolved — Windows linker requires all symbols at
+    # link time, unlike Linux which allows lazy binding. fhe_ops_lib links liblattigo.a
+    # directly, statically embedding the Go runtime.
+    add_custom_command(
+        OUTPUT ${LIBLATTIGO_A} ${LIBLATTIGO_H_SANITIZED}
+        COMMAND ${CMAKE_COMMAND} -E env CGO_ENABLED=1
+            ${GO_EXECUTABLE} build -buildmode=c-archive -o ${LIBLATTIGO_A} ${GO_SOURCES}
+        COMMAND ${CMAKE_COMMAND} -P ${GO_SDK_DIR}/strip_cgo_line.cmake
+        WORKING_DIRECTORY ${GO_SDK_DIR}
+        DEPENDS
+            ${GO_SDK_DIR}/main.go
+            ${GO_SDK_DIR}/bootstrap.go
+            ${GO_SDK_DIR}/c_struct_import_export.go
+            ${GO_SDK_DIR}/conversion.go
+            ${GO_SDK_DIR}/multiparty.go
+        COMMENT "Building Go library (archive only)"
+    )
+    add_custom_target(go_libs DEPENDS ${LIBLATTIGO_A} ${LIBLATTIGO_H_SANITIZED})
+else()
+    add_custom_command(
+        OUTPUT ${LIBLATTIGO_A} ${LIBLATTIGO_SHARED} ${LIBLATTIGO_H_SANITIZED}
+        COMMAND ${CMAKE_COMMAND} -E env CGO_ENABLED=1
+            ${GO_EXECUTABLE} build -buildmode=c-archive -o ${LIBLATTIGO_A} ${GO_SOURCES}
+        COMMAND ${CMAKE_COMMAND} -E env CGO_ENABLED=1
+            ${GO_EXECUTABLE} build -buildmode=c-shared -o ${LIBLATTIGO_SHARED} ${GO_SOURCES}
+        COMMAND ${CMAKE_COMMAND} -P ${GO_SDK_DIR}/strip_cgo_line.cmake
+        WORKING_DIRECTORY ${GO_SDK_DIR}
+        DEPENDS
+            ${GO_SDK_DIR}/main.go
+            ${GO_SDK_DIR}/bootstrap.go
+            ${GO_SDK_DIR}/c_struct_import_export.go
+            ${GO_SDK_DIR}/conversion.go
+            ${GO_SDK_DIR}/multiparty.go
+        COMMENT "Building Go libraries (archive + shared)"
+    )
+    add_custom_target(go_libs DEPENDS ${LIBLATTIGO_A} ${LIBLATTIGO_SHARED} ${LIBLATTIGO_H_SANITIZED})
+endif()
 
 add_subdirectory(abi)
 add_dependencies(abi go_libs)
 add_subdirectory(fhe_ops_lib)
 add_dependencies(fhe_ops_lib go_libs)
-add_subdirectory(cxx_sdk_v2)
 
-add_subdirectory(mega_ag_runners)
+if(NOT LATTISENSE_CLIENT_ONLY)
+    add_subdirectory(cxx_sdk_v2)
 
-if(LATTISENSE_ENABLE_FPGA)
-    add_subdirectory(backends/lattisense-fpga/lattisense-fpga-runtime)
+    add_subdirectory(mega_ag_runners)
+
+    if(LATTISENSE_ENABLE_FPGA)
+        add_subdirectory(backends/lattisense-fpga/lattisense-fpga-runtime)
+    endif()
+
+    if(LATTISENSE_BUILD_TESTS)
+        add_subdirectory(unittests)
+    endif()
 endif()
 
-if(LATTISENSE_BUILD_TESTS)
-    add_subdirectory(unittests)
-endif()
-
+if(NOT LATTISENSE_CLIENT_ONLY)
 if(LATTISENSE_BUILD_MODE STREQUAL "SHARED")
     add_library(lattisense SHARED
         $<TARGET_OBJECTS:cxx_sdk_v2_obj>
@@ -347,6 +398,7 @@ if(LATTISENSE_BUILD_MODE STREQUAL "SHARED")
     )
 
     target_sources(lattisense PRIVATE
+        $<TARGET_OBJECTS:abi_obj>
         $<TARGET_OBJECTS:mega_ag_obj>
         $<TARGET_OBJECTS:cpu_mega_ag_runner_obj>
     )
@@ -499,7 +551,7 @@ else()
     endif()
     install(TARGETS cxx_sdk_v2 LIBRARY DESTINATION ${LATTISENSE_INSTALL_LIBDIR})
     install(TARGETS fhe_ops_lib LIBRARY DESTINATION ${LATTISENSE_INSTALL_LIBDIR})
-    install(FILES ${LATTISENSE_ROOT_DIR}/fhe_ops_lib/lattigo/go_sdk/liblattigo.so DESTINATION ${LATTISENSE_INSTALL_LIBDIR})
+    install(FILES ${LIBLATTIGO_SHARED} DESTINATION ${LATTISENSE_INSTALL_LIBDIR})
     install(DIRECTORY ${LATTISENSE_ROOT_DIR}/lib/gsl DESTINATION ${LATTISENSE_INSTALL_INCLUDEDIR})
     install(DIRECTORY ${LATTISENSE_ROOT_DIR}/cxx_sdk_v2/ DESTINATION ${LATTISENSE_INSTALL_INCLUDEDIR}/cxx_sdk_v2 FILES_MATCHING
         PATTERN "*.h"
@@ -511,3 +563,4 @@ else()
         DESTINATION ${LATTISENSE_INSTALL_DATADIR}/project_template
         PATTERN "build" EXCLUDE)
 endif()
+endif() # NOT LATTISENSE_CLIENT_ONLY
