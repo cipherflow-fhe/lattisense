@@ -54,6 +54,8 @@ find_package(Threads REQUIRED)
 
 set(LATTISENSE_CUDA_ARCH "" CACHE STRING
     "CUDA architecture (e.g., 80 for A100, 86 for RTX 30xx, 89 for RTX 40xx, 90 for H100). Required when LATTISENSE_ENABLE_GPU=ON")
+set(HEONGPU_CCCL_GIT_URL "" CACHE STRING "Optional CCCL mirror URL for HEonGPU dependency fetch")
+set(HEONGPU_SPDLOG_GIT_URL "" CACHE STRING "Optional spdlog mirror URL for HEonGPU dependency fetch")
 
 find_package(CUDAToolkit QUIET)
 
@@ -153,15 +155,24 @@ if(LATTISENSE_ENABLE_GPU)
             list(APPEND _heongpu_extra_args "-DCPM_SOURCE_CACHE=${CPM_SOURCE_CACHE}")
         endif()
 
-        # Generate a rapids-cmake override file to use a CCCL mirror if specified.
-        # Usage: cmake -DHEONGPU_CCCL_GIT_URL=https://gitee.com/nvidia_mirror/cccl.git ...
-        if(DEFINED HEONGPU_CCCL_GIT_URL)
-            set(_override_json [=[{"packages":{"CCCL":{"git_url":"@HEONGPU_CCCL_GIT_URL@"}}}]=])
+        # Generate a rapids-cmake override file to use dependency mirrors if specified.
+        set(_override_packages)
+        if(HEONGPU_CCCL_GIT_URL)
+            list(APPEND _override_packages [=["CCCL":{"git_url":"@HEONGPU_CCCL_GIT_URL@"}]=])
+            message(STATUS "[HEonGPU] Using CCCL mirror: ${HEONGPU_CCCL_GIT_URL}")
+        endif()
+        if(HEONGPU_SPDLOG_GIT_URL)
+            list(APPEND _override_packages [=["spdlog":{"git_url":"@HEONGPU_SPDLOG_GIT_URL@"}]=])
+            message(STATUS "[HEonGPU] Using spdlog mirror: ${HEONGPU_SPDLOG_GIT_URL}")
+        endif()
+        if(_override_packages)
+            list(JOIN _override_packages "," _override_packages_json)
+            set(_override_json "{\"packages\":{${_override_packages_json}}}")
             string(REPLACE "@HEONGPU_CCCL_GIT_URL@" "${HEONGPU_CCCL_GIT_URL}" _override_json "${_override_json}")
-            set(_override_file "${HEONGPU_BUILD_DIR}/cccl_override.json")
+            string(REPLACE "@HEONGPU_SPDLOG_GIT_URL@" "${HEONGPU_SPDLOG_GIT_URL}" _override_json "${_override_json}")
+            set(_override_file "${HEONGPU_BUILD_DIR}/dependency_overrides.json")
             file(WRITE "${_override_file}" "${_override_json}")
             list(APPEND _heongpu_extra_args "-DRAPIDS_CMAKE_CPM_OVERRIDE_VERSION_FILE=${_override_file}")
-            message(STATUS "[HEonGPU] Using CCCL mirror: ${HEONGPU_CCCL_GIT_URL}")
         endif()
 
         message(STATUS "[HEonGPU] Configuring...")
@@ -387,6 +398,7 @@ if(LATTISENSE_BUILD_MODE STREQUAL "SHARED")
     )
 
     target_sources(lattisense PRIVATE
+        $<TARGET_OBJECTS:abi_obj>
         $<TARGET_OBJECTS:mega_ag_obj>
         $<TARGET_OBJECTS:cpu_mega_ag_runner_obj>
     )

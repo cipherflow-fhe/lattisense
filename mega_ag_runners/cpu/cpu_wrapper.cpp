@@ -86,7 +86,7 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
 
 #ifdef LATTISENSE_DEV
     MemoryMonitor mem_monitor(100);  // sample every 100 ms
-    mem_monitor.start(MemoryMonitor::next_csv_path("mem_usage_cpu"));
+    mem_monitor.start(MemoryMonitor::next_csv_path(".", "mem_usage_cpu"));
     try {
 #endif
         run_tasks(mega_ag, pool, context, available_data, options);

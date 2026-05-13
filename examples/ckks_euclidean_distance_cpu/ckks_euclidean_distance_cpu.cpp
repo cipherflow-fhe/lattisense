@@ -18,6 +18,7 @@
 
 #include <cxx_sdk_v2/cxx_fhe_task.h>
 #include <fhe_ops_lib/fhe_lib_v2.h>
+#include <fhe_ops_lib/utils.h>
 
 #include <algorithm>
 #include <cstdio>

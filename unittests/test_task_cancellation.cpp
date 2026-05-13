@@ -19,8 +19,10 @@
 #define CATCH_CONFIG_MAIN
 #include "catch.hpp"
 
+#include "fixture.hpp"
+#include "utils.h"
+
 #include <atomic>
-#include <chrono>
 #include <condition_variable>
 #include <exception>
 #include <memory>
@@ -116,6 +118,34 @@ MegaAG make_chain_ag(Barrier* first_barrier, std::atomic<int>* executed) {
     return ag;
 }
 
+template <typename Task>
+void require_real_bfv_poly_cancellation(Task& project, BfvContext& context, uint64_t plaintext_modulus) {
+    auto xv = new_bfv_test_ct(4, context, 3, plaintext_modulus);
+    auto av = new_bfv_test_ct(3, context, 3, plaintext_modulus);
+
+    std::vector<BfvCiphertext> z_list;
+    z_list.reserve(4);
+    for (int i = 0; i < 4; i++) {
+        z_list.push_back(context.new_ciphertext(3));
+    }
+
+    std::vector<CxxVectorArgument> args = {
+        {"in_x_list", &xv.ciphertexts},
+        {"in_a_list", &av.ciphertexts},
+        {"out_z_list", &z_list},
+    };
+
+    std::atomic<bool> cancellation_requested{false};
+    auto progress_callback = [&project, &cancellation_requested](int completed, int) {
+        if (completed > 0 && !cancellation_requested.exchange(true)) {
+            project.request_cancel();
+        }
+    };
+
+    REQUIRE_THROWS_AS(project.run(&context, args, progress_callback), lattisense::TaskCancelledException);
+    REQUIRE(cancellation_requested.load());
+}
+
 }  // namespace
 
 TEST_CASE("CPU cancellation public API symbols compile", "[cancel][cpu][api]") {
@@ -124,6 +154,24 @@ TEST_CASE("CPU cancellation public API symbols compile", "[cancel][cpu][api]") {
     lattisense::TaskCancelledException ex;
     REQUIRE(std::string(ex.what()) == "FHE task was cancelled");
 }
+
+TEST_CASE("FheTaskCpu cancels real BFV poly task", "[cancel][cpu][real]") {
+    BfvParameter parameter = BfvTestDefaultParams::create();
+    BfvContext context = BfvContext::create_random_context(parameter);
+    lattisense::FheTaskCpu project(cpu_base_path + "/" + BfvTestDefaultParams::get_tag() + "/BFV_n_poly/level_3");
+
+    require_real_bfv_poly_cancellation(project, context, parameter.get_t());
+}
+
+#ifdef LATTISENSE_ENABLE_GPU
+TEST_CASE("FheTaskGpu cancels real BFV poly task", "[cancel][gpu][real]") {
+    BfvParameter parameter = BfvTestDefaultParams::create();
+    BfvContext context = BfvContext::create_random_context(parameter);
+    lattisense::FheTaskGpu project(gpu_base_path + "/" + BfvTestDefaultParams::get_tag() + "/BFV_n_poly/level_3");
+
+    require_real_bfv_poly_cancellation(project, context, parameter.get_t());
+}
+#endif
 
 TEST_CASE("run_tasks throws cancellation after draining active CPU node", "[cancel][cpu]") {
     Barrier barrier;

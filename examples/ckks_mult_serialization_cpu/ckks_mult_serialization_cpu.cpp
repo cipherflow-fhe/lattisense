@@ -21,6 +21,7 @@
 #include <tuple>
 
 #include "fhe_ops_lib/fhe_lib_v2.h"
+#include "fhe_ops_lib/utils.h"
 
 using namespace fhe_ops_lib;
 using namespace std;
