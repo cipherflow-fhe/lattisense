@@ -48,7 +48,7 @@ static void verify_ckks_precision(CkksContext& ctx,
 // Each test type iterates over all valid levels.
 // ---------------------------------------------------------------------------
 
-TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS cap", "", CkksFpgaTestParams) {
+TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS cap", "", CkksFpgaTestParams, CkksFpgaSparseTestParams) {
     for (int level = this->min_level; level <= this->max_level; level++) {
         SECTION("lv=" + to_string(level)) {
             auto xv = new_ckks_test_ct(this->n_op, this->ctx, level, this->default_scale);
@@ -72,7 +72,7 @@ TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS cap", "", CkksFpgaTestParams) {
     }
 }
 
-TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS cac", "", CkksFpgaTestParams) {
+TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS cac", "", CkksFpgaTestParams, CkksFpgaSparseTestParams) {
     for (int level = this->min_level; level <= this->max_level; level++) {
         SECTION("lv=" + to_string(level)) {
             auto xv = new_ckks_test_ct(this->n_op, this->ctx, level, this->default_scale);
@@ -96,7 +96,7 @@ TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS cac", "", CkksFpgaTestParams) {
     }
 }
 
-TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS casc", "", CkksFpgaTestParams) {
+TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS casc", "", CkksFpgaTestParams, CkksFpgaSparseTestParams) {
     for (int level = this->min_level; level <= this->max_level; level++) {
         SECTION("lv=" + to_string(level)) {
             auto xv = new_ckks_test_ct(this->n_op, this->ctx, level, this->default_scale);
@@ -118,7 +118,7 @@ TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS casc", "", CkksFpgaTestParams) 
     }
 }
 
-TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS csp", "", CkksFpgaTestParams) {
+TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS csp", "", CkksFpgaTestParams, CkksFpgaSparseTestParams) {
     for (int level = this->min_level; level <= this->max_level; level++) {
         SECTION("lv=" + to_string(level)) {
             auto xv = new_ckks_test_ct(this->n_op, this->ctx, level, this->default_scale);
@@ -142,7 +142,7 @@ TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS csp", "", CkksFpgaTestParams) {
     }
 }
 
-TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS csc", "", CkksFpgaTestParams) {
+TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS csc", "", CkksFpgaTestParams, CkksFpgaSparseTestParams) {
     for (int level = this->min_level; level <= this->max_level; level++) {
         SECTION("lv=" + to_string(level)) {
             auto xv = new_ckks_test_ct(this->n_op, this->ctx, level, this->default_scale);
@@ -166,7 +166,7 @@ TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS csc", "", CkksFpgaTestParams) {
     }
 }
 
-TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS cneg", "", CkksFpgaTestParams) {
+TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS cneg", "", CkksFpgaTestParams, CkksFpgaSparseTestParams) {
     for (int level = this->min_level; level <= this->max_level; level++) {
         SECTION("lv=" + to_string(level)) {
             auto xv = new_ckks_test_ct(this->n_op, this->ctx, level, this->default_scale);
@@ -212,7 +212,7 @@ TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS cmp_ringt", "", CkksFpgaTestPar
     }
 }
 
-TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS cmp", "", CkksFpgaTestParams) {
+TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS cmp", "", CkksFpgaTestParams, CkksFpgaSparseTestParams) {
     for (int level = 1; level <= this->max_level; level++) {
         SECTION("lv=" + to_string(level)) {
             auto xv = new_ckks_test_ct(this->n_op, this->ctx, level, this->default_scale);
@@ -236,7 +236,7 @@ TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS cmp", "", CkksFpgaTestParams) {
     }
 }
 
-TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS cmp_mul", "", CkksFpgaTestParams) {
+TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS cmp_mul", "", CkksFpgaTestParams, CkksFpgaSparseTestParams) {
     for (int level = 1; level <= this->max_level; level++) {
         SECTION("lv=" + to_string(level)) {
             auto xv = new_ckks_test_ct(this->n_op, this->ctx, level, this->default_scale);
@@ -360,7 +360,7 @@ TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS ct_pt_ringt_mac", "", CkksFpgaT
     }
 }
 
-TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS cmc", "", CkksFpgaTestParams) {
+TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS cmc", "", CkksFpgaTestParams, CkksFpgaSparseTestParams) {
     for (int level = 1; level <= this->max_level; level++) {
         SECTION("lv=" + to_string(level)) {
             auto xv = new_ckks_test_ct(this->n_op, this->ctx, level, this->default_scale);
@@ -386,7 +386,7 @@ TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS cmc", "", CkksFpgaTestParams) {
     }
 }
 
-TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS cmc_relin", "", CkksFpgaTestParams) {
+TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS cmc_relin", "", CkksFpgaTestParams, CkksFpgaSparseTestParams) {
     for (int level = 1; level <= this->max_level; level++) {
         SECTION("lv=" + to_string(level)) {
             auto xv = new_ckks_test_ct(this->n_op, this->ctx, level, this->default_scale);
@@ -410,7 +410,7 @@ TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS cmc_relin", "", CkksFpgaTestPar
     }
 }
 
-TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS cmc_relin_rescale", "", CkksFpgaTestParams) {
+TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS cmc_relin_rescale", "", CkksFpgaTestParams, CkksFpgaSparseTestParams) {
     for (int level = 1; level <= this->max_level; level++) {
         SECTION("lv=" + to_string(level)) {
             auto xv = new_ckks_test_ct(this->n_op, this->ctx, level, this->default_scale);
@@ -435,7 +435,7 @@ TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS cmc_relin_rescale", "", CkksFpg
     }
 }
 
-TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS csqr", "", CkksFpgaTestParams) {
+TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS csqr", "", CkksFpgaTestParams, CkksFpgaSparseTestParams) {
     for (int level = 1; level <= this->max_level; level++) {
         SECTION("lv=" + to_string(level)) {
             auto xv = new_ckks_test_ct(this->n_op, this->ctx, level, this->default_scale);
@@ -459,7 +459,7 @@ TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS csqr", "", CkksFpgaTestParams) 
     }
 }
 
-TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS csqr_relin", "", CkksFpgaTestParams) {
+TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS csqr_relin", "", CkksFpgaTestParams, CkksFpgaSparseTestParams) {
     for (int level = 1; level <= this->max_level; level++) {
         SECTION("lv=" + to_string(level)) {
             auto xv = new_ckks_test_ct(this->n_op, this->ctx, level, this->default_scale);
@@ -481,7 +481,11 @@ TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS csqr_relin", "", CkksFpgaTestPa
     }
 }
 
-TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS csqr_relin_rescale", "", CkksFpgaTestParams) {
+TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture,
+                          "CKKS csqr_relin_rescale",
+                          "",
+                          CkksFpgaTestParams,
+                          CkksFpgaSparseTestParams) {
     for (int level = 1; level <= this->max_level; level++) {
         SECTION("lv=" + to_string(level)) {
             auto xv = new_ckks_test_ct(this->n_op, this->ctx, level, this->default_scale);
@@ -504,7 +508,7 @@ TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS csqr_relin_rescale", "", CkksFp
     }
 }
 
-TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS rescale", "", CkksFpgaTestParams) {
+TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS rescale", "", CkksFpgaTestParams, CkksFpgaSparseTestParams) {
     for (int level = 1; level <= this->max_level; level++) {
         SECTION("lv=" + to_string(level)) {
             auto xv = new_ckks_test_ct(this->n_op, this->ctx, level, this->default_scale * this->param.get_q(level));
@@ -526,7 +530,7 @@ TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS rescale", "", CkksFpgaTestParam
     }
 }
 
-TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS drop_level", "", CkksFpgaTestParams) {
+TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS drop_level", "", CkksFpgaTestParams, CkksFpgaSparseTestParams) {
     int drop_level = 2;
     for (int level = 2; level <= this->max_level; level++) {
         SECTION("lv=" + to_string(level)) {
@@ -549,7 +553,7 @@ TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS drop_level", "", CkksFpgaTestPa
     }
 }
 
-TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS rotate_col", "", CkksFpgaTestParams) {
+TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS rotate_col", "", CkksFpgaTestParams, CkksFpgaSparseTestParams) {
     vector<int32_t> steps;
     for (int i = 1; i <= 128; i++)
         steps.push_back(i);
@@ -580,7 +584,11 @@ TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS rotate_col", "", CkksFpgaTestPa
     }
 }
 
-TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS advanced_rotate_col", "", CkksFpgaTestParams) {
+TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture,
+                          "CKKS advanced_rotate_col",
+                          "",
+                          CkksFpgaTestParams,
+                          CkksFpgaSparseTestParams) {
     vector<int32_t> steps = {-500, 20, 200, 2000, 4000};
     string steps_str;
     for (int i = 0; i < (int)steps.size(); i++) {
@@ -614,7 +622,7 @@ TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS advanced_rotate_col", "", CkksF
     }
 }
 
-TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS rotate_row", "", CkksFpgaTestParams) {
+TEMPLATE_TEST_CASE_METHOD(CkksFpgaFixture, "CKKS rotate_row", "", CkksFpgaTestParams, CkksFpgaSparseTestParams) {
     this->ctx.gen_rotation_keys_for_rotations(vector<int32_t>{}, true);
 
     for (int level = 1; level <= this->max_level; level++) {

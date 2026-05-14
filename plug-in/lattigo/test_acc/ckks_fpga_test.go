@@ -28,9 +28,23 @@ import (
 	"github.com/tuneinsight/lattigo/v4/utils"
 )
 
+var ckks_fpga_base_path string
+
+func sparseParametersLiteral() ckks.ParametersLiteral {
+	l := acc.CkksFpgaParametersLiteral
+	l.LogSlots = 11 // 2048 slots
+	return l
+}
+
 var (
-	TestCkksFpgaParamLiterals = []ckks.ParametersLiteral{acc.CkksFpgaParametersLiteral}
-	ckks_fpga_base_path          = fpga_base_path + "/ckks_param_fpga_n8192"
+	TestCkksFpgaParamLiterals = []ckks.ParametersLiteral{
+		acc.CkksFpgaParametersLiteral,
+		sparseParametersLiteral(),
+	}
+	TestCkksFpgaParamTags = []string{
+		"ckks_param_fpga_n8192",
+		"ckks_param_fpga_n8192_slots2048",
+	}
 )
 
 func TestCkksFpgaAcc(t *testing.T) {
@@ -42,7 +56,8 @@ func TestCkksFpgaAcc(t *testing.T) {
 	}
 	defer fpgaDevice.Free()
 
-	for _, literal := range TestCkksFpgaParamLiterals[:] {
+	for i, literal := range TestCkksFpgaParamLiterals[:] {
+		ckks_fpga_base_path = fpga_base_path + "/" + TestCkksFpgaParamTags[i]
 
 		var tc *testCkksContext
 		if tc, err = genTestCkksParams(literal); err != nil {

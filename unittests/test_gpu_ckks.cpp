@@ -47,7 +47,12 @@ static void verify_ckks_precision(CkksContext& ctx,
 // Each test type iterates over all valid levels.
 // ---------------------------------------------------------------------------
 
-TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS cap", "", CkksTestDefaultParams, CkksTestCustomParams) {
+TEMPLATE_TEST_CASE_METHOD(CkksFixture,
+                          "CKKS cap",
+                          "",
+                          CkksTestDefaultParams,
+                          CkksTestCustomParams,
+                          CkksTestSparseDefaultParams) {
     for (int level = this->min_level; level <= this->max_level; level++) {
         SECTION("lv=" + to_string(level)) {
             auto xv = new_ckks_test_ct(this->n_op, this->ctx, level, this->default_scale);
@@ -71,7 +76,12 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS cap", "", CkksTestDefaultParams, Ck
     }
 }
 
-TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS cap_ringt", "", CkksTestDefaultParams, CkksTestCustomParams) {
+TEMPLATE_TEST_CASE_METHOD(CkksFixture,
+                          "CKKS cap_ringt",
+                          "",
+                          CkksTestDefaultParams,
+                          CkksTestCustomParams,
+                          CkksTestSparseDefaultParams) {
     for (int level = this->min_level; level <= this->max_level; level++) {
         SECTION("lv=" + to_string(level)) {
             auto xv = new_ckks_test_ct(this->n_op, this->ctx, level, this->default_scale);
@@ -95,7 +105,12 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS cap_ringt", "", CkksTestDefaultPara
     }
 }
 
-TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS cac", "", CkksTestDefaultParams, CkksTestCustomParams) {
+TEMPLATE_TEST_CASE_METHOD(CkksFixture,
+                          "CKKS cac",
+                          "",
+                          CkksTestDefaultParams,
+                          CkksTestCustomParams,
+                          CkksTestSparseDefaultParams) {
     for (int level = this->min_level; level <= this->max_level; level++) {
         SECTION("lv=" + to_string(level)) {
             auto xv = new_ckks_test_ct(this->n_op, this->ctx, level, this->default_scale);
@@ -119,7 +134,12 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS cac", "", CkksTestDefaultParams, Ck
     }
 }
 
-TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS casc", "", CkksTestDefaultParams, CkksTestCustomParams) {
+TEMPLATE_TEST_CASE_METHOD(CkksFixture,
+                          "CKKS casc",
+                          "",
+                          CkksTestDefaultParams,
+                          CkksTestCustomParams,
+                          CkksTestSparseDefaultParams) {
     for (int level = this->min_level; level <= this->max_level; level++) {
         SECTION("lv=" + to_string(level)) {
             auto xv = new_ckks_test_ct(this->n_op, this->ctx, level, this->default_scale);
@@ -141,7 +161,12 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS casc", "", CkksTestDefaultParams, C
     }
 }
 
-TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS csp", "", CkksTestDefaultParams, CkksTestCustomParams) {
+TEMPLATE_TEST_CASE_METHOD(CkksFixture,
+                          "CKKS csp",
+                          "",
+                          CkksTestDefaultParams,
+                          CkksTestCustomParams,
+                          CkksTestSparseDefaultParams) {
     for (int level = this->min_level; level <= this->max_level; level++) {
         SECTION("lv=" + to_string(level)) {
             auto xv = new_ckks_test_ct(this->n_op, this->ctx, level, this->default_scale);
@@ -165,7 +190,12 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS csp", "", CkksTestDefaultParams, Ck
     }
 }
 
-TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS csp_ringt", "", CkksTestDefaultParams, CkksTestCustomParams) {
+TEMPLATE_TEST_CASE_METHOD(CkksFixture,
+                          "CKKS csp_ringt",
+                          "",
+                          CkksTestDefaultParams,
+                          CkksTestCustomParams,
+                          CkksTestSparseDefaultParams) {
     for (int level = this->min_level; level <= this->max_level; level++) {
         SECTION("lv=" + to_string(level)) {
             auto xv = new_ckks_test_ct(this->n_op, this->ctx, level, this->default_scale);
@@ -189,7 +219,12 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS csp_ringt", "", CkksTestDefaultPara
     }
 }
 
-TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS csc", "", CkksTestDefaultParams, CkksTestCustomParams) {
+TEMPLATE_TEST_CASE_METHOD(CkksFixture,
+                          "CKKS csc",
+                          "",
+                          CkksTestDefaultParams,
+                          CkksTestCustomParams,
+                          CkksTestSparseDefaultParams) {
     for (int level = this->min_level; level <= this->max_level; level++) {
         SECTION("lv=" + to_string(level)) {
             auto xv = new_ckks_test_ct(this->n_op, this->ctx, level, this->default_scale);
@@ -213,7 +248,12 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS csc", "", CkksTestDefaultParams, Ck
     }
 }
 
-TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS cneg", "", CkksTestDefaultParams, CkksTestCustomParams) {
+TEMPLATE_TEST_CASE_METHOD(CkksFixture,
+                          "CKKS cneg",
+                          "",
+                          CkksTestDefaultParams,
+                          CkksTestCustomParams,
+                          CkksTestSparseDefaultParams) {
     for (int level = this->min_level; level <= this->max_level; level++) {
         SECTION("lv=" + to_string(level)) {
             auto xv = new_ckks_test_ct(this->n_op, this->ctx, level, this->default_scale);
@@ -235,7 +275,12 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS cneg", "", CkksTestDefaultParams, C
     }
 }
 
-TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS cmp_ringt", "", CkksTestDefaultParams, CkksTestCustomParams) {
+TEMPLATE_TEST_CASE_METHOD(CkksFixture,
+                          "CKKS cmp_ringt",
+                          "",
+                          CkksTestDefaultParams,
+                          CkksTestCustomParams,
+                          CkksTestSparseDefaultParams) {
     for (int level = 1; level <= this->max_level; level++) {
         SECTION("lv=" + to_string(level)) {
             auto xv = new_ckks_test_ct(this->n_op, this->ctx, level, this->default_scale);
@@ -259,7 +304,12 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS cmp_ringt", "", CkksTestDefaultPara
     }
 }
 
-TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS cmp", "", CkksTestDefaultParams, CkksTestCustomParams) {
+TEMPLATE_TEST_CASE_METHOD(CkksFixture,
+                          "CKKS cmp",
+                          "",
+                          CkksTestDefaultParams,
+                          CkksTestCustomParams,
+                          CkksTestSparseDefaultParams) {
     for (int level = 1; level <= this->max_level; level++) {
         SECTION("lv=" + to_string(level)) {
             auto xv = new_ckks_test_ct(this->n_op, this->ctx, level, this->default_scale);
@@ -283,7 +333,12 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS cmp", "", CkksTestDefaultParams, Ck
     }
 }
 
-TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS cmc", "", CkksTestDefaultParams, CkksTestCustomParams) {
+TEMPLATE_TEST_CASE_METHOD(CkksFixture,
+                          "CKKS cmc",
+                          "",
+                          CkksTestDefaultParams,
+                          CkksTestCustomParams,
+                          CkksTestSparseDefaultParams) {
     for (int level = 1; level <= this->max_level; level++) {
         SECTION("lv=" + to_string(level)) {
             auto xv = new_ckks_test_ct(this->n_op, this->ctx, level, this->default_scale);
@@ -309,7 +364,12 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS cmc", "", CkksTestDefaultParams, Ck
     }
 }
 
-TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS cmc_relin", "", CkksTestDefaultParams, CkksTestCustomParams) {
+TEMPLATE_TEST_CASE_METHOD(CkksFixture,
+                          "CKKS cmc_relin",
+                          "",
+                          CkksTestDefaultParams,
+                          CkksTestCustomParams,
+                          CkksTestSparseDefaultParams) {
     for (int level = 1; level <= this->max_level; level++) {
         SECTION("lv=" + to_string(level)) {
             auto xv = new_ckks_test_ct(this->n_op, this->ctx, level, this->default_scale);
@@ -333,7 +393,12 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS cmc_relin", "", CkksTestDefaultPara
     }
 }
 
-TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS cmc_relin_rescale", "", CkksTestDefaultParams, CkksTestCustomParams) {
+TEMPLATE_TEST_CASE_METHOD(CkksFixture,
+                          "CKKS cmc_relin_rescale",
+                          "",
+                          CkksTestDefaultParams,
+                          CkksTestCustomParams,
+                          CkksTestSparseDefaultParams) {
     for (int level = 2; level <= this->max_level; level++) {
         SECTION("lv=" + to_string(level)) {
             auto xv = new_ckks_test_ct(this->n_op, this->ctx, level, this->default_scale);
@@ -358,7 +423,12 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS cmc_relin_rescale", "", CkksTestDef
     }
 }
 
-TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS csqr", "", CkksTestDefaultParams, CkksTestCustomParams) {
+TEMPLATE_TEST_CASE_METHOD(CkksFixture,
+                          "CKKS csqr",
+                          "",
+                          CkksTestDefaultParams,
+                          CkksTestCustomParams,
+                          CkksTestSparseDefaultParams) {
     for (int level = 1; level <= this->max_level; level++) {
         SECTION("lv=" + to_string(level)) {
             auto xv = new_ckks_test_ct(this->n_op, this->ctx, level, this->default_scale);
@@ -382,7 +452,12 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS csqr", "", CkksTestDefaultParams, C
     }
 }
 
-TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS csqr_relin", "", CkksTestDefaultParams, CkksTestCustomParams) {
+TEMPLATE_TEST_CASE_METHOD(CkksFixture,
+                          "CKKS csqr_relin",
+                          "",
+                          CkksTestDefaultParams,
+                          CkksTestCustomParams,
+                          CkksTestSparseDefaultParams) {
     for (int level = 1; level <= this->max_level; level++) {
         SECTION("lv=" + to_string(level)) {
             auto xv = new_ckks_test_ct(this->n_op, this->ctx, level, this->default_scale);
@@ -404,7 +479,12 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS csqr_relin", "", CkksTestDefaultPar
     }
 }
 
-TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS csqr_relin_rescale", "", CkksTestDefaultParams, CkksTestCustomParams) {
+TEMPLATE_TEST_CASE_METHOD(CkksFixture,
+                          "CKKS csqr_relin_rescale",
+                          "",
+                          CkksTestDefaultParams,
+                          CkksTestCustomParams,
+                          CkksTestSparseDefaultParams) {
     for (int level = 2; level <= this->max_level; level++) {
         SECTION("lv=" + to_string(level)) {
             auto xv = new_ckks_test_ct(this->n_op, this->ctx, level, this->default_scale);
@@ -427,7 +507,12 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS csqr_relin_rescale", "", CkksTestDe
     }
 }
 
-TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS rescale", "", CkksTestDefaultParams, CkksTestCustomParams) {
+TEMPLATE_TEST_CASE_METHOD(CkksFixture,
+                          "CKKS rescale",
+                          "",
+                          CkksTestDefaultParams,
+                          CkksTestCustomParams,
+                          CkksTestSparseDefaultParams) {
     for (int level = 1; level <= this->max_level; level++) {
         SECTION("lv=" + to_string(level)) {
             auto xv = new_ckks_test_ct(this->n_op, this->ctx, level, this->default_scale * this->param.get_q(level));
@@ -449,7 +534,12 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS rescale", "", CkksTestDefaultParams
     }
 }
 
-TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS drop_level", "", CkksTestDefaultParams, CkksTestCustomParams) {
+TEMPLATE_TEST_CASE_METHOD(CkksFixture,
+                          "CKKS drop_level",
+                          "",
+                          CkksTestDefaultParams,
+                          CkksTestCustomParams,
+                          CkksTestSparseDefaultParams) {
     int drop_level = 2;
     for (int level = 2; level <= this->max_level; level++) {
         SECTION("lv=" + to_string(level)) {
@@ -472,7 +562,12 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS drop_level", "", CkksTestDefaultPar
     }
 }
 
-TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS rotate_col", "", CkksTestDefaultParams, CkksTestCustomParams) {
+TEMPLATE_TEST_CASE_METHOD(CkksFixture,
+                          "CKKS rotate_col",
+                          "",
+                          CkksTestDefaultParams,
+                          CkksTestCustomParams,
+                          CkksTestSparseDefaultParams) {
     vector<int32_t> steps;
     for (int i = 1; i <= 8; i++)
         steps.push_back(i);
@@ -503,7 +598,12 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS rotate_col", "", CkksTestDefaultPar
     }
 }
 
-TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS advanced_rotate_col", "", CkksTestDefaultParams, CkksTestCustomParams) {
+TEMPLATE_TEST_CASE_METHOD(CkksFixture,
+                          "CKKS advanced_rotate_col",
+                          "",
+                          CkksTestDefaultParams,
+                          CkksTestCustomParams,
+                          CkksTestSparseDefaultParams) {
     vector<int32_t> steps = {-500, 20, 200, 2000, 4000};
     string steps_str;
     for (int i = 0; i < (int)steps.size(); i++) {
@@ -537,7 +637,12 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS advanced_rotate_col", "", CkksTestD
     }
 }
 
-TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS rotate_row", "", CkksTestDefaultParams, CkksTestCustomParams) {
+TEMPLATE_TEST_CASE_METHOD(CkksFixture,
+                          "CKKS rotate_row",
+                          "",
+                          CkksTestDefaultParams,
+                          CkksTestCustomParams,
+                          CkksTestSparseDefaultParams) {
     this->ctx.gen_rotation_keys_for_rotations(vector<int32_t>{}, true);
 
     for (int level = 1; level <= this->max_level; level++) {
@@ -635,7 +740,7 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS ct_pt_ringt_mac", "", CkksTestDefau
 // Bootstrap tests — use CkksBtpFixture
 // ---------------------------------------------------------------------------
 
-TEMPLATE_TEST_CASE_METHOD(CkksBtpFixture, "CKKS toy_bootstrap", "", CkksToyBtpParams) {
+TEMPLATE_TEST_CASE_METHOD(CkksBtpFixture, "CKKS toy_bootstrap", "", CkksToyBtpParams, CkksToySparseBtpParams) {
     SECTION("lv=0") {
         auto xv = new_ckks_test_ct(this->n_op, this->btp_ctx, 0, this->btp_scale);
         vector<CkksCiphertext> y_list;
@@ -655,7 +760,7 @@ TEMPLATE_TEST_CASE_METHOD(CkksBtpFixture, "CKKS toy_bootstrap", "", CkksToyBtpPa
     }
 }
 
-TEMPLATE_TEST_CASE_METHOD(CkksBtpFixture, "CKKS bootstrap", "", CkksBtpParams) {
+TEMPLATE_TEST_CASE_METHOD(CkksBtpFixture, "CKKS bootstrap", "", CkksBtpParams, CkksSparseBtpParams) {
     SECTION("lv=0") {
         auto xv = new_ckks_test_ct(this->n_op, this->btp_ctx, 0, this->btp_scale);
         vector<CkksCiphertext> y_list;
@@ -675,7 +780,7 @@ TEMPLATE_TEST_CASE_METHOD(CkksBtpFixture, "CKKS bootstrap", "", CkksBtpParams) {
     }
 }
 
-TEMPLATE_TEST_CASE_METHOD(CkksBtpFixture, "CKKS cmc_relin_rescale_bootstrap", "", CkksBtpParams) {
+TEMPLATE_TEST_CASE_METHOD(CkksBtpFixture, "CKKS cmc_relin_rescale_bootstrap", "", CkksBtpParams, CkksSparseBtpParams) {
     auto& ckks_param = this->btp_param.get_ckks_parameter();
 
     SECTION("lv=3") {

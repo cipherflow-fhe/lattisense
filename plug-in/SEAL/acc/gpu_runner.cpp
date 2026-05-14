@@ -5,7 +5,8 @@
 
 using namespace std;
 
-int GPU_MFORM_BITS = 0;
+constexpr int DEFAULT_GPU_DEVICE = 0;
+constexpr int GPU_MFORM_BITS = 0;
 
 FheTaskGpu::FheTaskGpu(const std::string& project_path) : FheTask{project_path} {
     task_handle = create_fhe_gpu_task(project_path.c_str());
@@ -48,8 +49,8 @@ uint64_t FheTaskGpu::run(seal::SEALContext* context,
 
     export_public_keys(rlk, glk, key_signature, input_args);
 
-    int ret =
-        run_fhe_gpu_task(task_handle, input_args.data(), input_args.size(), output_args.data(), output_args.size());
+    int ret = run_fhe_gpu_task(task_handle, input_args.data(), input_args.size(), output_args.data(),
+                               output_args.size(), nullptr, nullptr, DEFAULT_GPU_DEVICE);
 
     clear_seal_context();
 

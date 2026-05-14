@@ -79,6 +79,9 @@ void init_empty_context(const nlohmann::json& param_json, std::unique_ptr<TConte
     auto p = param_json["p"].get<std::vector<uint64_t>>();
 
     if constexpr (SchemeType == HEScheme::CKKS) {
+        int slots = param_json["slots"].get<int>();
+        int log_slots = __builtin_ctz(slots);
+
         if constexpr (std::is_same_v<TContext, CkksBtpContext>) {
             // Create CkksBtpContext for bootstrap
             int cts_start_level = param_json["btp_cts_start_level"].get<int>();
@@ -88,14 +91,17 @@ void init_empty_context(const nlohmann::json& param_json, std::unique_ptr<TConte
 
             if (n == 1 << 13) {
                 CkksBtpParameter btp_param = CkksBtpParameter::create_toy_parameter();
+                btp_param.set_log_slots(log_slots);
                 context = std::make_unique<TContext>(CkksBtpContext::create_empty_context(btp_param));
             } else if (n == 1 << 16) {
                 CkksBtpParameter btp_param = CkksBtpParameter::create_parameter();
+                btp_param.set_log_slots(log_slots);
                 context = std::make_unique<TContext>(CkksBtpContext::create_empty_context(btp_param));
             }
         } else {
             // Create regular CkksContext
             CkksParameter param = CkksParameter::create_custom_parameter(n, q, p);
+            param.set_log_slots(log_slots);
             context = std::make_unique<TContext>(CkksContext::create_empty_context(param));
         }
     } else if constexpr (SchemeType == HEScheme::BFV) {
