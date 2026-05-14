@@ -80,4 +80,9 @@ std::vector<double> vec_rotate(const std::vector<double>& a, int step);
 std::vector<double> polynomial_multiplication(int n, const std::vector<double>& x, const std::vector<double>& y);
 
 }  // namespace fhe_ops_lib
+
+namespace lattisense {
+using fhe_ops_lib::print_double_message;
+}  // namespace lattisense
+
 #endif  // CXX_UTILS_H
