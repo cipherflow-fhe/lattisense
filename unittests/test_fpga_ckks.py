@@ -37,15 +37,18 @@ except ImportError:
 
 
 _p1 = CkksParam.create_fpga_param()
+_p2 = CkksParam.create_fpga_param()
+_p2.set_slots(2048)
 
 N_OP = 4  # Number of parallel operators per test
 
 # ---- Define all CKKS parameter sets to be tested here ----
 _CKKS_PARAM_TAGS = {
     id(_p1): f'ckks_param_fpga_n{_p1.n}',
+    id(_p2): f'ckks_param_fpga_n{_p2.n}_slots{_p2.slots}',
 }
 
-CKKS_PARAMS = [_p1]
+CKKS_PARAMS = [_p1, _p2]
 
 
 def _param_tag(param) -> str:
@@ -143,6 +146,8 @@ class TestTask:
 
     @pytest.mark.min_level(1)
     def test_cmp_ringt(self, param, lv):
+        if param is not _p1:
+            pytest.skip('only runs for default fpga param')
         set_fhe_param(param)
         param_tag = _param_tag(param)
         task_dir = os.path.join(FPGA_OUTPUT_BASE_DIR, param_tag, f'CKKS_{N_OP}_cmp_ringt', f'level_{lv}')
@@ -188,6 +193,8 @@ class TestTask:
 
     @pytest.mark.at_level(3)
     def test_ct_pt_ringt_mult_accumulate(self, param, lv):
+        if param is not _p1:
+            pytest.skip('only runs for default fpga param')
         set_fhe_param(param)
         param_tag = _param_tag(param)
         for m in range(2, 21):
@@ -424,6 +431,8 @@ class TestTask:
 
     @pytest.mark.at_level(4)
     def test_n_poly(self, param, lv):
+        if param is not _p1:
+            pytest.skip('only runs for default fpga param')
         if param.max_level < 4:
             pytest.skip(f'requires max_level >= 4, got {param.max_level}')
         set_fhe_param(param)

@@ -268,6 +268,18 @@ struct CkksFpgaTestParams {
     }
 };
 
+struct CkksFpgaSparseTestParams {
+    static CkksParameter create() {
+        auto param = CkksParameter::create_fpga_parameter();
+        param.set_log_slots(11);  // 2048 slots
+        return param;
+    }
+    static string get_tag() {
+        int n = create().get_n();
+        return "ckks_param_fpga_n" + to_string(n) + "_slots2048";
+    }
+};
+
 template <typename P> class BfvFpgaFixture : public FpgaFixture {
 protected:
     BfvParameter param;
