@@ -12,9 +12,10 @@ endif()
 add_library(abi SHARED $<TARGET_OBJECTS:abi_obj>)
 target_include_directories(abi PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
-    ${CMAKE_SOURCE_DIR}/fhe_ops_lib/lattigo/go_sdk/
+    ${LATTISENSE_ROOT_DIR}/fhe_ops_lib/lattigo/go_sdk/
 )
-target_link_libraries(abi PUBLIC ${CMAKE_SOURCE_DIR}/fhe_ops_lib/lattigo/go_sdk/liblattigo.so)
+target_link_libraries(abi PUBLIC ${LATTISENSE_ROOT_DIR}/fhe_ops_lib/lattigo/go_sdk/liblattigo.so)
+add_dependencies(abi go_libs)
 
 set_target_properties(abi PROPERTIES
     INSTALL_RPATH "$ORIGIN"

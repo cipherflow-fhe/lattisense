@@ -425,6 +425,7 @@ if(LATTISENSE_BUILD_MODE STREQUAL "SHARED")
     target_link_libraries(lattisense
         PRIVATE
             ${LATTISENSE_ROOT_DIR}/fhe_ops_lib/lattigo/go_sdk/liblattigo.a
+            abi
         PUBLIC
             dl
             m
