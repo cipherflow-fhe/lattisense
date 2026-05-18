@@ -24,24 +24,24 @@
 
 using namespace std;
 
-const int FpgaN = 8192;
-const vector<seal::Modulus> FpgaQP = {0x7f4e0001, 0x7fb40001, 0x7fd20001, 0x7fea0001,
-                                      0x7ff80001, 0x7ffe0001, 0xff5a0001};
-const int V2_FPGA_MFORM_BITS = 34;
+constexpr int FPGA_N = 8192;
+const vector<seal::Modulus> FPGA_QP = {0x7f4e0001, 0x7fb40001, 0x7fd20001, 0x7fea0001,
+                                       0x7ff80001, 0x7ffe0001, 0xff5a0001};
+constexpr int FPGA_MFORM_BITS = 34;
 
 seal::EncryptionParameters GenBfvFpgaParam(uint64_t plain_modulus) {
     seal::EncryptionParameters param(seal::scheme_type::bfv);
-    param.set_poly_modulus_degree(FpgaN);
+    param.set_poly_modulus_degree(FPGA_N);
     param.set_plain_modulus(plain_modulus);
-    param.set_coeff_modulus(FpgaQP);
+    param.set_coeff_modulus(FPGA_QP);
 
     return param;
 }
 
 seal::EncryptionParameters GenCkksFpgaParam() {
     seal::EncryptionParameters param(seal::scheme_type::ckks);
-    param.set_poly_modulus_degree(FpgaN);
-    param.set_coeff_modulus(FpgaQP);
+    param.set_poly_modulus_degree(FPGA_N);
+    param.set_coeff_modulus(FPGA_QP);
 
     return param;
 }
@@ -92,8 +92,7 @@ FheTaskFpga::FheTaskFpga(const std::string& project_path) : FheTask{project_path
     if (task_handle == nullptr) {
         throw std::runtime_error("load fpga project failed.");
     }
-    int N = FpgaN;
-    int key_mf_nbits = V2_FPGA_MFORM_BITS - int(std::log2(N));
+    int key_mf_nbits = FPGA_MFORM_BITS - int(std::log2(FPGA_N));
     bind_abi_executors(key_mf_nbits);
 }
 

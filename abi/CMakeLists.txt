@@ -3,7 +3,7 @@ set(ABI_SRCS c_structs.c)
 add_library(abi_obj OBJECT ${ABI_SRCS})
 target_include_directories(abi_obj PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
-    ${CMAKE_SOURCE_DIR}/fhe_ops_lib/lattigo/go_sdk/
+    ${LATTISENSE_ROOT_DIR}/fhe_ops_lib/lattigo/go_sdk/
 )
 if(TARGET go_libs)
     add_dependencies(abi_obj go_libs)
@@ -15,7 +15,6 @@ target_include_directories(abi PUBLIC
     ${LATTISENSE_ROOT_DIR}/fhe_ops_lib/lattigo/go_sdk/
 )
 target_link_libraries(abi PUBLIC ${LATTISENSE_ROOT_DIR}/fhe_ops_lib/lattigo/go_sdk/liblattigo.so)
-add_dependencies(abi go_libs)
 
 set_target_properties(abi PROPERTIES
     INSTALL_RPATH "$ORIGIN"

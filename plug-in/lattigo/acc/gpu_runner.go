@@ -27,8 +27,9 @@ import (
 	"github.com/tuneinsight/lattigo/v4/rlwe"
 )
 
-var (
-	GpuMFormNBits = 0
+const (
+	DefaultGpuDevice = 0
+	GpuMFormNBits    = 0
 )
 
 type FheTaskGpu struct {
@@ -124,7 +125,7 @@ func (task FheTaskGpu) Run(param interface{}, rlk *rlwe.RelinearizationKey, glk 
 	}
 	C.set_lattigo_params_handle(C.uintptr_t(paramsHandle))
 
-	ret := C.run_fhe_gpu_task(task.task_handle, &c_input_args[0], C.uint64_t(len(c_input_args)), &c_output_args[0], C.uint64_t(len(c_output_args)))
+	ret := C.run_fhe_gpu_task(task.task_handle, &c_input_args[0], C.uint64_t(len(c_input_args)), &c_output_args[0], C.uint64_t(len(c_output_args)), nil, nil, C.int(DefaultGpuDevice))
 
 	C.set_lattigo_params_handle(0)
 

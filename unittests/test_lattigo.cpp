@@ -1286,6 +1286,35 @@ TEST_CASE_METHOD(LattigoCkksFixture, "CKKS ct add pt_ringt") {
     }
 }
 
+TEST_CASE("CKKS ct add pt_ringt sparse") {
+    auto param = CkksParameter::create_parameter(16384);
+    param.set_log_slots(11);  // 2048 slots, gap=4
+    auto context = CkksContext::create_random_context(param);
+    double default_scale = param.get_default_scale();
+    int n_slot = 1 << param.get_log_slots();
+
+    vector<double> x_mg = rand_double_values(n_slot);
+    vector<double> y_mg = rand_double_values(n_slot);
+    vector<double> z_true(n_slot);
+    for (int i = 0; i < n_slot; i++)
+        z_true[i] = x_mg[i] + y_mg[i];
+
+    for (int level = 1; level <= param.get_max_level(); level++) {
+        SECTION("level " + to_string(level)) {
+            CkksPlaintext x_pt = context.encode(x_mg, level, default_scale);
+            CkksPlaintextRingt y_pt = context.encode_ringt(y_mg, default_scale);
+            CkksCiphertext x_ct = context.encrypt_asymmetric(x_pt);
+
+            CkksCiphertext z_ct = context.add_plain_ringt(x_ct, y_pt);
+
+            CkksPlaintext z_pt = context.decrypt(z_ct);
+            vector<double> z_mg = context.decode(z_pt);
+
+            REQUIRE(compare_double_vectors(z_mg, z_true, n_slot, 0.01) == false);
+        }
+    }
+}
+
 TEST_CASE_METHOD(LattigoCkksFixture, "CKKS ct add ct") {
     vector<double> x_mg;
     vector<double> y_mg;

@@ -39,6 +39,7 @@
 
 #ifdef LATTISENSE_DEV
 #    include "gpu_mem_monitor.h"
+#    include "../cpu_mem_monitor.h"
 #endif
 
 extern "C" {
@@ -368,6 +369,8 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
     };
 
 #ifdef LATTISENSE_DEV
+    MemoryMonitor cpu_mem_monitor(100);  // sample every 100 ms
+    cpu_mem_monitor.start(MemoryMonitor::next_csv_path("mem_usage_cpu"));
     GpuMemoryMonitor gpu_mem_monitor(100);  // sample every 100 ms
     gpu_mem_monitor.start(GpuMemoryMonitor::next_csv_path("mem_usage_gpu"));
 #endif
@@ -394,9 +397,11 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
         run_tasks(mega_ag, cpu_pool, base_cpu_context, available_data, options);
 #ifdef LATTISENSE_DEV
     } catch (...) {
+        cpu_mem_monitor.stop();
         gpu_mem_monitor.stop();
         throw;
     }
+    cpu_mem_monitor.stop();
     gpu_mem_monitor.stop();
 #endif
 }

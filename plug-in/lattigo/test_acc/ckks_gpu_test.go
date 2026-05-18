@@ -10,15 +10,30 @@ import (
 	"github.com/tuneinsight/lattigo/v4/utils"
 )
 
+var ckks_gpu_base_path string
+
+func sparseGpuParametersLiteral() ckks.ParametersLiteral {
+	l := ckks.PN14QP438
+	l.LogSlots = 11 // 2048 slots
+	return l
+}
+
 var (
-	TestCkksGpuParamLiterals = []ckks.ParametersLiteral{ckks.PN14QP438}
-	ckks_gpu_base_path       = gpu_base_path + "/ckks_param_default_n16384"
+	TestCkksGpuParamLiterals = []ckks.ParametersLiteral{
+		ckks.PN14QP438,
+		sparseGpuParametersLiteral(),
+	}
+	TestCkksGpuParamTags = []string{
+		"ckks_param_default_n16384",
+		"ckks_param_default_n16384_slots2048",
+	}
 )
 
 func TestCkksGpuAcc(t *testing.T) {
 	var err error
 
-	for _, literal := range TestCkksGpuParamLiterals[:] {
+	for i, literal := range TestCkksGpuParamLiterals[:] {
+		ckks_gpu_base_path = gpu_base_path + "/" + TestCkksGpuParamTags[i]
 
 		var tc *testCkksContext
 		if tc, err = genTestCkksParams(literal); err != nil {

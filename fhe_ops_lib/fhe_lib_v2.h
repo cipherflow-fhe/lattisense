@@ -277,6 +277,18 @@ public:
     uint64_t get_q(int index) const;
 
     double get_default_scale() const;
+
+    /**
+     * Get the log_slots of the CKKS parameter.
+     * @return The log2 of the number of slots.
+     */
+    int get_log_slots() const;
+
+    /**
+     * Set the log_slots of the CKKS parameter.
+     * @param log_slots The log2 of the number of slots.
+     */
+    void set_log_slots(int log_slots);
 };
 
 class CkksBtpParameter : public CkksParameter {
@@ -288,6 +300,8 @@ public:
     static CkksBtpParameter create_toy_parameter();
 
     CkksParameter& get_ckks_parameter();
+
+    void set_log_slots(int log_slots);
 
 protected:
     CkksParameter _parameter;

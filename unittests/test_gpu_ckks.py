@@ -44,8 +44,14 @@ _p2 = CkksParam.create_custom_param(
     scale=1 << 30,
 )
 _p3 = CkksParam.create_default_param(n=8192)
+_p4 = CkksParam.create_default_param(n=16384)
+_p4.set_slots(2048)
 _p_toy_btp = CkksBtpParam.create_toy_param()
 _p_btp = CkksBtpParam.create_default_param()
+_p_toy_sparse_btp = CkksBtpParam.create_toy_param()
+_p_toy_sparse_btp.set_slots(2048)
+_p_sparse_btp = CkksBtpParam.create_default_param()
+_p_sparse_btp.set_slots(2048)
 
 N_OP = 4  # Number of parallel operators per test
 
@@ -54,9 +60,10 @@ _CKKS_PARAM_TAGS = {
     id(_p1): f'ckks_param_default_n{_p1.n}',
     id(_p2): f'ckks_param_custom_n{_p2.n}',
     id(_p3): f'ckks_param_default_n{_p3.n}',
+    id(_p4): f'ckks_param_default_n{_p4.n}_slots{_p4.slots}',
 }
 
-CKKS_PARAMS = [_p1, _p2, _p3]
+CKKS_PARAMS = [_p1, _p2, _p3, _p4]
 
 
 def _param_tag(param) -> str:
@@ -589,6 +596,59 @@ class TestBootstrap:
     def test_cmc_relin_rescale_bootstrap(self, lv):
         set_fhe_param(_p_btp)
         param_tag = f'ckks_param_btp_n{_p_btp.n}'
+        task_dir = os.path.join(
+            GPU_OUTPUT_BASE_DIR, param_tag, f'CKKS_{N_OP}_cmc_relin_rescale_bootstrap', f'level_{lv}'
+        )
+        x_list = [CkksCiphertextNode(f'x_{i}', level=lv) for i in range(N_OP)]
+        y_list = [CkksCiphertextNode(f'y_{i}', level=lv) for i in range(N_OP)]
+        result_list = []
+        for i in range(N_OP):
+            z = mult_relin(x_list[i], y_list[i], f'z_{i}')
+            z_rescaled = rescale(z, f'z_rescaled_{i}')
+            z_dropped = drop_level(z_rescaled, 2)
+            result_list.append(bootstrap(z_dropped, f'result_{i}'))
+        process_custom_task(
+            input_args=[Argument('in_x_list', x_list), Argument('in_y_list', y_list)],
+            offline_input_args=[],
+            output_args=[Argument('out_z_list', result_list)],
+            output_instruction_path=task_dir,
+            fpga_acc=False,
+        )
+
+    @pytest.mark.parametrize('lv', [0], ids=['lv0'])
+    def test_toy_sparse_bootstrap(self, lv):
+        set_fhe_param(_p_toy_sparse_btp)
+        param_tag = f'ckks_param_btp_n{_p_toy_sparse_btp.n}_slots{_p_toy_sparse_btp.slots}'
+        task_dir = os.path.join(GPU_OUTPUT_BASE_DIR, param_tag, f'CKKS_{N_OP}_toy_bootstrap', f'level_{lv}')
+        x_list = [CkksCiphertextNode(f'x_{i}', level=lv) for i in range(N_OP)]
+        y_list = [bootstrap(x_list[i], f'y_{i}') for i in range(N_OP)]
+        process_custom_task(
+            input_args=[Argument('in_x_list', x_list)],
+            offline_input_args=[],
+            output_args=[Argument('out_y_list', y_list)],
+            output_instruction_path=task_dir,
+            fpga_acc=False,
+        )
+
+    @pytest.mark.parametrize('lv', [0], ids=['lv0'])
+    def test_sparse_bootstrap(self, lv):
+        set_fhe_param(_p_sparse_btp)
+        param_tag = f'ckks_param_btp_n{_p_sparse_btp.n}_slots{_p_sparse_btp.slots}'
+        task_dir = os.path.join(GPU_OUTPUT_BASE_DIR, param_tag, f'CKKS_{N_OP}_bootstrap', f'level_{lv}')
+        x_list = [CkksCiphertextNode(f'x_{i}', level=lv) for i in range(N_OP)]
+        y_list = [bootstrap(x_list[i], f'y_{i}') for i in range(N_OP)]
+        process_custom_task(
+            input_args=[Argument('in_x_list', x_list)],
+            offline_input_args=[],
+            output_args=[Argument('out_y_list', y_list)],
+            output_instruction_path=task_dir,
+            fpga_acc=False,
+        )
+
+    @pytest.mark.parametrize('lv', [3], ids=['lv3'])
+    def test_sparse_cmc_relin_rescale_bootstrap(self, lv):
+        set_fhe_param(_p_sparse_btp)
+        param_tag = f'ckks_param_btp_n{_p_sparse_btp.n}_slots{_p_sparse_btp.slots}'
         task_dir = os.path.join(
             GPU_OUTPUT_BASE_DIR, param_tag, f'CKKS_{N_OP}_cmc_relin_rescale_bootstrap', f'level_{lv}'
         )

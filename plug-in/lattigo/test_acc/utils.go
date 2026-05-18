@@ -19,11 +19,11 @@ var (
 
 func testString(opname string, p interface{}, lvl int) string {
 	var res string
-	switch p.(type) {
+	switch v := p.(type) {
 	case bfv.Parameters:
-		res = fmt.Sprintf("BFV/%s/lvl=%d", opname, lvl)
+		res = fmt.Sprintf("BFV/LogN=%d/T=%d/%s/lvl=%d", v.LogN(), v.T(), opname, lvl)
 	case ckks.Parameters:
-		res = fmt.Sprintf("CKKS/%s/lvl=%d", opname, lvl)
+		res = fmt.Sprintf("CKKS/LogN=%d/LogSlots=%d/%s/lvl=%d", v.LogN(), v.LogSlots(), opname, lvl)
 	}
 
 	return res
