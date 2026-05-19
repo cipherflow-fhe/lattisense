@@ -34,6 +34,11 @@
 
 using NodeIndex = uint64_t;
 
+/// Progress callback for tracking mega_ag execution.
+/// @param completed Number of compute nodes completed so far.
+/// @param total Total number of compute nodes.
+using ProgressCallback = std::function<void(int completed, int total)>;
+
 // Forward declarations
 struct ComputeNode;
 

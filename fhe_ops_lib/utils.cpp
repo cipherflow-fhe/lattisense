@@ -19,7 +19,7 @@
 #include <cassert>
 #include <cmath>
 #include <random>
-#include <sys/time.h>
+#include <chrono>
 #include "utils.h"
 
 using namespace std;
@@ -27,9 +27,9 @@ using namespace std;
 namespace fhe_ops_lib {
 
 long long get_current_us() {
-    struct timeval tm;
-    gettimeofday(&tm, 0);
-    return tm.tv_sec * 1000000 + tm.tv_usec;
+    auto now = std::chrono::high_resolution_clock::now();
+    auto us = std::chrono::duration_cast<std::chrono::microseconds>(now.time_since_epoch());
+    return us.count();
 }
 
 void print_message(const uint64_t* msg, const char* name, int count) {
