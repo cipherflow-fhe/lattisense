@@ -178,6 +178,8 @@ sudo cmake --install build
 | `LATTISENSE_BUILD_EXAMPLES` | OFF | Build example programs |
 | `LATTISENSE_DEV` | OFF | Development mode (verbose logging) |
 | `LATTISENSE_BUILD_SEAL_PLUG_IN` | OFF | Build SEAL library plug-in (requires GPU) |
+| `HEONGPU_CCCL_GIT_URL` | empty | Optional CCCL mirror URL for HEonGPU dependency fetch |
+| `HEONGPU_SPDLOG_GIT_URL` | empty | Optional spdlog mirror URL for HEonGPU dependency fetch |
 
 Example:
 ```bash
@@ -185,7 +187,7 @@ cmake -B build -DCMAKE_INSTALL_PREFIX=$(pwd)/install -DLATTISENSE_BUILD_EXAMPLES
 cmake -B build -DLATTISENSE_ENABLE_GPU=ON -DLATTISENSE_CUDA_ARCH=89
 ```
 
-To enable GPU acceleration, simply pass the GPU flags — HEonGPU is built automatically:
+To enable GPU acceleration, simply pass the GPU flags — HEonGPU is built automatically and reused when `backends/HEonGPU/install` matches the current HEonGPU commit and CUDA architecture:
 
 ```bash
 cmake -B build -DLATTISENSE_ENABLE_GPU=ON -DLATTISENSE_CUDA_ARCH=<arch>
@@ -201,10 +203,11 @@ task.run(&context, cxx_args, nullptr, 1);  // run on CUDA device 1
 
 The default device is `0` when the argument is omitted.
 
-> **Slow CCCL download?** Use a mirror:
+> **Slow HEonGPU dependency downloads?** Use mirrors for RAPIDS/CPM dependencies:
 > ```bash
 > cmake -B build -DLATTISENSE_ENABLE_GPU=ON -DLATTISENSE_CUDA_ARCH=<arch> \
->   -DHEONGPU_CCCL_GIT_URL=https://gitee.com/nvidia_mirror/cccl.git
+>   -DHEONGPU_CCCL_GIT_URL=https://gitee.com/mirrors_NVIDIA/cccl.git \
+>   -DHEONGPU_SPDLOG_GIT_URL=https://gitee.com/mirror-luyi/spdlog.git
 > ```
 
 > **Note**: Set `LATTISENSE_CUDA_ARCH` (and the matching `CMAKE_CUDA_ARCHITECTURES` for HEonGPU) according to your GPU (see [CUDA GPUs](https://developer.nvidia.com/cuda-gpus) for reference):
@@ -221,6 +224,7 @@ The default device is `0` when the argument is omitted.
 │   ├── liblattisense.so
 │   └── cmake/LattiSense/
 ├── include/lattisense/
+│   ├── abi/
 │   ├── cxx_sdk_v2/
 │   ├── fhe_ops_lib/
 │   ├── mega_ag_runners/

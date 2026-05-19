@@ -399,7 +399,6 @@ if(LATTISENSE_BUILD_MODE STREQUAL "SHARED")
     )
 
     target_sources(lattisense PRIVATE
-        $<TARGET_OBJECTS:abi_obj>
         $<TARGET_OBJECTS:mega_ag_obj>
         $<TARGET_OBJECTS:cpu_mega_ag_runner_obj>
     )
@@ -426,7 +425,6 @@ if(LATTISENSE_BUILD_MODE STREQUAL "SHARED")
     target_link_libraries(lattisense
         PRIVATE
             ${LATTISENSE_ROOT_DIR}/fhe_ops_lib/lattigo/go_sdk/liblattigo.a
-            abi
         PUBLIC
             dl
             m
@@ -482,7 +480,10 @@ if(LATTISENSE_BUILD_MODE STREQUAL "SHARED")
     # Export target for find_package support
     install(TARGETS lattisense
         EXPORT LattiSenseTargets
-        LIBRARY DESTINATION ${LATTISENSE_INSTALL_LIBDIR})
+        LIBRARY DESTINATION ${LATTISENSE_INSTALL_LIBDIR}
+        ARCHIVE DESTINATION ${LATTISENSE_INSTALL_LIBDIR}
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+        INCLUDES DESTINATION ${LATTISENSE_INSTALL_INCLUDEDIR})
 
     # Install third-party libraries
     install(DIRECTORY ${LATTISENSE_ROOT_DIR}/lib/gsl DESTINATION ${LATTISENSE_INSTALL_INCLUDEDIR})
@@ -492,6 +493,8 @@ if(LATTISENSE_BUILD_MODE STREQUAL "SHARED")
     install(DIRECTORY ${LATTISENSE_ROOT_DIR}/cxx_sdk_v2/ DESTINATION ${LATTISENSE_INSTALL_INCLUDEDIR}/cxx_sdk_v2 FILES_MATCHING
         PATTERN "*.h"
         PATTERN "precision.h" EXCLUDE)
+    install(DIRECTORY ${LATTISENSE_ROOT_DIR}/abi/ DESTINATION ${LATTISENSE_INSTALL_INCLUDEDIR}/abi FILES_MATCHING
+        PATTERN "*.h")
     install(DIRECTORY ${LATTISENSE_ROOT_DIR}/fhe_ops_lib/ DESTINATION ${LATTISENSE_INSTALL_INCLUDEDIR}/fhe_ops_lib FILES_MATCHING
         PATTERN "*.h")
     install(DIRECTORY ${LATTISENSE_ROOT_DIR}/mega_ag_runners/ DESTINATION ${LATTISENSE_INSTALL_INCLUDEDIR}/mega_ag_runners FILES_MATCHING
@@ -507,7 +510,7 @@ if(LATTISENSE_BUILD_MODE STREQUAL "SHARED")
         PATTERN "doc_checker.py" EXCLUDE)
 
     # Install mega_ag_generator (Python frontend for computation graph generation)
-    install(CODE "execute_process(COMMAND bash \"-c\" \"mkdir -p ${CMAKE_INSTALL_PREFIX}/${LATTISENSE_INSTALL_DATADIR}/mega_ag_generator/dist ${CMAKE_INSTALL_PREFIX}/${LATTISENSE_INSTALL_DATADIR}/mega_ag_generator/log && cp -r ${LATTISENSE_ROOT_DIR}/frontend ${CMAKE_INSTALL_PREFIX}/${LATTISENSE_INSTALL_DATADIR}/mega_ag_generator && sed -i 's/TRANSLATOR_DEV = True/TRANSLATOR_DEV = False/' ${CMAKE_INSTALL_PREFIX}/${LATTISENSE_INSTALL_DATADIR}/mega_ag_generator/frontend/custom_task.py\")")
+    install(CODE "execute_process(COMMAND bash \"-c\" \"mkdir -p \${CMAKE_INSTALL_PREFIX}/${LATTISENSE_INSTALL_DATADIR}/mega_ag_generator/dist \${CMAKE_INSTALL_PREFIX}/${LATTISENSE_INSTALL_DATADIR}/mega_ag_generator/log && cp -r ${LATTISENSE_ROOT_DIR}/frontend \${CMAKE_INSTALL_PREFIX}/${LATTISENSE_INSTALL_DATADIR}/mega_ag_generator && sed -i 's/TRANSLATOR_DEV = True/TRANSLATOR_DEV = False/' \${CMAKE_INSTALL_PREFIX}/${LATTISENSE_INSTALL_DATADIR}/mega_ag_generator/frontend/custom_task.py\")")
 
     option(LATTISENSE_BUILD_EXAMPLES "Build lattisense examples" OFF)
     message(STATUS "LATTISENSE_BUILD_EXAMPLES: ${LATTISENSE_BUILD_EXAMPLES}")
@@ -560,7 +563,7 @@ else()
         PATTERN "precision.h" EXCLUDE)
     install(DIRECTORY ${LATTISENSE_ROOT_DIR}/doc/ DESTINATION ${LATTISENSE_INSTALL_DATADIR}/doc
         PATTERN "doc_checker.py" EXCLUDE)
-    install(CODE "execute_process(COMMAND bash \"-c\" \"mkdir -p ${CMAKE_INSTALL_PREFIX}/${LATTISENSE_INSTALL_DATADIR}/mega_ag_generator/dist ${CMAKE_INSTALL_PREFIX}/${LATTISENSE_INSTALL_DATADIR}/mega_ag_generator/log && cp -r ${LATTISENSE_ROOT_DIR}/frontend ${CMAKE_INSTALL_PREFIX}/${LATTISENSE_INSTALL_DATADIR}/mega_ag_generator && sed -i 's/TRANSLATOR_DEV = True/TRANSLATOR_DEV = False/' ${CMAKE_INSTALL_PREFIX}/${LATTISENSE_INSTALL_DATADIR}/mega_ag_generator/frontend/custom_task.py\")")
+    install(CODE "execute_process(COMMAND bash \"-c\" \"mkdir -p \${CMAKE_INSTALL_PREFIX}/${LATTISENSE_INSTALL_DATADIR}/mega_ag_generator/dist \${CMAKE_INSTALL_PREFIX}/${LATTISENSE_INSTALL_DATADIR}/mega_ag_generator/log && cp -r ${LATTISENSE_ROOT_DIR}/frontend \${CMAKE_INSTALL_PREFIX}/${LATTISENSE_INSTALL_DATADIR}/mega_ag_generator && sed -i 's/TRANSLATOR_DEV = True/TRANSLATOR_DEV = False/' \${CMAKE_INSTALL_PREFIX}/${LATTISENSE_INSTALL_DATADIR}/mega_ag_generator/frontend/custom_task.py\")")
     install(DIRECTORY ${LATTISENSE_ROOT_DIR}/examples/project_template/
         DESTINATION ${LATTISENSE_INSTALL_DATADIR}/project_template
         PATTERN "build" EXCLUDE)
