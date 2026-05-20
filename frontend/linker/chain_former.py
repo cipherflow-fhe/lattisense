@@ -19,8 +19,7 @@ chain_former.py — Chain formation, priority computation, and serialization.
 
 Steps:
     1. apply_processor_layout  — insert ABI bridge nodes (processor_layout.py)
-    2. form_chains()           — merge serial FHE ops into COMPOUND nodes
-                                 (currently commented out — pending C++ Phase 3)
+    2. form_chains()           — merge eligible serial FHE ops into COMPOUND nodes
     3. compute_properties()    — compute bottom_level priority per compute node
     4. _serialize_dag()        — emit compiled_mega_ag.json dict
 
@@ -30,8 +29,9 @@ Entry point: compile_mega_ag(dag, processor, *, inputs, outputs, ...)
 import networkx as nx
 
 from frontend.types import (
+    ComputeNode,
+    OperationType,
     Processor,
-    gen_compute_node_index,
     is_key_data_node,
     is_custom_compute,
     is_bridge_compute,
@@ -59,29 +59,59 @@ def compile_mega_ag(
         compute node.  Caller is responsible for serialization and I/O.
     """
     dag = apply_processor_layout(dag, processor, ctx.inputs, ctx.outputs)
-    # dag = form_chains(dag)   # TODO: enable once C++ COMPOUND executor is ready
+    dag = form_chains(dag, processor)
     dag = compute_properties(dag)
     return dag
 
 
 # ---------------------------------------------------------------------------
-# Chain formation  (pending C++ Phase 3)
+# Chain formation
 # ---------------------------------------------------------------------------
 
 
-def form_chains(dag: nx.DiGraph) -> nx.DiGraph:
-    """Replace serial FHE op chains with COMPOUND compute nodes.
+_MERGEABLE_OP_TYPES: frozenset[OperationType] = frozenset(
+    {
+        OperationType.Add,
+        OperationType.Sub,
+        OperationType.Neg,
+        OperationType.Mult,
+        OperationType.Relin,
+        OperationType.Rescale,
+        OperationType.DropLevel,
+        OperationType.RotateCol,
+        OperationType.RotateRow,
+        OperationType.CmpSum,
+        OperationType.CmpacSum,
+    }
+)
 
-    A chain is a maximal sequence of FHE ops where:
-    - Each op has exactly one non-key FHE data output consumed by exactly
-      one successor.
-    - That successor has exactly one non-key FHE data input.
-    - Neither end is a bridge op or custom op.
 
-    Returns a new DiGraph where each chain (or single op) becomes one
-    COMPOUND compute node.
-    """
-    # Collect compute nodes in topological order
+class _CompoundComputeNode(ComputeNode):
+    is_custom = False
+    is_bridge = False
+    is_compound = True
+
+    def __init__(self, processor: Processor, internal_ops: list[dict], ext_inputs: list, ext_outputs: list) -> None:
+        super().__init__(OperationType.Compound)
+        self.id = f'chain_{self.index}'
+        self.internal_ops = internal_ops
+        self._ext_inputs = ext_inputs
+        self._ext_outputs = ext_outputs
+        self.on_cpu = processor == Processor.CPU
+        self.priority = 0
+
+    def to_json_dict(self, dag: nx.DiGraph) -> dict:
+        return {
+            'id': self.id,
+            'type': OperationType.Compound.value,
+            'internal_ops': self.internal_ops,
+            'inputs': [d.index for d in self._ext_inputs],
+            'outputs': [d.index for d in self._ext_outputs],
+        }
+
+
+def form_chains(dag: nx.DiGraph, processor: Processor) -> nx.DiGraph:
+    """Replace safe serial FHE op chains with COMPOUND compute nodes."""
     compute_topo = [n for n in nx.topological_sort(dag) if is_compute_node(n)]
 
     visited: set = set()
@@ -90,53 +120,80 @@ def form_chains(dag: nx.DiGraph) -> nx.DiGraph:
     for node in compute_topo:
         if node in visited:
             continue
-        if _is_bridge(node) or is_custom_compute(node):
+        if not _is_mergeable_op(node):
             visited.add(node)
             chains.append([node])
             continue
 
-        chain = [node]
-        visited.add(node)
-        current = node
+        chain = _candidate_chain(dag, node, visited)
+        if _is_valid_chain(dag, chain):
+            visited.update(chain)
+            chains.append(chain)
+        else:
+            visited.add(node)
+            chains.append([node])
 
-        while True:
-            fhe_succs = _fhe_compute_successors(dag, current)
-            if len(fhe_succs) != 1:
-                break
-            succ = fhe_succs[0]
-            if succ in visited or _is_bridge(succ) or is_custom_compute(succ):
-                break
-            if len(_fhe_compute_predecessors(dag, succ)) != 1:
-                break
-            chain.append(succ)
-            visited.add(succ)
-            current = succ
-
-        chains.append(chain)
-
-    return _build_compound_dag(dag, chains)
+    return _build_compound_dag(dag, chains, processor)
 
 
-def _build_compound_dag(dag: nx.DiGraph, chains: list[list]) -> nx.DiGraph:
-    """Construct a new DiGraph replacing each multi-op chain with a COMPOUND node."""
+def _candidate_chain(dag: nx.DiGraph, start, visited: set) -> list:
+    chain = [start]
+    current = start
+
+    while True:
+        succ = _single_serial_successor(dag, current)
+        if succ is None or succ in visited or not _is_mergeable_op(succ):
+            break
+        if len(_fhe_compute_predecessors(dag, succ)) != 1:
+            break
+        chain.append(succ)
+        current = succ
+
+    return chain
+
+
+def _single_serial_successor(dag: nx.DiGraph, compute_node):
+    outputs = _data_successors(dag, compute_node)
+    if len(outputs) != 1:
+        return None
+
+    out_data = outputs[0]
+    if is_key_data_node(out_data):
+        return None
+
+    consumers = [c for c in dag.successors(out_data) if is_compute_node(c)]
+    if len(consumers) != 1:
+        return None
+    return consumers[0]
+
+
+def _is_valid_chain(dag: nx.DiGraph, chain: list) -> bool:
+    if len(chain) <= 1:
+        return False
+    if any(not _is_mergeable_op(op) for op in chain):
+        return False
+    if any(len(_data_successors(dag, op)) != 1 for op in chain):
+        return False
+
+    ext_outputs = _chain_external_outputs(dag, chain)
+    if len(ext_outputs) != 1:
+        return False
+
+    chain_set = set(chain)
+    for data in _chain_internal_data(dag, chain):
+        consumers = [c for c in dag.successors(data) if is_compute_node(c)]
+        if not consumers or any(c not in chain_set for c in consumers):
+            return False
+
+    return True
+
+
+def _build_compound_dag(dag: nx.DiGraph, chains: list[list], processor: Processor) -> nx.DiGraph:
+    """Construct a new DiGraph replacing each multi-op chain with one COMPOUND node."""
     new_dag = nx.DiGraph()
 
-    # Determine which data nodes are internal to a chain
-    internal_data: set = set()
-    for chain in chains:
-        if len(chain) <= 1:
-            continue
-        chain_set = set(chain)
-        for op in chain[:-1]:
-            for out_data in dag.successors(op):
-                if is_data_node(out_data):
-                    consumers = [c for c in dag.successors(out_data) if is_compute_node(c)]
-                    if consumers and all(c in chain_set for c in consumers):
-                        internal_data.add(out_data)
-
-    # Add all non-internal data nodes to new graph
     for node in dag.nodes():
-        if is_data_node(node) and node not in internal_data:
+        if is_data_node(node):
             new_dag.add_node(node)
 
     for chain in chains:
@@ -150,93 +207,83 @@ def _build_compound_dag(dag: nx.DiGraph, chains: list[list]) -> nx.DiGraph:
                 if succ in new_dag:
                     new_dag.add_edge(op, succ)
         else:
-            compound = _make_compound_node(dag, chain, internal_data, gen_compute_node_index())
+            compound = _make_compound_node(dag, chain, processor)
             new_dag.add_node(compound)
-            # Wire external inputs and outputs
-            ext_inputs = _chain_external_inputs(dag, chain, internal_data)
-            ext_outputs = _chain_external_outputs(dag, chain, internal_data)
-            for data in ext_inputs:
-                if data in new_dag:
-                    new_dag.add_edge(data, compound)
-            for data in ext_outputs:
-                if data in new_dag:
-                    new_dag.add_edge(compound, data)
+            for data in compound._ext_inputs:
+                new_dag.add_edge(data, compound)
+            for data in compound._ext_outputs:
+                new_dag.add_edge(compound, data)
 
     return new_dag
 
 
-def _make_compound_node(dag, chain, internal_data, new_index):
-    """Build a CompoundComputeNode for a chain of ops."""
-    ext_inputs = _chain_external_inputs(dag, chain, internal_data)
-    local_idx: dict = {d: i for i, d in enumerate(ext_inputs)}
-    next_local = len(ext_inputs)
-
+def _make_compound_node(dag: nx.DiGraph, chain: list, processor: Processor) -> _CompoundComputeNode:
+    """Build a COMPOUND compute node for a validated chain."""
     internal_ops = []
     for op in chain:
-        local_inputs = [local_idx.get(d, -1) for d in dag.predecessors(op) if is_data_node(d)]
-        outputs_list = [d for d in dag.successors(op) if is_data_node(d)]
-        assert len(outputs_list) == 1, 'Chain op must have exactly one output'
-        out_data = outputs_list[0]
-        local_idx[out_data] = next_local
-        local_output = next_local
-        next_local += 1
+        op_json = op.to_json_dict(dag)
+        internal_ops.append({'index': op.index, **op_json})
 
-        op_type = op.type if isinstance(op.type, str) else op.type.value
-        op_entry = {
-            'type': op_type,
-            'output_level': getattr(out_data, 'level', -1),
-            'inputs': local_inputs,
-            'output': local_output,
-        }
-        for extra in ('step', 'sum_cnt'):
-            if hasattr(op, extra):
-                op_entry[extra] = getattr(op, extra)
-        internal_ops.append(op_entry)
-
-    ext_outputs = _chain_external_outputs(dag, chain, internal_data)
-
-    # Lightweight compound node object
-    class _CompoundNode:
-        is_custom = False
-        is_bridge = False
-        is_compound = True
-
-        def __init__(self, idx, ops, ins, outs):
-            self.index = idx
-            self.id = f'chain_{idx}'
-            self.type = 'compound'
-            self.internal_ops = ops
-            self._ext_inputs = ins
-            self._ext_outputs = outs
-            self.on_cpu = None
-            self.priority = 0
-
-        def to_json_dict(self, dag):
-            return {
-                'id': self.id,
-                'type': 'compound',
-                'internal_ops': self.internal_ops,
-                'inputs': [d.index for d in self._ext_inputs],
-                'outputs': [d.index for d in self._ext_outputs],
-            }
-
-    return _CompoundNode(new_index, internal_ops, ext_inputs, ext_outputs)
+    return _CompoundComputeNode(
+        processor=processor,
+        internal_ops=internal_ops,
+        ext_inputs=_chain_external_inputs(dag, chain),
+        ext_outputs=_chain_external_outputs(dag, chain),
+    )
 
 
-def _chain_external_inputs(dag, chain, internal_data):
+def _chain_external_inputs(dag: nx.DiGraph, chain: list) -> list:
+    chain_set = set(chain)
     seen: set = set()
     result = []
     for op in chain:
-        for d in dag.predecessors(op):
-            if is_data_node(d) and d not in internal_data and d not in seen:
-                result.append(d)
-                seen.add(d)
+        for data in _data_predecessors(dag, op):
+            producers = [p for p in dag.predecessors(data) if is_compute_node(p)]
+            if (not producers or any(p not in chain_set for p in producers)) and data not in seen:
+                result.append(data)
+                seen.add(data)
     return result
 
 
-def _chain_external_outputs(dag, chain, internal_data):
-    last_op = chain[-1]
-    return [d for d in dag.successors(last_op) if is_data_node(d) and d not in internal_data]
+def _chain_external_outputs(dag: nx.DiGraph, chain: list) -> list:
+    chain_set = set(chain)
+    seen: set = set()
+    result = []
+    for op in chain:
+        for data in _data_successors(dag, op):
+            consumers = [c for c in dag.successors(data) if is_compute_node(c)]
+            if (not consumers or any(c not in chain_set for c in consumers)) and data not in seen:
+                result.append(data)
+                seen.add(data)
+    return result
+
+
+def _chain_internal_data(dag: nx.DiGraph, chain: list) -> list:
+    chain_set = set(chain)
+    result = []
+    for op in chain:
+        for data in _data_successors(dag, op):
+            consumers = [c for c in dag.successors(data) if is_compute_node(c)]
+            if consumers and all(c in chain_set for c in consumers):
+                result.append(data)
+    return result
+
+
+def _data_predecessors(dag: nx.DiGraph, compute_node) -> list:
+    return [n for n in dag.predecessors(compute_node) if is_data_node(n)]
+
+
+def _data_successors(dag: nx.DiGraph, compute_node) -> list:
+    return [n for n in dag.successors(compute_node) if is_data_node(n)]
+
+
+def _is_mergeable_op(node) -> bool:
+    return (
+        is_compute_node(node)
+        and not is_custom_compute(node)
+        and not _is_bridge(node)
+        and getattr(node, 'type', None) in _MERGEABLE_OP_TYPES
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -468,6 +468,34 @@ template <HEScheme SchemeType> void bind_cpu_bootstrap(ComputeNode& node) {
     }
 }
 
+void bind_cpu_compound(ComputeNode& node) {
+    node.executor = [](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs, std::any& output,
+                       const ComputeNode& self) -> void {
+        if (!self.compound_prop.has_value()) {
+            throw std::runtime_error("COMPOUND node missing compound property");
+        }
+
+        std::unordered_map<NodeIndex, std::any> local_data;
+        for (const auto* input_node : self.input_nodes) {
+            local_data[input_node->index] = inputs.at(input_node->index);
+        }
+
+        for (const auto& internal_node : self.compound_prop->internal_nodes) {
+            if (internal_node.output_nodes.size() != 1) {
+                throw std::runtime_error("COMPOUND internal node must have exactly one output");
+            }
+            std::any internal_output;
+            internal_node.executor(ctx, local_data, internal_output, internal_node);
+            local_data[internal_node.output_nodes[0]->index] = internal_output;
+        }
+
+        if (self.output_nodes.size() != 1) {
+            throw std::runtime_error("COMPOUND node must have exactly one output");
+        }
+        output = local_data.at(self.output_nodes[0]->index);
+    };
+}
+
 // Explicit template instantiations
 template void bind_cpu_add<HEScheme::BFV>(ComputeNode& node);
 template void bind_cpu_add<HEScheme::CKKS>(ComputeNode& node);
@@ -522,6 +550,7 @@ void bind_cpu_executor(ComputeNode& node, Algo algorithm) {
                 case OperationType::ROTATE_ROW: bind_cpu_rotate_row<HEScheme::BFV>(node); break;
                 case OperationType::MAC_W_PARTIAL_SUM: bind_cpu_cmpac_sum<HEScheme::BFV>(node); break;
                 case OperationType::MAC_WO_PARTIAL_SUM: bind_cpu_cmp_sum<HEScheme::BFV>(node); break;
+                case OperationType::COMPOUND: bind_cpu_compound(node); break;
                 default: throw std::runtime_error("Unsupported operation type for CPU BFV");
             }
             break;
@@ -539,6 +568,7 @@ void bind_cpu_executor(ComputeNode& node, Algo algorithm) {
                 case OperationType::MAC_W_PARTIAL_SUM: bind_cpu_cmpac_sum<HEScheme::CKKS>(node); break;
                 case OperationType::MAC_WO_PARTIAL_SUM: bind_cpu_cmp_sum<HEScheme::CKKS>(node); break;
                 case OperationType::BOOTSTRAP: bind_cpu_bootstrap<HEScheme::CKKS>(node); break;
+                case OperationType::COMPOUND: bind_cpu_compound(node); break;
                 default: throw std::runtime_error("Unsupported operation type for CPU CKKS");
             }
             break;

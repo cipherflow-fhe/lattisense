@@ -84,6 +84,7 @@ class OperationType(Enum):
     CmpacSum = 'cmpac_sum'
     CmpSum = 'cmp_sum'
     Bootstrap = 'bootstrap'
+    Compound = 'compound'
     FpgaKernel = 'fpga_kernel'
     ExportToAbi = 'export_to_abi'
     ImportFromAbi = 'import_from_abi'

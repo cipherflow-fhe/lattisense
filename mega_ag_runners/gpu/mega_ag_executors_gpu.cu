@@ -425,6 +425,48 @@ template <heongpu::Scheme S> void bind_gpu_bootstrap(ComputeNode& node) {
     }
 }
 
+template <heongpu::Scheme S> void bind_gpu_compound(ComputeNode& node) {
+    node.executor = [](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs, std::any& output,
+                       const ComputeNode& self) -> void {
+        if (!self.compound_prop.has_value()) {
+            throw std::runtime_error("COMPOUND node missing compound property");
+        }
+
+        auto* context = ctx.get_other_arg<heongpu::HEContext<S>>(1);
+        auto* stream_option = ctx.get_other_arg<heongpu::ExecutionOptions>(0);
+        if (!context || !stream_option) {
+            throw std::runtime_error("GPU COMPOUND requires HEContext and stream options");
+        }
+
+        std::unordered_map<NodeIndex, std::any> local_data;
+        for (const auto* input_node : self.input_nodes) {
+            local_data[input_node->index] = inputs.at(input_node->index);
+        }
+
+        for (const auto& internal_node : self.compound_prop->internal_nodes) {
+            if (internal_node.output_nodes.size() != 1) {
+                throw std::runtime_error("COMPOUND internal node must have exactly one output");
+            }
+
+            const DatumNode* output_node = internal_node.output_nodes[0];
+            if (!output_node->fhe_prop.has_value() || output_node->datum_type != DataType::TYPE_CIPHERTEXT) {
+                throw std::runtime_error("GPU COMPOUND internal output must be a ciphertext");
+            }
+
+            std::any internal_output = std::make_shared<Ct<S>>(*context, output_node->fhe_prop->level, *stream_option);
+            internal_node.executor(ctx, local_data, internal_output, internal_node);
+            local_data[output_node->index] = internal_output;
+        }
+
+        if (self.output_nodes.size() != 1) {
+            throw std::runtime_error("COMPOUND node must have exactly one output");
+        }
+        auto final_output = std::any_cast<std::shared_ptr<Ct<S>>>(local_data.at(self.output_nodes[0]->index));
+        auto& output0 = *std::any_cast<std::shared_ptr<Ct<S>>>(output);
+        output0 = std::move(*final_output);
+    };
+}
+
 // Explicit template instantiations
 template void bind_gpu_add<heongpu::Scheme::BFV>(ComputeNode& node);
 template void bind_gpu_add<heongpu::Scheme::CKKS>(ComputeNode& node);
@@ -459,6 +501,9 @@ template void bind_gpu_cmp_sum<heongpu::Scheme::CKKS>(ComputeNode& node);
 
 template void bind_gpu_bootstrap<heongpu::Scheme::CKKS>(ComputeNode& node);
 
+template void bind_gpu_compound<heongpu::Scheme::BFV>(ComputeNode& node);
+template void bind_gpu_compound<heongpu::Scheme::CKKS>(ComputeNode& node);
+
 // Wrapper function for ExecutorBinder (callable from non-CUDA code)
 void bind_gpu_executor(ComputeNode& node, Algo algorithm) {
     if (!node.fhe_prop.has_value()) {
@@ -478,6 +523,7 @@ void bind_gpu_executor(ComputeNode& node, Algo algorithm) {
                 case OperationType::ROTATE_ROW: bind_gpu_rotate_row<heongpu::Scheme::BFV>(node); break;
                 case OperationType::MAC_W_PARTIAL_SUM: bind_gpu_cmpac_sum<heongpu::Scheme::BFV>(node); break;
                 case OperationType::MAC_WO_PARTIAL_SUM: bind_gpu_cmp_sum<heongpu::Scheme::BFV>(node); break;
+                case OperationType::COMPOUND: bind_gpu_compound<heongpu::Scheme::BFV>(node); break;
                 default: throw std::runtime_error("Unsupported operation type for GPU BFV");
             }
             break;
@@ -495,6 +541,7 @@ void bind_gpu_executor(ComputeNode& node, Algo algorithm) {
                 case OperationType::MAC_W_PARTIAL_SUM: bind_gpu_cmpac_sum<heongpu::Scheme::CKKS>(node); break;
                 case OperationType::MAC_WO_PARTIAL_SUM: bind_gpu_cmp_sum<heongpu::Scheme::CKKS>(node); break;
                 case OperationType::BOOTSTRAP: bind_gpu_bootstrap<heongpu::Scheme::CKKS>(node); break;
+                case OperationType::COMPOUND: bind_gpu_compound<heongpu::Scheme::CKKS>(node); break;
                 default: throw std::runtime_error("Unsupported operation type for GPU CKKS");
             }
             break;

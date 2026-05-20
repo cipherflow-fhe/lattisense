@@ -44,6 +44,7 @@ const std::unordered_map<std::string, OperationType> str_to_operation_type = {
     {"cmp_sum", OperationType::MAC_WO_PARTIAL_SUM},
     {"cmpac_sum", OperationType::MAC_W_PARTIAL_SUM},
     {"bootstrap", OperationType::BOOTSTRAP},
+    {"compound", OperationType::COMPOUND},
     {"fpga_kernel", OperationType::FPGA_KERNEL},
     {"export_to_abi", OperationType::EXPORT_TO_ABI},
     {"import_from_abi", OperationType::IMPORT_FROM_ABI},
@@ -54,6 +55,60 @@ const std::unordered_map<std::string, OperationType> str_to_operation_type = {
 static bool is_abi_bridge_operation(OperationType op_type) {
     return op_type == OperationType::EXPORT_TO_ABI || op_type == OperationType::IMPORT_FROM_ABI ||
            op_type == OperationType::LOAD_TO_BACKEND || op_type == OperationType::STORE_FROM_BACKEND;
+}
+
+static ComputeNode::FheProperty parse_fhe_property(const nlohmann::json& value, OperationType op_type) {
+    ComputeNode::FheProperty fhe_prop;
+    fhe_prop.op_type = op_type;
+
+    if (op_type == OperationType::ROTATE_COL) {
+        ComputeNode::FheProperty::ExtraProperty extra_prop;
+        extra_prop.rotation_step = value["step"].get<int32_t>();
+        fhe_prop.p = extra_prop;
+    } else if (op_type == OperationType::MAC_WO_PARTIAL_SUM || op_type == OperationType::MAC_W_PARTIAL_SUM) {
+        ComputeNode::FheProperty::ExtraProperty extra_prop;
+        extra_prop.sum_cnt = value["sum_cnt"].get<int32_t>();
+        fhe_prop.p = extra_prop;
+    }
+
+    return fhe_prop;
+}
+
+static void attach_io_nodes(ComputeNode& node,
+                            MegaAG& mega_ag,
+                            const std::vector<NodeIndex>& input_indices,
+                            const std::vector<NodeIndex>& output_indices,
+                            Processor processor) {
+    for (NodeIndex i : input_indices) {
+        if (processor == Processor::CPU && mega_ag.data.find(i) == mega_ag.data.end()) {
+            continue;
+        }
+        node.input_nodes.push_back(&mega_ag.data.at(i));
+    }
+
+    for (NodeIndex i : output_indices) {
+        node.output_nodes.push_back(&mega_ag.data.at(i));
+    }
+}
+
+static ComputeNode parse_internal_compute_node(const nlohmann::json& value, MegaAG& mega_ag, Processor processor) {
+    const std::string& json_type = value["type"].get<std::string>();
+    OperationType op_type = str_to_operation_type.at(json_type);
+
+    ComputeNode internal;
+    internal.index = value.contains("index") ? value["index"].get<NodeIndex>() : 0;
+    internal.id = value.contains("id") ? value["id"].get<std::string>() : json_type;
+    internal.fhe_prop = parse_fhe_property(value, op_type);
+
+    auto input_indices = value["inputs"].get<std::vector<NodeIndex>>();
+    auto output_indices = value["outputs"].get<std::vector<NodeIndex>>();
+    attach_io_nodes(internal, mega_ag, input_indices, output_indices, processor);
+
+    if (!is_abi_bridge_operation(op_type) && processor != Processor::FPGA) {
+        ExecutorBinder::bind_executor(internal, processor, mega_ag.algo);
+    }
+
+    return internal;
 }
 
 // =============================================================================
@@ -171,33 +226,22 @@ MegaAG MegaAG::load(const std::string& project_path, Processor processor) {
             node.custom_prop = custom_prop;
         } else {
             // FHE compute node
-            ComputeNode::FheProperty fhe_prop;
-            fhe_prop.op_type = str_to_operation_type.at(json_type);
-
-            if (fhe_prop.op_type == OperationType::ROTATE_COL) {
-                ComputeNode::FheProperty::ExtraProperty extra_prop;
-                extra_prop.rotation_step = value["step"].get<int32_t>();
-                fhe_prop.p = extra_prop;
-            } else if (fhe_prop.op_type == OperationType::MAC_WO_PARTIAL_SUM ||
-                       fhe_prop.op_type == OperationType::MAC_W_PARTIAL_SUM) {
-                ComputeNode::FheProperty::ExtraProperty extra_prop;
-                extra_prop.sum_cnt = value["sum_cnt"].get<int32_t>();
-                fhe_prop.p = extra_prop;
-            }
-
-            node.fhe_prop = fhe_prop;
+            OperationType op_type = str_to_operation_type.at(json_type);
+            node.fhe_prop = parse_fhe_property(value, op_type);
         }
 
         // Add input/output nodes (common for both custom and FHE)
-        for (NodeIndex i : input_indices) {
-            if (processor == Processor::CPU && mega_ag.data.find(i) == mega_ag.data.end()) {
-                continue;
-            }
-            node.input_nodes.push_back(&mega_ag.data.at(i));
-        }
+        attach_io_nodes(node, mega_ag, input_indices, output_indices, processor);
 
-        for (NodeIndex i : output_indices) {
-            node.output_nodes.push_back(&mega_ag.data.at(i));
+        if (node.fhe_prop.has_value() && node.fhe_prop->op_type == OperationType::COMPOUND) {
+            if (!value.contains("internal_ops")) {
+                throw std::runtime_error("COMPOUND node is missing internal_ops");
+            }
+            ComputeNode::CompoundProperty compound_prop;
+            for (const auto& internal_json : value["internal_ops"]) {
+                compound_prop.internal_nodes.push_back(parse_internal_compute_node(internal_json, mega_ag, processor));
+            }
+            node.compound_prop = std::move(compound_prop);
         }
 
         // Bind executor for regular FHE nodes. ABI bridge executors are bound later via bind_abi_bridge_executors().

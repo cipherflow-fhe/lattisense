@@ -205,8 +205,8 @@ template <heongpu::Scheme SchemeType> void import_ciphertext(heongpu::Ciphertext
  *
  * @note Input: std::shared_ptr<C struct> from available_data
  * @note Output: std::shared_ptr<GPU type> stored in std::any
- * @note Requires heongpu::HEContext in ExecutionContext other_args[0]
- * @note Requires heongpu::ExecutionOptions in ExecutionContext other_args[1]
+ * @note Requires heongpu::ExecutionOptions in ExecutionContext other_args[0]
+ * @note Requires heongpu::HEContext in ExecutionContext other_args[1]
  * @note Requires galois_key shared_ptr in ExecutionContext other_args[2]
  * @note Requires galois_key_mutex in ExecutionContext other_args[3]
  */

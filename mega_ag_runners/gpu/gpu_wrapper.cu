@@ -270,10 +270,10 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
                     ExecutionContext exec_ctx;
                     exec_ctx.context = operators.get();
                     exec_ctx.other_args.push_back(&stream_options[stream_id]);
+                    exec_ctx.other_args.push_back(&context);
 
-                    // LOAD_TO_BACKEND needs HEContext and galois_key parameters
+                    // LOAD_TO_BACKEND needs galois_key parameters after the common stream/context args
                     if (op == OperationType::LOAD_TO_BACKEND) {
-                        exec_ctx.other_args.push_back(&context);
                         exec_ctx.other_args.push_back(&galois_key);
                         exec_ctx.other_args.push_back(&galois_key_mutex);
                         exec_ctx.other_args.push_back(&all_galois_elts);

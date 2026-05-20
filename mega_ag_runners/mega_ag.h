@@ -80,6 +80,8 @@ enum class OperationType {
     MAC_W_PARTIAL_SUM,
     BOOTSTRAP,
 
+    COMPOUND,
+
     FPGA_KERNEL,  // Composite FPGA sub-project operator (heterogeneous mode)
 
     // ABI bridge operations (inserted automatically by from_json for heterogeneous mode)
@@ -164,6 +166,11 @@ struct ComputeNode {
         nlohmann::json attributes;  // Custom attributes from JSON (e.g., level, scale)
     };
     std::optional<CustomProperty> custom_prop;
+
+    struct CompoundProperty {
+        std::vector<ComputeNode> internal_nodes;
+    };
+    std::optional<CompoundProperty> compound_prop;
 };
 
 struct MegaAG {
