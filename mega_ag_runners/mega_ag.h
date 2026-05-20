@@ -89,9 +89,6 @@ enum class OperationType {
     STORE_FROM_BACKEND,  // Backend device → ABI C struct (GPU/FPGA, defined in mega_ag_runners)
 };
 
-// Forward declaration
-struct ComputeNode;
-
 /**
  * @brief Unified data node for both FHE and custom types
  */
@@ -146,15 +143,8 @@ struct ComputeNode {
     // Execution target: true if this node runs on CPU
     bool on_cpu = false;
 
-    // Scheduling priority: higher value runs first
+    // Scheduling priority: higher value runs first (pre-computed at compile time, read from JSON)
     int priority = 0;
-
-    // Graph structural properties for scheduling, computed by MegaAG::compute_graph_properties()
-    struct ScheduleMeta {
-        int top_level = 0;     // longest path from any source compute node to this node
-        int bottom_level = 0;  // longest path from this node to any sink compute node
-    };
-    ScheduleMeta sched_meta;
 
     // FHE-specific properties (use custom_prop.has_value() to check if custom node)
     struct FheProperty {
@@ -176,17 +166,6 @@ struct ComputeNode {
     std::optional<CustomProperty> custom_prop;
 };
 
-/**
- * @brief Scheduling mode for compute node priority computation.
- *
- * MAKESPAN_FIRST: bottom_level (longest path to sink) — minimizes makespan.
- * MEMORY_FIRST:  -bottom_level (prefer nodes closer to sink) — reduces peak memory by completing in-flight paths first.
- */
-enum class ScheduleMode {
-    MAKESPAN_FIRST,
-    MEMORY_FIRST,
-};
-
 struct MegaAG {
     std::unordered_map<NodeIndex, DatumNode> data;
     std::unordered_map<NodeIndex, ComputeNode> computes;
@@ -198,11 +177,9 @@ struct MegaAG {
     Algo algo = ALGO_BFV;
 
     /**
-     * @brief Load a MegaAG from JSON, apply processor layout, and compute scheduling priorities.
-     *        This is the primary entry point for constructing a ready-to-run MegaAG.
+     * @brief Load compiled_mega_ag.json and fhe_parameter.json from a task project directory.
      */
-    static MegaAG
-    load(const std::string& json_path, Processor processor, ScheduleMode mode = ScheduleMode::MAKESPAN_FIRST);
+    static MegaAG load(const std::string& project_path, Processor processor);
 
     void bind_abi_bridge_executors(const ExecutorFunc& abi_export,
                                    const ExecutorFunc& abi_import,
@@ -290,26 +267,4 @@ struct MegaAG {
             }
         }
     }
-
-    /**
-     * @brief Compute top_level/bottom_level for each compute node, then set priority by ScheduleMode.
-     *
-     * MAKESPAN_FIRST: priority = bottom_level (longer remaining critical path runs first).
-     * MEMORY_FIRST:  priority = -bottom_level (prefer nodes closer to sink, completing in-flight paths to free memory).
-     */
-    void compute_properties(ScheduleMode mode);
-
-private:
-    static MegaAG from_json(const std::string& json_path, Processor processor);
-
-    // Inserts ABI bridge nodes for the target processor and sets on_cpu for all compute nodes.
-    void apply_processor_layout();
-
-    std::pair<NodeIndex, NodeIndex> get_next_indices() const;
-    void rebuild_bridge_relationships(std::initializer_list<OperationType> bridge_ops);
-    void insert_backend_abi_bridge_nodes();
-    void insert_cpu_abi_bridge_nodes();
-
-    void compute_top_levels();
-    void compute_bottom_levels();
 };

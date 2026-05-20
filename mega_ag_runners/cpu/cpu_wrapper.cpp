@@ -119,8 +119,7 @@ void _run_mega_ag(gsl::span<CArgument> input_args,
 
 class FheCpuTask {
 public:
-    FheCpuTask(const std::string& project_path)
-        : mega_ag_(MegaAG::load(project_path + "/mega_ag.json", Processor::CPU)) {}
+    FheCpuTask(const std::string& project_path) : mega_ag_(MegaAG::load(project_path, Processor::CPU)) {}
 
     ~FheCpuTask() {}
 

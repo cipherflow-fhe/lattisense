@@ -411,7 +411,7 @@ void _run_mega_ag(gsl::span<CArgument> input_args,
 class FheGpuTask {
 public:
     FheGpuTask(const std::string& project_path) {
-        mega_ag_ = MegaAG::load(project_path + "/mega_ag.json", Processor::GPU);
+        mega_ag_ = MegaAG::load(project_path, Processor::GPU);
 
         cudaSetDevice(0);  // Warm up default device; actual device is selected at run time
 

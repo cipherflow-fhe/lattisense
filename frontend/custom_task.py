@@ -17,86 +17,76 @@
 import json
 import math
 import os
-import random
-import string
-from typing import List, Optional
+from typing import Optional
 
 import networkx as nx
-from enum import Enum
 
-from frontend.bootstrap_params import (
-    LinearTransformType,
-    SineType,
-    EncodingMatrixParams,
-    EvalModParams,
+from frontend.types import (
+    Algo,
+    Argument,
+    BfvCiphertext3Node,
+    BfvCiphertextNode,
+    BfvCompressedPlaintextRingtNode,
+    BfvParam,
+    BfvPlaintextMulNode,
+    BfvPlaintextNode,
+    BfvPlaintextRingtNode,
+    CiphertextNode,
+    CkksBtpParam,
+    CkksCiphertext3Node,
+    CkksCiphertextNode,
+    CkksParam,
+    CkksPlaintextMulNode,
+    CkksPlaintextNode,
+    CkksPlaintextRingtNode,
+    CmpSumComputeNode,
+    CmpacSumComputeNode,
+    ComputeNode,
+    CustomComputeNode,
+    CustomDataNode,
+    DEFAULT_LEVEL,
+    DataNode,
+    DataType,
+    FheComputeNode,
+    FheDataNode,
+    FpgaKernelNode,
+    GALOIS_GEN,
+    GaloisKeyNode,
+    Lib,
+    OperationType,
+    Param,
+    PlaintextNode,
+    Processor,
+    RelinKeyNode,
+    RotateColUnitNode,
+    RotateRowUnitNode,
+    SEAL_GALOIS_GEN,
+    SwitchKeyNode,
+    gen_compute_node_index,
+    gen_data_node_index,
+    random_id,
+    reset_node_state,
 )
-
-DEFAULT_LEVEL = -1
-
-random_ids = set()
-data_node_count = 0
-compute_node_count = 0
 
 g_swk_node_dict: dict[str, 'SwitchKeyNode'] = {}
 g_dag = nx.DiGraph()
 g_param: Optional['Param'] = None
 
-GALOIS_GEN = 5
-SEAL_GALOIS_GEN = 3
 
+def set_fhe_param(param: 'Param') -> None:
+    """Set the global FHE parameters.
 
-class Algo(Enum):
-    BFV = 'BFV'
-    CKKS = 'CKKS'
+    Must be called before any FHE operations.
+    This function sets the global parameter object used by all subsequent FHE operations.
 
+    @param param: FHE parameter object containing algorithm type, polynomial degree n, moduli, etc.
 
-class DataType(Enum):
-    Plaintext = 'pt'
-    PlaintextRingt = 'pt_ringt'
-    PlaintextMul = 'pt_mul'
-    Ciphertext = 'ct'
-    Ciphertext3 = 'ct3'
-    SwitchKey = 'swk'
-    RelinKey = 'rlk'
-    GaloisKey = 'glk'
-
-
-class OperationType(Enum):
-    Add = 'add'
-    Sub = 'sub'
-    Neg = 'neg'
-    Mult = 'mult'
-    Relin = 'relin'
-    Rescale = 'rescale'
-    DropLevel = 'drop_level'
-    RnsSpDecomp = 'rns_sp_decomp'
-    RotateCol = 'rotate_col'
-    RotateRow = 'rotate_row'
-    ToNtt = 'to_ntt'
-    ToMForm = 'to_mf'
-    ToMul = 'to_mul'
-    ToInvNtt = 'to_inv_ntt'
-    CmpacSum = 'cmpac_sum'
-    CmpSum = 'cmp_sum'
-    Bootstrap = 'bootstrap'
-    FpgaKernel = 'fpga_kernel'
-
-
-class Lib(Enum):
-    Lattigo = 'lattigo'
-    SEAL = 'seal'
-
-
-def gen_data_node_index() -> int:
-    global data_node_count
-    data_node_count += 1
-    return data_node_count - 1
-
-
-def gen_compute_node_index() -> int:
-    global compute_node_count
-    compute_node_count += 1
-    return compute_node_count - 1
+    Example:
+        param = Param.create_default_param(algo='BFV', n=16384)
+        set_fhe_param(param)
+    """
+    global g_param
+    g_param = param
 
 
 def get_glk_col(steps: int, poly_degree: int):
@@ -143,829 +133,6 @@ def get_galois_element_for_column_rotation_by(rot: int, poly_degree: int, galois
 
 def get_galois_element_for_row_rotation(poly_degree: int):
     return (poly_degree << 1) - 1
-
-
-def random_id():
-    while True:
-        asc = ''.join(random.choices(string.ascii_lowercase, k=12))
-        if asc not in random_ids:
-            random_ids.add(asc)
-            break
-    return asc
-
-
-class Param:
-    def __init__(self, algo: Algo, n: int = 8192):
-        self.algo: Algo = algo
-        self.n: int = n
-        self.p: list[int] = []
-        self.q: list[int] = []
-        self.max_level: int = -1
-
-    def get_max_sp_level(self):
-        return len(self.p) - 1
-
-    def _load_parameter(self):
-        parameter_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'parameter.json')
-
-        with open(parameter_path, 'r') as f:
-            parameters = json.load(f)
-
-        if self.algo.value not in parameters:
-            raise ValueError(f'Unsupported algorithm type: {self.algo.value}')
-
-        algo_params = parameters[self.algo.value]
-        if str(self.n) not in algo_params:
-            raise ValueError(f'Unsupported n value for algorithm {self.algo.value}: {self.n}')
-
-        return algo_params[str(self.n)]
-
-
-class BfvParam(Param):
-    def __init__(self, n: int = 8192):
-        super().__init__(Algo.BFV, n)
-        self.t: int = -1
-
-    @classmethod
-    def create_default_param(cls, n: int):
-        instance = cls(n)
-
-        param_json = instance._load_parameter()
-
-        for p in param_json['p']:
-            instance.p.append(p)
-        for q in param_json['q']:
-            instance.q.append(q)
-        instance.t = param_json['t']
-
-        instance.max_level = param_json['max_level']
-
-        return instance
-
-    @classmethod
-    def create_custom_param(cls, n: int, q: List[int], p: List[int], t: int):
-        instance = cls(n)
-        instance.q = q
-        instance.p = p
-        instance.t = t
-        instance.max_level = len(q) - 1
-        return instance
-
-    @classmethod
-    def create_fpga_param(cls, t: int = 0x1B4001):
-        instance = cls(n=8192)
-        instance.q = [0x7F4E0001, 0x7FB40001, 0x7FD20001, 0x7FEA0001, 0x7FF80001, 0x7FFE0001]
-        instance.p = [0xFF5A0001]
-        instance.t = t
-        instance.max_level = len(instance.q) - 1
-        return instance
-
-
-class CkksParam(Param):
-    def __init__(self, n: int = 8192, slots: int = 0, scale: float = 0.0):
-        super().__init__(Algo.CKKS, n)
-        if slots == 0:
-            self.slots: int = n // 2
-        else:
-            self._validate_slots(slots)
-            self.slots: int = slots
-        self.scale: float = scale
-
-    def _validate_slots(self, slots: int):
-        if slots % 2 != 0:
-            raise ValueError(f'slots must be a multiple of 2, got {slots}')
-        if slots <= 0 or slots > self.n // 2:
-            raise ValueError(f'slots must be in range (0, {self.n // 2}], got {slots}')
-
-    def set_slots(self, slots: int):
-        self._validate_slots(slots)
-        self.slots = slots
-
-    def set_scale(self, scale: float):
-        self.scale = scale
-
-    @classmethod
-    def create_default_param(cls, n: int):
-        instance = cls(n)
-
-        param_json = instance._load_parameter()
-
-        for p in param_json['p']:
-            instance.p.append(p)
-        for q in param_json['q']:
-            instance.q.append(q)
-
-        instance.max_level = param_json['max_level']
-        instance.slots = param_json['slots']
-        instance.scale = param_json['scale']
-
-        return instance
-
-    @classmethod
-    def create_custom_param(cls, n: int, q: List[int], p: List[int], slots: int = 0, scale: float = 0.0):
-        instance = cls(n, slots, scale)
-        instance.q = q
-        instance.p = p
-        instance.max_level = len(q) - 1
-        return instance
-
-    @classmethod
-    def create_fpga_param(cls):
-        instance = cls(n=8192)
-        instance.q = [0x7F4E0001, 0x7FB40001, 0x7FD20001, 0x7FEA0001, 0x7FF80001, 0x7FFE0001]
-        instance.p = [0xFF5A0001]
-        instance.max_level = len(instance.q) - 1
-        instance.scale = 1 << 31
-        return instance
-
-
-class CkksBtpParam(CkksParam):
-    """
-    @class CkksBtpParam
-    @brief CKKS Bootstrap parameter class.
-
-    Contains additional parameters required for CKKS bootstrapping.
-    """
-
-    def __init__(self, n: int = 1 << 16):
-        super().__init__(n)
-        self.cts_params: EncodingMatrixParams = None
-        self.stc_params: EncodingMatrixParams = None
-        self.eval_mod_params: EvalModParams = None
-        self.btp_output_level: int = -1
-
-    @classmethod
-    def create_toy_param(cls):
-        """Create CKKS Toy Bootstrap parameters (N16QP1546H192H32 with n=8192)."""
-        instance = cls(n=8192)
-
-        instance.q = [
-            0x10000000006E0001,  # 60 Q0
-            0x10000140001,  # 40
-            0xFFFFE80001,  # 40
-            0xFFFFC40001,  # 40
-            0x100003E0001,  # 40
-            0xFFFFB20001,  # 40
-            0x10000500001,  # 40
-            0xFFFF940001,  # 40
-            0xFFFF8A0001,  # 40
-            0xFFFF820001,  # 40
-            0x7FFFE60001,  # 39 StC
-            0x7FFFE40001,  # 39 StC
-            0x7FFFE00001,  # 39 StC
-            0xFFFFFFFFF840001,  # 60 Sine (double angle)
-            0x1000000000860001,  # 60 Sine (double angle)
-            0xFFFFFFFFF6A0001,  # 60 Sine
-            0x1000000000980001,  # 60 Sine
-            0xFFFFFFFFF5A0001,  # 60 Sine
-            0x1000000000B00001,  # 60 Sine
-            0x1000000000CE0001,  # 60 Sine
-            0xFFFFFFFFF2A0001,  # 60 Sine
-            0x100000000060001,  # 56 CtS
-            0xFFFFFFFFF00001,  # 56 CtS
-            0xFFFFFFFFD80001,  # 56 CtS
-            0x1000000002A0001,  # 56 CtS
-        ]
-        instance.p = [
-            0x1FFFFFFFFFE00001,  # 61
-            0x1FFFFFFFFFC80001,  # 61
-            0x1FFFFFFFFFB40001,  # 61
-            0x1FFFFFFFFF500001,  # 61
-            0x1FFFFFFFFF420001,  # 61
-        ]
-        instance.max_level = len(instance.q) - 1
-        instance.scale = 1 << 40
-
-        instance.stc_params = EncodingMatrixParams(
-            linear_transform_type=LinearTransformType.SlotsToCoeffs,
-            repack_imag_2_real=True,
-            level_start=12,
-            bsgs_ratio=2.0,
-            bit_reversed=False,
-            scaling_factor=[
-                [0x7FFFE60001],
-                [0x7FFFE40001],
-                [0x7FFFE00001],
-            ],
-        )
-
-        instance.eval_mod_params = EvalModParams(
-            q=0x10000000006E0001,
-            level_start=20,
-            sine_type=SineType.Cos1,
-            message_ratio=256.0,
-            k=16,
-            sine_deg=30,
-            double_angle=3,
-            arcsine_deg=0,
-            scaling_factor=1 << 60,
-        )
-
-        instance.cts_params = EncodingMatrixParams(
-            linear_transform_type=LinearTransformType.CoeffsToSlots,
-            repack_imag_2_real=True,
-            level_start=24,
-            bsgs_ratio=2.0,
-            bit_reversed=False,
-            scaling_factor=[
-                [0x100000000060001],
-                [0xFFFFFFFFF00001],
-                [0xFFFFFFFFD80001],
-                [0x1000000002A0001],
-            ],
-        )
-
-        instance.btp_output_level = 9
-
-        return instance
-
-    @classmethod
-    def create_default_param(cls):
-        """Create CKKS Bootstrap parameters (N16QP1546H192H32 with n=65536)."""
-        instance = cls(n=1 << 16)
-
-        instance.q = [
-            0x10000000006E0001,  # 60 Q0
-            0x10000140001,  # 40
-            0xFFFFE80001,  # 40
-            0xFFFFC40001,  # 40
-            0x100003E0001,  # 40
-            0xFFFFB20001,  # 40
-            0x10000500001,  # 40
-            0xFFFF940001,  # 40
-            0xFFFF8A0001,  # 40
-            0xFFFF820001,  # 40
-            0x7FFFE60001,  # 39 StC
-            0x7FFFE40001,  # 39 StC
-            0x7FFFE00001,  # 39 StC
-            0xFFFFFFFFF840001,  # 60 Sine (double angle)
-            0x1000000000860001,  # 60 Sine (double angle)
-            0xFFFFFFFFF6A0001,  # 60 Sine
-            0x1000000000980001,  # 60 Sine
-            0xFFFFFFFFF5A0001,  # 60 Sine
-            0x1000000000B00001,  # 60 Sine
-            0x1000000000CE0001,  # 60 Sine
-            0xFFFFFFFFF2A0001,  # 60 Sine
-            0x100000000060001,  # 56 CtS
-            0xFFFFFFFFF00001,  # 56 CtS
-            0xFFFFFFFFD80001,  # 56 CtS
-            0x1000000002A0001,  # 56 CtS
-        ]
-        instance.p = [
-            0x1FFFFFFFFFE00001,  # 61
-            0x1FFFFFFFFFC80001,  # 61
-            0x1FFFFFFFFFB40001,  # 61
-            0x1FFFFFFFFF500001,  # 61
-            0x1FFFFFFFFF420001,  # 61
-        ]
-        instance.max_level = len(instance.q) - 1
-        instance.scale = 1 << 40
-
-        instance.stc_params = EncodingMatrixParams(
-            linear_transform_type=LinearTransformType.SlotsToCoeffs,
-            repack_imag_2_real=True,
-            level_start=12,
-            bsgs_ratio=2.0,
-            bit_reversed=False,
-            scaling_factor=[
-                [0x7FFFE60001],
-                [0x7FFFE40001],
-                [0x7FFFE00001],
-            ],
-        )
-
-        instance.eval_mod_params = EvalModParams(
-            q=0x10000000006E0001,
-            level_start=20,
-            sine_type=SineType.Cos1,
-            message_ratio=256.0,
-            k=16,
-            sine_deg=30,
-            double_angle=3,
-            arcsine_deg=0,
-            scaling_factor=1 << 60,
-        )
-
-        instance.cts_params = EncodingMatrixParams(
-            linear_transform_type=LinearTransformType.CoeffsToSlots,
-            repack_imag_2_real=True,
-            level_start=24,
-            bsgs_ratio=2.0,
-            bit_reversed=False,
-            scaling_factor=[
-                [0x100000000060001],
-                [0xFFFFFFFFF00001],
-                [0xFFFFFFFFD80001],
-                [0x1000000002A0001],
-            ],
-        )
-
-        instance.btp_output_level = 9
-
-        return instance
-
-    def rotations_for_bootstrapping(self) -> list[int]:
-        log_n = int(math.log2(self.n))
-        log_slots = int(math.log2(self.slots))
-
-        self.cts_params.log_n = log_n
-        self.cts_params.log_slots = log_slots
-        self.stc_params.log_n = log_n
-        self.stc_params.log_slots = log_slots
-
-        rots: list[int] = []
-
-        # SubSum rotations: needed when using sparse encoding (log_slots < log_n - 1)
-        for i in range(log_slots, log_n - 1):
-            if (1 << i) not in rots:
-                rots.append(1 << i)
-
-        rots += self.cts_params.rotations()
-        rots += self.stc_params.rotations()
-
-        return list(set(rots))
-
-
-def set_fhe_param(param: 'Param') -> None:
-    """Set the global FHE parameters.
-
-    Must be called before any FHE operations.
-    This function sets the global parameter object used by all subsequent FHE operations.
-
-    @param param: FHE parameter object containing algorithm type, polynomial degree n, moduli, etc.
-
-    Example:
-        param = Param.create_default_param(algo='BFV', n=16384)
-        set_fhe_param(param)
-    """
-    global g_param
-    g_param = param
-
-
-class Argument:
-    """
-    @class Argument
-    @brief Describes input, output, and offline input data arguments for a task.
-    """
-
-    def __init__(self, arg_id: str, data: 'DataNode | list') -> None:
-        """
-        @brief Constructor.
-        @param arg_id: Custom argument ID.
-        @param data: Data. Can be a single data node, a list/tuple of data nodes, or nested lists/tuples.
-        """
-
-        if not isinstance(arg_id, str):
-            raise ValueError(f'Argument id should be str. Please check your argument-id "{arg_id}".')
-        self.id = arg_id
-        if not data:
-            raise ValueError('Argument data can not be none. Please check your argument-id.')
-        if isinstance(data, DataNode):
-            self.data: list = [data]
-        else:
-            assert isinstance(data, list)
-            self.data = data
-
-
-class DataNode:
-    """
-    @class DataNode
-    @brief Data node base class.
-
-    Base class for all data nodes, containing only basic attributes: type, id, index.
-    """
-
-    def __init__(self, type, id='') -> None:
-        """
-        @brief Constructor.
-        @param type: Node type.
-        @param id: Node ID.
-        """
-        self.type = type
-        self.id: str = id
-        if self.id == '':
-            self.id = random_id()
-        self.index: int = gen_data_node_index()
-
-    def __repr__(self) -> str:
-        return self.id
-
-
-class FheDataNode(DataNode):
-    """
-    @class FheDataNode
-    @brief FHE data node type; use its subclasses in practice.
-
-    Contains FHE data types such as plaintext, ciphertext, keys, etc.
-    Has FHE-related attributes like level, degree, is_ntt.
-    """
-
-    def __init__(
-        self,
-        type: DataType,
-        id='',
-        degree=-1,
-        level=DEFAULT_LEVEL,
-    ) -> None:
-        """
-        @brief Constructor.
-        @param type: DataType enum value.
-        @param id: Custom node ID.
-        @param degree: Polynomial degree.
-        @param level: Data level.
-        """
-        super().__init__(type=type, id=id)
-        self.level: int = level
-        self.degree: int = degree
-        self.is_ntt = False
-        self.is_mform = False
-        self.sp_level: int | None = None
-
-    def to_json_dict(self) -> dict:
-        d = {
-            'id': self.id,
-            'type': self.type.value,
-            'level': self.level,
-            'degree': self.degree,
-            'is_ntt': self.is_ntt,
-            'is_mform': self.is_mform,
-        }
-        if self.sp_level is not None:
-            d['sp_level'] = self.sp_level
-        if isinstance(self, BfvCompressedPlaintextRingtNode):
-            d['is_compressed'] = self.is_compressed
-        if isinstance(self, CiphertextNode):
-            d['poly1_rns_sp_decomped'] = self.poly1_rns_sp_decomped
-        if isinstance(self, GaloisKeyNode):
-            d['galois_element'] = self.galois_element
-        return d
-
-
-class CustomDataNode(DataNode):
-    """
-    @class CustomDataNode
-    @brief Custom data node type.
-
-    Allows users to create data nodes with custom types and attributes.
-    """
-
-    def __init__(self, type: str, id='', attributes: dict | None = None) -> None:
-        """
-        @brief Constructor.
-        @param type: String identifier for the custom data type.
-        @param id: Node ID.
-        @param attributes: Custom attribute dictionary; can contain arbitrary key-value pairs.
-        """
-        super().__init__(type=type, id=id)
-        self.attributes = attributes if attributes is not None else {}
-
-    def __repr__(self) -> str:
-        return f'(custom_{self.type}, {self.id})'
-
-    def to_json_dict(self) -> dict:
-        d = {
-            'id': self.id,
-            'type': self.type,
-            'is_custom': True,
-        }
-        if self.attributes:
-            d['attributes'] = self.attributes
-        return d
-
-
-class PlaintextNode(FheDataNode):
-    """
-    @class PlaintextNode
-    @brief Plaintext type.
-    """
-
-    def __init__(self, type, id='', level=DEFAULT_LEVEL) -> None:
-        super().__init__(type, id, 0, level)
-
-
-class BfvPlaintextNode(PlaintextNode):
-    """
-    @class BfvPlaintextNode
-    @brief BFV plaintext type.
-    """
-
-    def __init__(self, id='', level=DEFAULT_LEVEL) -> None:
-        super().__init__(DataType.Plaintext, id, level)
-
-
-class BfvPlaintextRingtNode(PlaintextNode):
-    """
-    @class BfvPlaintextRingtNode
-    @brief Plaintext in ring-t representation, used for ciphertext-plaintext multiplication.
-    """
-
-    def __init__(self, id='') -> None:
-        super().__init__(DataType.PlaintextRingt, id, 0)
-
-
-class BfvCompressedPlaintextRingtNode(BfvPlaintextRingtNode):
-    """
-    @class BfvCompressedPlaintextRingtNode
-    @brief Compressed plaintext in ring-t representation, used for ciphertext-plaintext multiplication.
-    """
-
-    def __init__(self, id='', compressed_block_info: list | None = None) -> None:
-        super().__init__(id)
-        assert compressed_block_info is not None
-        self.compressed_block_info = compressed_block_info
-        self.is_compressed = True
-
-
-class BfvPlaintextMulNode(PlaintextNode):
-    """
-    @class BfvPlaintextMulNode
-    @brief Plaintext type for ciphertext-plaintext multiplication.
-    """
-
-    def __init__(self, id='', level=DEFAULT_LEVEL) -> None:
-        super().__init__(DataType.PlaintextMul, id, level)
-        self.is_ntt = True
-        self.is_mform = True
-
-
-class CkksPlaintextNode(PlaintextNode):
-    """
-    @class CkksPlaintextNode
-    @brief CKKS plaintext type.
-    """
-
-    def __init__(self, id='', level=DEFAULT_LEVEL) -> None:
-        super().__init__(DataType.Plaintext, id, level)
-        self.is_ntt = True
-
-
-class CkksPlaintextRingtNode(PlaintextNode):
-    """
-    @class CkksPlaintextRingtNode
-    @brief CKKS plaintext in ring-t representation, used for ciphertext-plaintext multiplication.
-    """
-
-    def __init__(self, id='') -> None:
-        super().__init__(DataType.PlaintextRingt, id, 0)
-        self.is_ntt = False
-
-
-class CkksPlaintextMulNode(PlaintextNode):
-    """
-    @class CkksPlaintextMulNode
-    @brief CKKS plaintext type for ciphertext-plaintext multiplication.
-    """
-
-    def __init__(self, id='', level=DEFAULT_LEVEL) -> None:
-        super().__init__(DataType.PlaintextMul, id, level)
-        self.is_ntt = True
-        self.is_mform = True
-
-
-class CiphertextNode(FheDataNode):
-    """
-    @class CiphertextNode
-    @brief Ciphertext type.
-    """
-
-    def __init__(self, type=DataType.Ciphertext, id='', degree=1, level=DEFAULT_LEVEL) -> None:
-        super().__init__(type, id, degree, level)
-        self.poly1_rns_sp_decomped: bool = False
-
-
-class BfvCiphertextNode(CiphertextNode):
-    """
-    @class BfvCiphertextNode
-    @brief BFV ciphertext type, containing 2 polynomials.
-    """
-
-    def __init__(self, id='', level=DEFAULT_LEVEL) -> None:
-        super().__init__(DataType.Ciphertext, id, 1, level)
-
-
-class BfvCiphertext3Node(CiphertextNode):
-    """
-    @class BfvCiphertext3Node
-    @brief BFV ciphertext type, containing 3 polynomials.
-    """
-
-    def __init__(self, id='', level=DEFAULT_LEVEL) -> None:
-        super().__init__(DataType.Ciphertext3, id, 2, level)
-
-
-class CkksCiphertextNode(CiphertextNode):
-    """
-    @class CkksCiphertextNode
-    @brief CKKS ciphertext type, containing 2 polynomials.
-    """
-
-    def __init__(self, id='', level=DEFAULT_LEVEL) -> None:
-        super().__init__(DataType.Ciphertext, id, 1, level)
-        self.is_ntt = True
-
-
-class CkksCiphertext3Node(CiphertextNode):
-    """
-    @class CkksCiphertext3Node
-    @brief CKKS ciphertext type, containing 3 polynomials.
-    """
-
-    def __init__(self, id='', level=DEFAULT_LEVEL) -> None:
-        super().__init__(DataType.Ciphertext3, id, 2, level)
-        self.is_ntt = True
-
-
-class SwitchKeyNode(FheDataNode):
-    """
-    @class SwitchKeyNode
-    @brief Switch key type.
-    """
-
-    def __init__(self, id='', level=DEFAULT_LEVEL, sp_level=DEFAULT_LEVEL, type=DataType.SwitchKey) -> None:
-        super().__init__(type=type, id=id, degree=1, level=level)
-        self.is_ntt = True
-        self.is_mform = True
-        self.sp_level = sp_level
-
-
-class RelinKeyNode(SwitchKeyNode):
-    """
-    @class RelinKeyNode
-    @brief Relinearization key type.
-    """
-
-    def __init__(self, level=DEFAULT_LEVEL) -> None:
-        assert g_param is not None
-        super().__init__(id='rlk_ntt', level=level, sp_level=g_param.get_max_sp_level(), type=DataType.RelinKey)
-
-
-class GaloisKeyNode(SwitchKeyNode):
-    """
-    @class GaloisKeyNode
-    @brief Galois key type.
-    """
-
-    def __init__(self, id, level=DEFAULT_LEVEL) -> None:
-        assert g_param is not None
-        super().__init__(id=id, level=level, sp_level=g_param.get_max_sp_level(), type=DataType.GaloisKey)
-        self.galois_element = (
-            int(self.id.split('_')[-1]) if 'col' in self.id else get_galois_element_for_row_rotation(g_param.n)
-        )
-
-
-class ComputeNode:
-    """
-    @class ComputeNode
-    @brief Compute node base class.
-
-    Base class for all compute nodes, containing only basic attributes: type, id, index.
-    """
-
-    def __init__(self, type) -> None:
-        """
-        @brief Constructor.
-        @param type: Operation type.
-        """
-        self.type = type
-        self.id = random_id()
-        self.index: int = gen_compute_node_index()
-
-    def __repr__(self):
-        return f'({self.type}, {self.id})'
-
-
-class FheComputeNode(ComputeNode):
-    """
-    @class FheComputeNode
-    @brief FHE compute node type.
-
-    Contains FHE operation types with attributes like compressed_block_info.
-    """
-
-    def __init__(self, type: OperationType) -> None:
-        """
-        @brief Constructor.
-        @param type: OperationType enum value.
-        """
-        super().__init__(type=type)
-        self.compressed_block_info: list | None = None
-
-    def __repr__(self):
-        return f'({self.type.value}, {self.id})'
-
-    def to_json_dict(self, dag: nx.DiGraph) -> dict:
-        d = {
-            'id': self.id,
-            'type': self.type.value,
-            'inputs': [y.index for y in dag.predecessors(self)],
-            'outputs': [s.index for s in dag.successors(self)],
-        }
-        if isinstance(self, RotateColUnitNode):
-            d['step'] = self.step
-            if self.lib != Lib.Lattigo:
-                d['lib'] = self.lib.value
-        elif isinstance(self, RotateRowUnitNode):
-            if self.lib != Lib.Lattigo:
-                d['lib'] = self.lib.value
-        elif isinstance(self, (CmpSumComputeNode, CmpacSumComputeNode)):
-            d['sum_cnt'] = self.sum_cnt
-            d['pt_type'] = self.pt_type.value if isinstance(self.pt_type, DataType) else self.pt_type
-        if self.compressed_block_info is not None:
-            d['compressed_block_info'] = self.compressed_block_info
-        return d
-
-
-class CustomComputeNode(ComputeNode):
-    """
-    @class CustomComputeNode
-    @brief Custom compute node type.
-
-    Allows users to create compute nodes with custom attributes and metadata.
-    """
-
-    def __init__(self, type: str, attributes: dict | None = None) -> None:
-        """
-        @brief Constructor.
-        @param type: String identifier for the custom operation type.
-        @param attributes: Custom attribute dictionary; can contain arbitrary key-value pairs.
-        """
-        super().__init__(type=type)
-        self.attributes = attributes if attributes is not None else {}
-
-    def __repr__(self):
-        return f'(custom_{self.type}, {self.id})'
-
-    def to_json_dict(self, dag: nx.DiGraph) -> dict:
-        d = {
-            'id': self.id,
-            'type': self.type,
-            'is_custom': True,
-            'inputs': [y.index for y in dag.predecessors(self)],
-            'outputs': [s.index for s in dag.successors(self)],
-        }
-        if self.attributes:
-            d['attributes'] = self.attributes
-        return d
-
-
-class CmpSumComputeNode(FheComputeNode):
-    """
-    @class CmpSumComputeNode
-    @brief CmpSum compute node type.
-    """
-
-    def __init__(self, sum_cnt) -> None:
-        super().__init__(type=OperationType.CmpSum)
-        self.sum_cnt = sum_cnt
-        self.pt_type: DataType | str = ''
-
-
-class CmpacSumComputeNode(FheComputeNode):
-    """
-    @class CmpacSumComputeNode
-    @brief CmpacSum compute node type.
-    """
-
-    def __init__(self, sum_cnt) -> None:
-        super().__init__(type=OperationType.CmpacSum)
-        self.sum_cnt = sum_cnt
-        self.pt_type: DataType | str = ''
-
-
-class RotateColUnitNode(FheComputeNode):
-    """
-    @class RotateColUnitNode
-    @brief Column rotation unit type.
-    """
-
-    def __init__(self, step: int, lib=Lib.Lattigo) -> None:
-        super().__init__(type=OperationType.RotateCol)
-        self.step = step
-        self.lib = lib
-
-
-class RotateRowUnitNode(FheComputeNode):
-    """
-    @class RotateRowUnitNode
-    @brief Row rotation unit type.
-    """
-
-    def __init__(self, lib=Lib.Lattigo) -> None:
-        super().__init__(type=OperationType.RotateRow)
-        self.lib = lib
-
-
-class FpgaKernelNode(FheComputeNode):
-    """
-    @class FpgaKernelComputeNode
-    @brief FPGA kernel composite compute node type.
-
-    Represents a composite FPGA sub-project operator in a heterogeneous computation graph.
-    Used in the top-level mega_ag to encapsulate one FPGA sub-project partition.
-    """
-
-    def __init__(self) -> None:
-        super().__init__(type=OperationType.FpgaKernel)
 
 
 def add(
@@ -2036,160 +1203,12 @@ def custom_compute(
     return
 
 
-def _build_fpga_kernels(
-    all_output_list: list,
-    all_offline_list: list,
-    parameter: dict,
-) -> list[tuple['FpgaKernelNode', dict, dict]]:
-    """Partition g_dag at CustomComputeNode boundaries and replace each FPGA partition with a
-    FpgaKernelNode. Returns a list of (kernel_node, sub_mag, sub_sig) for each partition.
-
-    If offline inputs exist, a global offline FpgaKernelNode is prepended to the result.
-    Its outputs are new FheDataNode copies (FPGA-resident) that replace the original offline
-    data nodes as inputs to online kernels in g_dag.
-
-    After this call g_dag contains FpgaKernelNodes connected to boundary FheDataNodes;
-    interior FheComputeNodes and data nodes have been removed.
-    """
-    assert g_param is not None
-
-    result: list[tuple[FpgaKernelNode, dict, dict]] = []
-
-    node_partition: dict = {}
-
-    for node in nx.topological_sort(g_dag):
-        if isinstance(node, FheDataNode):
-            compute_preds = [p for p in g_dag.predecessors(node) if isinstance(p, (FheComputeNode, CustomComputeNode))]
-            if not compute_preds:
-                node_partition[node] = -1  # global / offline input, no barrier crossed yet
-            else:
-                pred = compute_preds[0]
-                node_partition[node] = (
-                    node_partition[pred]
-                    if isinstance(pred, FheComputeNode)
-                    else node_partition[pred] + 1  # crosses a CPU barrier
-                )
-        elif isinstance(node, FheComputeNode):
-            preds = [
-                node_partition[p]
-                for p in g_dag.predecessors(node)
-                if isinstance(p, FheDataNode) and node_partition.get(p, -1) >= 0
-            ]
-            node_partition[node] = max(preds) if preds else 0
-        elif isinstance(node, CustomComputeNode):
-            preds = [
-                node_partition[p]
-                for p in g_dag.predecessors(node)
-                if isinstance(p, FheDataNode) and node_partition.get(p, -1) >= 0
-            ]
-            node_partition[node] = max(preds) if preds else 0
-
-    # Group FheComputeNodes by partition ID. Gaps are possible when custom nodes are chained.
-    partitions: dict[int, list] = {}
-    for node, pid in node_partition.items():
-        if isinstance(node, FheComputeNode):
-            partitions.setdefault(pid, []).append(node)
-
-    all_output_set = set(all_output_list)
-    all_offline_set = set(all_offline_list)
-
-    for pid in sorted(partitions):
-        compute_set = set(partitions[pid])
-
-        # Collect all FheDataNodes referenced by this partition's compute nodes.
-        partition_data: set = set()
-        for cn in compute_set:
-            for n in g_dag.predecessors(cn):
-                if isinstance(n, FheDataNode):
-                    partition_data.add(n)
-            for n in g_dag.successors(cn):
-                if isinstance(n, FheDataNode):
-                    partition_data.add(n)
-
-        inputs: list = []
-        offline_inputs: list = []
-        outputs: list = []
-        interior: set = set()
-        for dn in partition_data:
-            fhe_preds = [p for p in g_dag.predecessors(dn) if isinstance(p, FheComputeNode)]
-            produced_here = any(p in compute_set for p in fhe_preds)
-            if not produced_here:
-                inputs.append(dn)
-                if dn in all_offline_set:
-                    offline_inputs.append(dn)
-            else:
-                succs = list(g_dag.successors(dn))
-                if dn in all_output_set or any(isinstance(s, CustomComputeNode) for s in succs):
-                    outputs.append(dn)
-                else:
-                    interior.add(dn)
-
-        # Sort inputs to match the canonical key ordering used by the FPGA linker:
-        #   CT/PT → RLK → GLK (by galois_element string) → SWK
-        # This mirrors the all_input_list_with_key ordering so that the FPGA_KERNEL's
-        # input list in the JSON is already in the expected polyvec layout order.
-        def _input_sort_key(dn):
-            if isinstance(dn, RelinKeyNode):
-                return (1, '')
-            elif isinstance(dn, GaloisKeyNode):
-                return (2, str(dn.galois_element))
-            elif isinstance(dn, SwitchKeyNode):
-                return (3, '')
-            else:
-                return (0, '')
-
-        inputs.sort(key=_input_sort_key)
-
-        # Build key signature for this partition.
-        rlk_level = -1
-        glk_level: dict[str, int] = {}
-        for dn in inputs:
-            if isinstance(dn, RelinKeyNode):
-                rlk_level = dn.level
-            elif isinstance(dn, GaloisKeyNode):
-                glk_level[str(dn.galois_element)] = dn.level
-
-        # Create FpgaKernelNode — its index doubles as the sub-project directory name.
-        kernel = FpgaKernelNode()
-
-        sub_mag = {
-            'name': f'Kernel {kernel.index}',
-            'algorithm': g_param.algo.value,
-            'parameter': parameter,
-            'data': {dn.index: dn.to_json_dict() for dn in nx.topological_sort(g_dag) if dn in partition_data},
-            'compute': {cn.index: cn.to_json_dict(g_dag) for cn in nx.topological_sort(g_dag) if cn in compute_set},
-            'inputs': [dn.index for dn in inputs],
-            'outputs': [dn.index for dn in outputs],
-            'offline_inputs': [dn.index for dn in offline_inputs],
-        }
-        sub_sig = {
-            'algorithm': g_param.algo.value,
-            'key': {'rlk': rlk_level, 'glk': glk_level},
-            'online': [],
-            'offline': [],
-        }
-
-        # Rewire g_dag: replace this partition with the FpgaKernelNode.
-        for dn in inputs:
-            g_dag.add_edge(dn, kernel)
-        for dn in outputs:
-            g_dag.add_edge(kernel, dn)
-        for cn in compute_set:
-            g_dag.remove_node(cn)
-        for dn in interior:
-            g_dag.remove_node(dn)
-
-        result.append((kernel, sub_mag, sub_sig))
-
-    return result
-
-
 def process_custom_task(
     input_args: list[Argument] | None = None,
     output_args: list[Argument] | None = None,
     offline_input_args: list[Argument] | None = None,
     output_instruction_path: str | None = None,
-    fpga_acc: bool = True,
+    processor: Processor = Processor.CPU,
 ) -> dict:
     """!Process custom task
 
@@ -2203,134 +1222,23 @@ def process_custom_task(
     @param output_args List of all output arguments for the custom task.
     @param offline_input_args List of all offline input arguments (excluding online input data nodes).
     @param output_instruction_path Directory to store the task output files.
-    @param fpga_acc Whether to generate for FPGA accelerator.
+    @param processor Target processor backend (Processor.CPU, Processor.GPU, or Processor.FPGA).
     @return The task abstract computation graph.
     """
-
-    def flatten(x: list | DataNode) -> list[DataNode]:
-        if isinstance(x, list):
-            result: list[DataNode] = []
-            for a in x:
-                result += flatten(a)
-            return result
-        return [x]
-
-    def shape(x: list) -> list[int]:
-        if not isinstance(x, list):
-            return []
-
-        sub_shape = shape(x[0]) if x else []
-        if isinstance(sub_shape, int):
-            return [len(x)]
-
-        return [len(x)] + sub_shape
-
-    def process_data_args(args: list[Argument] | None, phase: str) -> tuple[list[DataNode], list[dict]]:
-        all_data_list = []
-        sig_data_list = []
-        if args is None:
-            return all_data_list, sig_data_list
-        for arg in args:
-            arg_data_list = flatten(arg.data)
-            shape_list = shape(arg.data)
-            if not arg_data_list:
-                raise ValueError(f'No data for arg id "{arg.id}".')
-            node = {}
-            if arg.id in used_id:
-                raise ValueError(f'Same id "{arg.id}" for different Arguments.')
-            node['id'] = arg.id
-            node['type'] = (
-                arg_data_list[0].type.value if isinstance(arg_data_list[0].type, DataType) else arg_data_list[0].type
-            )
-            node['size'] = shape_list
-            if isinstance(arg_data_list[0], FheDataNode):
-                node['level'] = arg_data_list[0].level
-            node['phase'] = phase
-
-            used_id.append(arg.id)
-            all_data_list += arg_data_list
-            sig_data_list.append(node)
-
-        return all_data_list, sig_data_list
-
-    # Check global param is set
     global g_swk_node_dict, g_dag, g_param
     if g_param is None:
         raise RuntimeError('Please call set_fhe_param() before calling process_custom_task().')
 
-    used_id = []
+    try:
+        from .linker.task_context import _TaskContext
+    except ImportError:
+        from linker.task_context import _TaskContext
+    ctx = _TaskContext.build(
+        input_args, output_args, offline_input_args, g_swk_node_dict, name='Acc task', algorithm=g_param.algo.value
+    )
 
-    all_input_list, input_sigdata_list = process_data_args(input_args, 'in')
-    all_output_list, output_sigdata_list = process_data_args(output_args, 'out')
-    all_offline_list, offline_sigdata_list = process_data_args(offline_input_args, 'offline')
-    all_input_list += all_offline_list
-
-    rlk_signature = -1 if 'rlk_ntt' not in g_swk_node_dict else g_swk_node_dict['rlk_ntt'].level
-    if rlk_signature != -1:
-        all_input_list.append(g_swk_node_dict['rlk_ntt'])
-    glk_signature = {}
-    for k, v in g_swk_node_dict.items():
-        if 'col' in k:
-            glk_signature[int(k.split('_')[-1])] = v.level
-            all_input_list.append(v)
-        elif 'row' in k:
-            glk_signature[get_galois_element_for_row_rotation(g_param.n)] = v.level
-            all_input_list.append(v)
-
-    ckks_btp_swk_signature = {}
-    for k, v in g_swk_node_dict.items():
-        if 'swk' in k:
-            ckks_btp_swk_signature[k] = (v.level, v.sp_level)
-            all_input_list.append(v)
-    all_input_list_with_key = all_input_list
-
-    interface_json = {
-        'algorithm': g_param.algo.value,
-        'key': {'rlk': rlk_signature, 'glk': glk_signature},
-        'online': input_sigdata_list + output_sigdata_list,
-        'offline': offline_sigdata_list,
-    }
-    if len(ckks_btp_swk_signature) != 0:
-        interface_json['key']['ckks_btp_swk'] = ckks_btp_swk_signature
-
-    mag = {}
-    mag['name'] = 'Acc task'
-    mag['algorithm'] = g_param.algo.value
-    data = {}
-    mag['data'] = data
-    compute = {}
-    mag['compute'] = compute
-    mag['inputs'] = [x.index for x in all_input_list_with_key]
-    mag['outputs'] = [x.index for x in all_output_list]
-    mag['offline_inputs'] = [x.index for x in all_offline_list]
-
-    parameter = {'n': g_param.n, 'max_level': g_param.max_level, 'q': g_param.q, 'p': g_param.p}
-    if g_param.algo == Algo.BFV:
-        parameter['t'] = g_param.t
-    if isinstance(g_param, CkksParam):
-        parameter['slots'] = g_param.slots
-        parameter['scale'] = g_param.scale
-    if isinstance(g_param, CkksBtpParam):
-        parameter['btp_cts_start_level'] = g_param.cts_params.level_start
-        parameter['btp_cts_depth'] = g_param.cts_params.depth()
-        parameter['btp_cts_bsgs_ratio'] = g_param.cts_params.bsgs_ratio
-        parameter['btp_eval_mod_q'] = g_param.eval_mod_params.q
-        parameter['btp_eval_mod_start_level'] = g_param.eval_mod_params.level_start
-        parameter['btp_eval_mod_scaling_factor'] = g_param.eval_mod_params.scaling_factor
-        parameter['btp_eval_mod_sine_type'] = g_param.eval_mod_params.sine_type.name
-        parameter['btp_eval_mod_message_ratio'] = g_param.eval_mod_params.message_ratio
-        parameter['btp_eval_mod_k'] = g_param.eval_mod_params.k
-        parameter['btp_eval_mod_sine_deg'] = g_param.eval_mod_params.sine_deg
-        parameter['btp_eval_mod_double_angle'] = g_param.eval_mod_params.double_angle
-        parameter['btp_eval_mod_arcsine_deg'] = g_param.eval_mod_params.arcsine_deg
-        parameter['btp_stc_start_level'] = g_param.stc_params.level_start
-        parameter['btp_stc_depth'] = g_param.stc_params.depth()
-        parameter['btp_stc_bsgs_ratio'] = g_param.stc_params.bsgs_ratio
-        parameter['btp_output_level'] = g_param.btp_output_level
-
-    mag['parameter'] = parameter
-
-    for x in all_input_list_with_key:
+    # Validate all input nodes exist in g_dag and feed at least one operation
+    for x in ctx.inputs:
         if x not in g_dag.nodes():
             raise RuntimeError(
                 f'Input data node "{x.id}" is not in the computation graph. '
@@ -2338,16 +1246,16 @@ def process_custom_task(
                 f'process_custom_task() call. The computation graph is cleared after each call. '
                 f'\n\nSolution: Create new data nodes for each task.\n'
                 f'Example: Instead of reusing variables like x, y:\n'
-                f'  # Wrong: reusing nodes\n'
+                f'  # Wrong: reusing nodes across calls\n'
                 f'  x = BfvCiphertextNode("x", level=3)\n'
-                f'  process_custom_task(..., fpga_acc=True)  # First call\n'
-                f'  process_custom_task(..., fpga_acc=False)  # Error! x is no longer in graph\n'
+                f'  process_custom_task(..., processor=Processor.CPU)  # First call — graph cleared\n'
+                f'  process_custom_task(..., processor=Processor.CPU)  # Error! x is no longer in graph\n'
                 f'\n'
-                f'  # Correct: create new nodes for each task\n'
-                f'  x_fpga = BfvCiphertextNode("x", level=3)\n'
-                f'  process_custom_task(..., fpga_acc=True)\n'
-                f'  x_cpu = BfvCiphertextNode("x", level=3)  # New nodes\n'
-                f'  process_custom_task(..., fpga_acc=False)\n'
+                f'  # Correct: create new nodes for each call\n'
+                f'  x1 = BfvCiphertextNode("x", level=3)\n'
+                f'  process_custom_task(..., processor=Processor.CPU)\n'
+                f'  x2 = BfvCiphertextNode("x", level=3)  # New nodes for second call\n'
+                f'  process_custom_task(..., processor=Processor.CPU)\n'
                 f'\n'
                 f'Or better: use a function to build the graph:\n'
                 f'  def build_graph():\n'
@@ -2357,75 +1265,74 @@ def process_custom_task(
                 f'      return x, y, z\n'
                 f'  \n'
                 f'  x1, y1, z1 = build_graph()\n'
-                f'  process_custom_task(..., fpga_acc=True)\n'
+                f'  process_custom_task(..., processor=Processor.CPU)\n'
                 f'  x2, y2, z2 = build_graph()\n'
-                f'  process_custom_task(..., fpga_acc=False)'
+                f'  process_custom_task(..., processor=Processor.CPU)'
             )
         if not g_dag.succ[x]:
             raise ValueError(f'Input data node "{x.id}" is not used for any computation.')
 
-    if fpga_acc:
-        # FPGA supports only n = 8192 now
+    # Validate all non-output data nodes have consumers
+    output_set = set(ctx.outputs)
+    for node in g_dag.nodes():
+        if isinstance(node, (FheDataNode, CustomDataNode)):
+            if not g_dag.succ[node] and node not in output_set:
+                raise ValueError(
+                    f'Data node "{node.index}" is not used for any computation, nor is it an output data node.'
+                )
+
+    # FPGA: partition g_dag into kernel MAGs before serializing the top-level graph
+    if processor == Processor.FPGA:
         if g_param.n != 8192:
             raise ValueError('FPGA mode only supports n = 8192')
-        kernel_mags = _build_fpga_kernels(all_output_list, all_offline_list, parameter)
-    else:
-        kernel_mags = []
 
-    for node in g_dag.nodes():
-        if isinstance(node, CustomComputeNode):
-            op = node
-            if op.index in compute:
-                raise ValueError(f'Same index "{op.index}" for different computation nodes.')
-            compute[op.index] = op.to_json_dict(g_dag)
+    try:
+        from .linker import serialize_dag, serialize_signature
+    except ImportError:
+        from linker import serialize_dag, serialize_signature
 
-        elif isinstance(node, FheComputeNode):
-            op = node
-            if op.index in compute:
-                raise ValueError(f'Same index "{op.index}" for different computation nodes.')
-            compute[op.index] = op.to_json_dict(g_dag)
-
-        elif isinstance(node, FheDataNode):
-            datum = node
-            if datum.index in data:
-                raise ValueError(f'Same index "{datum.index}" for different data nodes.')
-            if not g_dag.succ[datum]:
-                if datum not in all_output_list:
-                    raise ValueError(
-                        f'Data node "{datum.index}" is not used for any computation, nor is it an output data node.'
-                    )
-            data[datum.index] = datum.to_json_dict()
-
-        elif isinstance(node, CustomDataNode):
-            datum = node
-            if datum.index in data:
-                raise ValueError(f'Same index "{datum.index}" for different data nodes.')
-            if not g_dag.succ[datum]:
-                if datum not in all_output_list:
-                    raise ValueError(
-                        f'Data node "{datum.index}" is not used for any computation, nor is it an output data node.'
-                    )
-            data[datum.index] = datum.to_json_dict()
+    _meta = {'name': ctx.name, 'algorithm': ctx.algorithm}
+    mag = serialize_dag(
+        g_dag,
+        inputs=ctx.inputs,
+        outputs=ctx.outputs,
+        offline_inputs=ctx.offline,
+        meta=_meta,
+    )
 
     assert output_instruction_path is not None, 'output_instruction_path must be provided'
-    if not os.path.exists(output_instruction_path):
-        os.makedirs(output_instruction_path)
+    os.makedirs(output_instruction_path, exist_ok=True)
 
-    with open(
-        os.path.join(output_instruction_path, 'task_signature.json'),
-        'w',
-        encoding='utf-8',
-    ) as f:
-        json.dump(interface_json, f, indent=4)
+    with open(os.path.join(output_instruction_path, 'fhe_parameter.json'), 'w', encoding='utf-8') as f:
+        json.dump(g_param.to_json_dict(), f, indent=4)
+
+    with open(os.path.join(output_instruction_path, 'task_signature.json'), 'w', encoding='utf-8') as f:
+        json.dump(serialize_signature(ctx), f, indent=4)
 
     with open(os.path.join(output_instruction_path, 'mega_ag.json'), 'w', encoding='utf-8') as f:
         json.dump(mag, f, indent=4)
 
-    if kernel_mags:
+    if processor == Processor.FPGA:
         try:
-            from .fpga_backend import run_fpga_linker
+            from .linker import apply_processor_layout, compute_properties
+            from .fpga_backend import _build_fpga_kernels, run_fpga_linker
         except ImportError:
-            from fpga_backend import run_fpga_linker
+            from linker import apply_processor_layout, compute_properties
+            from fpga_backend import _build_fpga_kernels, run_fpga_linker
+
+        bridge_dag = apply_processor_layout(g_dag, Processor.FPGA, ctx.inputs, ctx.outputs)
+        kernel_mags = _build_fpga_kernels(bridge_dag, g_param, ctx.outputs, ctx.offline)
+        bridge_dag = compute_properties(bridge_dag)
+        compiled = serialize_dag(
+            bridge_dag,
+            inputs=ctx.inputs,
+            outputs=ctx.outputs,
+            offline_inputs=ctx.offline,
+            meta=_meta,
+        )
+        with open(os.path.join(output_instruction_path, 'compiled_mega_ag.json'), 'w', encoding='utf-8') as f:
+            json.dump(compiled, f, indent=2)
+
         for kernel, sub_mag, sub_sig in kernel_mags:
             sub_dir = os.path.join(output_instruction_path, str(kernel.index))
             os.makedirs(sub_dir, exist_ok=True)
@@ -2434,12 +1341,24 @@ def process_custom_task(
             with open(os.path.join(sub_dir, 'task_signature.json'), 'w', encoding='utf-8') as f:
                 json.dump(sub_sig, f, indent=4)
             run_fpga_linker(sub_dir)
+    elif processor in (Processor.GPU, Processor.CPU):
+        try:
+            from .linker import compile_mega_ag
+        except ImportError:
+            from linker import compile_mega_ag
+        compiled_dag = compile_mega_ag(g_dag, processor, ctx)
+        compiled = serialize_dag(
+            compiled_dag,
+            inputs=ctx.inputs,
+            outputs=ctx.outputs,
+            offline_inputs=ctx.offline,
+            meta=_meta,
+        )
+        with open(os.path.join(output_instruction_path, 'compiled_mega_ag.json'), 'w', encoding='utf-8') as f:
+            json.dump(compiled, f, indent=2)
 
     g_swk_node_dict.clear()
     g_dag.clear()
-    global data_node_count, compute_node_count, random_ids
-    data_node_count = 0
-    compute_node_count = 0
-    random_ids = set()
+    reset_node_state()
 
     return mag
