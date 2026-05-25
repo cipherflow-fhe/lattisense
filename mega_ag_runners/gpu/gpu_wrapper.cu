@@ -137,6 +137,19 @@ void init_gpu_context(const nlohmann::json& param_json,
     }
 }
 
+static bool contains_internal_load_to_backend(const ComputeNode& node) {
+    if (!node.fhe_prop.has_value() || node.fhe_prop->op_type != OperationType::COMPOUND ||
+        !node.compound_prop.has_value()) {
+        return false;
+    }
+
+    return std::any_of(node.compound_prop->internal_nodes.begin(), node.compound_prop->internal_nodes.end(),
+                       [](const ComputeNode& internal_node) {
+                           return internal_node.fhe_prop.has_value() &&
+                                  internal_node.fhe_prop->op_type == OperationType::LOAD_TO_BACKEND;
+                       });
+}
+
 template <heongpu::Scheme SchemeType, typename TContext>
 void _run_mega_ag_impl(gsl::span<CArgument> input_args,
                        gsl::span<CArgument> output_args,
@@ -222,16 +235,18 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
                         compute_node.fhe_prop.has_value() ? compute_node.fhe_prop->op_type : OperationType::UNKNOWN;
 
                     const std::vector<DatumNode*>& compute_input_nodes = compute_node.input_nodes;
+                    const bool accepts_inputs_without_events =
+                        op == OperationType::LOAD_TO_BACKEND || contains_internal_load_to_backend(compute_node);
 
                     std::vector<cudaEvent_t> events_to_wait;
                     std::unordered_map<uint64_t, std::any> thread_input_cache;
                     {
                         std::lock_guard<std::mutex> lock(m_mutex);
 
-                        // Check if all BACKEND input events are available
-                        // ABI inputs (from CPU via LOAD_TO_BACKEND) don't have events
+                        // Check if all BACKEND input events are available.
+                        // ABI inputs for LOAD_TO_BACKEND don't have events.
                         bool events_ready = true;
-                        if (op != OperationType::LOAD_TO_BACKEND) {
+                        if (!accepts_inputs_without_events) {
                             for (const auto* input_node : compute_input_nodes) {
                                 auto event_it = data_ready_events.find(input_node->index);
                                 if (event_it == data_ready_events.end()) {
@@ -247,15 +262,13 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
                             return;
                         }
 
-                        // Collect events to wait for and cache data pointers
+                        // Collect events to wait for and cache data pointers.
                         for (const auto* input_node : compute_input_nodes) {
-                            // Cache input data
                             thread_input_cache[input_node->index] = available_data[input_node->index];
 
-                            // Collect events for GPU backend inputs
-                            // LOAD_TO_BACKEND loads from CPU (no events), other ops use GPU inputs (have events)
-                            if (op != OperationType::LOAD_TO_BACKEND) {
-                                events_to_wait.push_back(data_ready_events[input_node->index]);
+                            auto event_it = data_ready_events.find(input_node->index);
+                            if (event_it != data_ready_events.end()) {
+                                events_to_wait.push_back(event_it->second);
                             }
                         }
                     }
@@ -271,8 +284,8 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
                     exec_ctx.other_args.push_back(&stream_options[stream_id]);
                     exec_ctx.other_args.push_back(&context);
 
-                    // LOAD_TO_BACKEND needs galois_key parameters after the common stream/context args
-                    if (op == OperationType::LOAD_TO_BACKEND) {
+                    // LOAD_TO_BACKEND needs galois_key parameters after the common stream/context args.
+                    if (accepts_inputs_without_events) {
                         exec_ctx.other_args.push_back(&galois_key);
                         exec_ctx.other_args.push_back(&galois_key_mutex);
                         exec_ctx.other_args.push_back(&all_galois_elts);

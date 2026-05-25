@@ -192,14 +192,24 @@ struct MegaAG {
                                    const ExecutorFunc& abi_import,
                                    const ExecutorFunc& backend_load = {},
                                    const ExecutorFunc& backend_store = {}) {
+        auto bind_one = [&](ComputeNode& compute) {
+            if (!compute.fhe_prop.has_value()) {
+                return;
+            }
+            switch (compute.fhe_prop->op_type) {
+                case OperationType::EXPORT_TO_ABI: compute.executor = abi_export; break;
+                case OperationType::IMPORT_FROM_ABI: compute.executor = abi_import; break;
+                case OperationType::LOAD_TO_BACKEND: compute.executor = backend_load; break;
+                case OperationType::STORE_FROM_BACKEND: compute.executor = backend_store; break;
+                default: break;
+            }
+        };
+
         for (auto& [index, compute] : computes) {
-            if (compute.fhe_prop.has_value()) {
-                switch (compute.fhe_prop->op_type) {
-                    case OperationType::EXPORT_TO_ABI: compute.executor = abi_export; break;
-                    case OperationType::IMPORT_FROM_ABI: compute.executor = abi_import; break;
-                    case OperationType::LOAD_TO_BACKEND: compute.executor = backend_load; break;
-                    case OperationType::STORE_FROM_BACKEND: compute.executor = backend_store; break;
-                    default: break;
+            bind_one(compute);
+            if (compute.compound_prop.has_value()) {
+                for (auto& internal_compute : compute.compound_prop->internal_nodes) {
+                    bind_one(internal_compute);
                 }
             }
         }

@@ -26,6 +26,8 @@ Steps:
 Entry point: compile_mega_ag(dag, processor, *, inputs, outputs, ...)
 """
 
+from collections import defaultdict
+
 import networkx as nx
 
 from frontend.types import (
@@ -61,6 +63,8 @@ def compile_mega_ag(
     dag = apply_processor_layout(dag, processor, ctx.inputs, ctx.outputs)
     dag = form_chains(dag, processor, ctx.outputs)
     dag = compute_properties(dag)
+    dag = form_gpu_load_batches(dag, processor)
+    dag = compute_properties(dag)
     return dag
 
 
@@ -84,6 +88,8 @@ _MERGEABLE_OP_TYPES: frozenset[OperationType] = frozenset(
         OperationType.CmpacSum,
     }
 )
+_LOAD_BATCH_MAX_SIZE = 4
+_LOAD_BATCH_MIN_SIZE = 2
 
 
 class _CompoundComputeNode(ComputeNode):
@@ -241,6 +247,102 @@ def _make_compound_node(dag: nx.DiGraph, chain: list, processor: Processor, grap
         ext_inputs=_chain_external_inputs(dag, chain),
         ext_outputs=_chain_external_outputs(dag, chain, graph_outputs),
     )
+
+
+# ---------------------------------------------------------------------------
+# GPU load_to_backend batching
+# ---------------------------------------------------------------------------
+
+
+def form_gpu_load_batches(dag: nx.DiGraph, processor: Processor) -> nx.DiGraph:
+    """Batch independent GPU load_to_backend nodes with matching bottom-level priority."""
+    if processor != Processor.GPU:
+        return dag
+
+    compute_topo = [n for n in nx.topological_sort(dag) if is_compute_node(n)]
+    loads_by_priority: dict[int, list] = defaultdict(list)
+    for node in compute_topo:
+        if _is_load_batch_eligible(dag, node):
+            loads_by_priority[node.priority].append(node)
+
+    first_load_to_batch: dict[object, list] = {}
+    batched_loads: set = set()
+    for loads in loads_by_priority.values():
+        for start in range(0, len(loads), _LOAD_BATCH_MAX_SIZE):
+            chunk = loads[start : start + _LOAD_BATCH_MAX_SIZE]
+            if len(chunk) >= _LOAD_BATCH_MIN_SIZE:
+                first_load_to_batch[chunk[0]] = chunk
+                batched_loads.update(chunk)
+
+    if not batched_loads:
+        return dag
+
+    new_dag = nx.DiGraph()
+    for node in dag.nodes():
+        if is_data_node(node):
+            new_dag.add_node(node)
+
+    for node in compute_topo:
+        if node in batched_loads:
+            if node not in first_load_to_batch:
+                continue
+            compound = _make_load_batch_compound_node(dag, first_load_to_batch[node], processor)
+            new_dag.add_node(compound)
+            for data in compound._ext_inputs:
+                new_dag.add_edge(data, compound)
+            for data in compound._ext_outputs:
+                new_dag.add_edge(compound, data)
+            continue
+
+        new_dag.add_node(node)
+        for pred in dag.predecessors(node):
+            if pred in new_dag:
+                new_dag.add_edge(pred, node)
+        for succ in dag.successors(node):
+            if succ in new_dag:
+                new_dag.add_edge(node, succ)
+
+    return new_dag
+
+
+def _is_load_batch_eligible(dag: nx.DiGraph, node) -> bool:
+    if not is_bridge_compute(node) or getattr(node, 'type', None) != OperationType.LoadToBackend:
+        return False
+
+    inputs = _data_predecessors(dag, node)
+    outputs = _data_successors(dag, node)
+    return len(inputs) == 1 and len(outputs) == 1 and not is_key_data_node(outputs[0])
+
+
+def _make_load_batch_compound_node(dag: nx.DiGraph, loads: list, processor: Processor) -> _CompoundComputeNode:
+    internal_ops = []
+    ext_inputs = []
+    ext_outputs = []
+    seen_inputs: set = set()
+    seen_outputs: set = set()
+
+    for op in loads:
+        op_json = op.to_json_dict(dag)
+        internal_ops.append({'index': op.index, **op_json})
+
+        for data in _data_predecessors(dag, op):
+            if data not in seen_inputs:
+                ext_inputs.append(data)
+                seen_inputs.add(data)
+        for data in _data_successors(dag, op):
+            if data not in seen_outputs:
+                ext_outputs.append(data)
+                seen_outputs.add(data)
+
+    compound = _CompoundComputeNode(
+        processor=processor,
+        internal_ops=internal_ops,
+        ext_inputs=ext_inputs,
+        ext_outputs=ext_outputs,
+    )
+    compound.id = f'load_batch_{compound.index}'
+    compound.on_cpu = False
+    return compound
 
 
 def _chain_external_inputs(dag: nx.DiGraph, chain: list) -> list:
