@@ -102,6 +102,9 @@ static ComputeNode parse_internal_compute_node(const nlohmann::json& value, Mega
 
     auto input_indices = value["inputs"].get<std::vector<NodeIndex>>();
     auto output_indices = value["outputs"].get<std::vector<NodeIndex>>();
+    if (output_indices.size() != 1) {
+        throw std::runtime_error("COMPOUND internal node must have exactly one output");
+    }
     attach_io_nodes(internal, mega_ag, input_indices, output_indices, processor);
 
     if (!is_abi_bridge_operation(op_type) && processor != Processor::FPGA) {
@@ -234,6 +237,9 @@ MegaAG MegaAG::load(const std::string& project_path, Processor processor) {
         attach_io_nodes(node, mega_ag, input_indices, output_indices, processor);
 
         if (node.fhe_prop.has_value() && node.fhe_prop->op_type == OperationType::COMPOUND) {
+            if (node.output_nodes.empty()) {
+                throw std::runtime_error("COMPOUND node must have at least one output");
+            }
             if (!value.contains("internal_ops")) {
                 throw std::runtime_error("COMPOUND node is missing internal_ops");
             }

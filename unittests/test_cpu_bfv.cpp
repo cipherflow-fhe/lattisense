@@ -1228,18 +1228,19 @@ TEMPLATE_TEST_CASE_METHOD(BfvFixture, "BFV custom cmpac", "", BfvTestDefaultPara
             FheTaskCpu cpu_project(path);
 
             std::unordered_map<std::string, ExecutorFunc> custom_executors;
-            custom_executors["encode_ringt"] = [this](ExecutionContext& exec_ctx,
-                                                      const std::unordered_map<NodeIndex, std::any>& inputs,
-                                                      std::any& output, const ComputeNode& self) -> void {
+            custom_executors["encode_ringt"] =
+                [this](ExecutionContext& exec_ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
+                       std::unordered_map<NodeIndex, std::any>& outputs, const ComputeNode& self) -> void {
                 auto* bfv_ctx = exec_ctx.get_arithmetic_context<BfvContext>();
                 auto input_node_idx = self.input_nodes[0]->index;
                 auto input_handle_ptr = std::any_cast<std::shared_ptr<CustomData>>(inputs.at(input_node_idx));
                 auto* msg_vec = input_handle_ptr->get_typed_data<std::vector<uint64_t>>();
-                output = std::make_shared<BfvPlaintextRingt>(bfv_ctx->encode_ringt(*msg_vec));
+                outputs[self.output_nodes[0]->index] =
+                    std::make_shared<BfvPlaintextRingt>(bfv_ctx->encode_ringt(*msg_vec));
             };
-            custom_executors["encode"] = [this](ExecutionContext& exec_ctx,
-                                                const std::unordered_map<NodeIndex, std::any>& inputs, std::any& output,
-                                                const ComputeNode& self) -> void {
+            custom_executors["encode"] =
+                [this](ExecutionContext& exec_ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
+                       std::unordered_map<NodeIndex, std::any>& outputs, const ComputeNode& self) -> void {
                 auto* bfv_ctx = exec_ctx.get_arithmetic_context<BfvContext>();
                 if (!self.custom_prop.has_value())
                     throw std::runtime_error("Custom property not found for encode operation");
@@ -1247,7 +1248,8 @@ TEMPLATE_TEST_CASE_METHOD(BfvFixture, "BFV custom cmpac", "", BfvTestDefaultPara
                 auto input_node_idx = self.input_nodes[0]->index;
                 auto input_handle_ptr = std::any_cast<std::shared_ptr<CustomData>>(inputs.at(input_node_idx));
                 auto* msg_vec = input_handle_ptr->get_typed_data<std::vector<uint64_t>>();
-                output = std::make_shared<BfvPlaintext>(bfv_ctx->encode(*msg_vec, encode_level));
+                outputs[self.output_nodes[0]->index] =
+                    std::make_shared<BfvPlaintext>(bfv_ctx->encode(*msg_vec, encode_level));
             };
 
             cpu_project.bind_custom_executors(custom_executors);

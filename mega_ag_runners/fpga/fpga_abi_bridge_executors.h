@@ -159,8 +159,8 @@ inline void free_polyvec_64_terms(polyvec_64* pv) {
  * @note Requires current offset (int) in ExecutionContext other_args[1]
  */
 inline ExecutorFunc create_load_to_fpga_executor() {
-    return [](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs, std::any& output,
-              const ComputeNode& self) -> void {
+    return [](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
+              std::unordered_map<NodeIndex, std::any>& outputs, const ComputeNode& self) -> void {
         // Check if FHE properties exist
         if (!self.fhe_prop.has_value()) {
             throw std::runtime_error("ComputeNode missing FHE properties for FPGA executor");
@@ -212,7 +212,7 @@ inline ExecutorFunc create_load_to_fpga_executor() {
         }
 
         // Output is the new offset (for verification/debugging)
-        output = new_offset;
+        outputs[self.output_nodes[0]->index] = new_offset;
     };
 }
 

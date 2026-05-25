@@ -62,7 +62,7 @@ struct ExecutionContext {
 // Unified executor function signature
 using ExecutorFunc = std::function<void(ExecutionContext& ctx,
                                         const std::unordered_map<NodeIndex, std::any>& inputs,
-                                        std::any& output,
+                                        std::unordered_map<NodeIndex, std::any>& outputs,
                                         const ComputeNode& self)>;
 
 enum class OperationType {
@@ -242,21 +242,23 @@ struct MegaAG {
 
     template <typename T>
     std::unordered_set<NodeIndex>
-    step_available_computes(const DatumNode& newly_available_datum,
+    step_available_computes(const ComputeNode& completed_compute,
                             const std::unordered_map<NodeIndex, T>& available_data) const {
         std::unordered_set<NodeIndex> newly_available_computes;
 
-        for (auto* compute_node : newly_available_datum.successors) {
-            bool input_missing = false;
-            for (const auto* required_node : compute_node->input_nodes) {
-                if (available_data.find(required_node->index) == available_data.end()) {
-                    input_missing = true;
-                    break;
+        for (const auto* output_node : completed_compute.output_nodes) {
+            for (auto* compute_node : output_node->successors) {
+                bool input_missing = false;
+                for (const auto* required_node : compute_node->input_nodes) {
+                    if (available_data.find(required_node->index) == available_data.end()) {
+                        input_missing = true;
+                        break;
+                    }
                 }
-            }
 
-            if (!input_missing) {
-                newly_available_computes.insert(compute_node->index);
+                if (!input_missing) {
+                    newly_available_computes.insert(compute_node->index);
+                }
             }
         }
 

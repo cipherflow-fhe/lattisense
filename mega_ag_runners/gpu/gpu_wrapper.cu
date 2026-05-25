@@ -222,7 +222,6 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
                         compute_node.fhe_prop.has_value() ? compute_node.fhe_prop->op_type : OperationType::UNKNOWN;
 
                     const std::vector<DatumNode*>& compute_input_nodes = compute_node.input_nodes;
-                    const DatumNode* compute_output_node = compute_node.output_nodes[0];
 
                     std::vector<cudaEvent_t> events_to_wait;
                     std::unordered_map<uint64_t, std::any> thread_input_cache;
@@ -279,44 +278,33 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
                         exec_ctx.other_args.push_back(&all_galois_elts);
                     }
 
-                    std::any output;
+                    std::unordered_map<NodeIndex, std::any> outputs;
 
-                    // Allocate output based on operation type
-                    // GPU FHE ops: pre-allocate GPU ciphertext (except LOAD and STORE which handle allocation
-                    // internally) LOAD_TO_BACKEND: allocates GPU memory internally STORE_FROM_BACKEND: outputs to C
-                    // struct (not GPU memory)
-                    if (op != OperationType::LOAD_TO_BACKEND && op != OperationType::STORE_FROM_BACKEND) {
-                        int output_level = compute_output_node->fhe_prop->level;
-                        auto output_ptr = std::make_shared<heongpu::Ciphertext<SchemeType>>(context, output_level,
-                                                                                            stream_options[stream_id]);
-                        output = output_ptr;
-                    }
+                    compute_node.executor(exec_ctx, thread_input_cache, outputs, compute_node);
 
-                    compute_node.executor(exec_ctx, thread_input_cache, output, compute_node);
-
-                    // Create event for GPU backend outputs (not STORE_FROM_BACKEND which outputs to C struct)
-                    cudaEvent_t output_event;
-                    bool has_output_event = false;
+                    // Create events for GPU backend outputs (not STORE_FROM_BACKEND which outputs to C struct)
+                    std::vector<cudaEvent_t> output_events;
                     if (op != OperationType::STORE_FROM_BACKEND) {
-                        CHECK(cudaEventCreate(&output_event));
-                        CHECK(cudaEventRecord(output_event, streams[stream_id]));
-                        has_output_event = true;
+                        output_events.reserve(compute_node.output_nodes.size());
+                        for (size_t i = 0; i < compute_node.output_nodes.size(); ++i) {
+                            cudaEvent_t output_event;
+                            CHECK(cudaEventCreate(&output_event));
+                            CHECK(cudaEventRecord(output_event, streams[stream_id]));
+                            output_events.push_back(output_event);
+                        }
                     }
 
                     {
                         std::lock_guard<std::mutex> lock(m_mutex);
 
-                        // Store output in available_data
-                        available_data[compute_output_node->index] = output;
-
-                        // Store event if created
-                        if (has_output_event) {
-                            data_ready_events[compute_output_node->index] = output_event;
+                        for (const auto* output_node : compute_node.output_nodes) {
+                            available_data[output_node->index] = outputs.at(output_node->index);
                         }
+                        auto newly_available_computes = mega_ag.step_available_computes(compute_node, available_data);
 
-                        // Update available computes
-                        std::unordered_set<NodeIndex> newly_available_computes =
-                            mega_ag.step_available_computes(*compute_output_node, available_data);
+                        for (size_t i = 0; i < output_events.size(); ++i) {
+                            data_ready_events[compute_node.output_nodes[i]->index] = output_events[i];
+                        }
 
                         for (const auto& new_task_index : newly_available_computes) {
                             if (queued_computes.find(new_task_index) == queued_computes.end()) {
@@ -327,11 +315,9 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
                     }
 
                     gpu_pool.detach_task(
-                        [compute_node, output_event, has_output_event, device, &mega_ag, &m_mutex, &available_data,
-                         &data_ref_counts]() {
+                        [compute_node, output_events, device, &mega_ag, &m_mutex, &available_data, &data_ref_counts]() {
                             CHECK(cudaSetDevice(device));
-                            // Wait for GPU computation to complete if event exists
-                            if (has_output_event) {
+                            for (auto& output_event : output_events) {
                                 CHECK(cudaEventSynchronize(output_event));
                             }
 

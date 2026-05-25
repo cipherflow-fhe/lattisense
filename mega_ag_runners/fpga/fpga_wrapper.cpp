@@ -290,11 +290,11 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
                     for (const DatumNode* fpga_out : kernel.output_nodes) {
                         available_data[fpga_out->index] = std::any{};
 
-                        // c_struct was pre-allocated; schedule IMPORT via step_available_computes
-                        auto [c_struct_node, _] = fpga_output_bridge(fpga_out);
+                        // c_struct was pre-allocated; STORE is skipped but its outputs are ready.
+                        const ComputeNode* store_node = fpga_out->successors[0];
 
                         std::unordered_set<NodeIndex> new_computes =
-                            mega_ag.step_available_computes(*c_struct_node, available_data);
+                            mega_ag.step_available_computes(*store_node, available_data);
                         for (NodeIndex nc : new_computes) {
                             if (queued_computes.find(nc) == queued_computes.end()) {
                                 task_queue.push({mega_ag.computes.at(nc).priority, nc});

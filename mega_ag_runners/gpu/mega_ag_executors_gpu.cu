@@ -68,14 +68,29 @@ template <typename T> T& _get_input_data(const std::unordered_map<NodeIndex, std
     return data;
 }
 
+template <heongpu::Scheme S>
+Ct<S>&
+_create_output_data(ExecutionContext& ctx, std::unordered_map<NodeIndex, std::any>& outputs, const DatumNode& node) {
+    if (!node.fhe_prop.has_value()) {
+        throw std::runtime_error("FHE property not found for output node " + std::to_string(node.index));
+    }
+    auto* context = ctx.get_other_arg<heongpu::HEContext<S>>(1);
+    auto* stream_option = ctx.get_other_arg<heongpu::ExecutionOptions>(0);
+    if (!context || !stream_option) {
+        throw std::runtime_error("GPU output allocation requires HEContext and stream options");
+    }
+    outputs[node.index] = std::make_shared<Ct<S>>(*context, node.fhe_prop->level, *stream_option);
+    return *std::any_cast<std::shared_ptr<Ct<S>>>(outputs.at(node.index));
+}
+
 template <heongpu::Scheme S> void bind_gpu_add(ComputeNode& node) {
     if (node.input_nodes.size() == 1) {
         // Single input: ct + ct (same input)
         node.executor = [](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
-                           std::any& output, const ComputeNode& self) -> void {
+                           std::unordered_map<NodeIndex, std::any>& outputs, const ComputeNode& self) -> void {
             auto [operators, stream_option] = _get_operator_and_stream_option<S>(ctx);
             auto& input0 = _get_input_data<Ct<S>>(inputs, *self.input_nodes[0]);
-            auto& output0 = *std::any_cast<std::shared_ptr<Ct<S>>>(output);
+            auto& output0 = _create_output_data<S>(ctx, outputs, *self.output_nodes[0]);
             operators.add(input0, input0, output0, stream_option);
         };
     } else {
@@ -83,33 +98,33 @@ template <heongpu::Scheme S> void bind_gpu_add(ComputeNode& node) {
         if (pt_node) {
             if (pt_node->fhe_prop->p && pt_node->fhe_prop->p->is_ringt) {
                 node.executor = [](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
-                                   std::any& output, const ComputeNode& self) -> void {
+                                   std::unordered_map<NodeIndex, std::any>& outputs, const ComputeNode& self) -> void {
                     auto [operators, stream_option] = _get_operator_and_stream_option<S>(ctx);
                     auto& input0 = _get_input_data<Ct<S>>(inputs, *self.input_nodes[0]);
                     auto& input1 = _get_input_data<Pt<S>>(inputs, *self.input_nodes[1]);
-                    auto& output0 = *std::any_cast<std::shared_ptr<Ct<S>>>(output);
+                    auto& output0 = _create_output_data<S>(ctx, outputs, *self.output_nodes[0]);
                     input1.set_ringt(true);
                     operators.add_plain(input0, input1, output0, stream_option);
                 };
             } else {
                 // ct + pt (normal plaintext)
                 node.executor = [](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
-                                   std::any& output, const ComputeNode& self) -> void {
+                                   std::unordered_map<NodeIndex, std::any>& outputs, const ComputeNode& self) -> void {
                     auto [operators, stream_option] = _get_operator_and_stream_option<S>(ctx);
                     auto& input0 = _get_input_data<Ct<S>>(inputs, *self.input_nodes[0]);
                     auto& input1 = _get_input_data<Pt<S>>(inputs, *self.input_nodes[1]);
-                    auto& output0 = *std::any_cast<std::shared_ptr<Ct<S>>>(output);
+                    auto& output0 = _create_output_data<S>(ctx, outputs, *self.output_nodes[0]);
                     operators.add_plain(input0, input1, output0, stream_option);
                 };
             }
         } else {
             // ct + ct
             node.executor = [](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
-                               std::any& output, const ComputeNode& self) -> void {
+                               std::unordered_map<NodeIndex, std::any>& outputs, const ComputeNode& self) -> void {
                 auto [operators, stream_option] = _get_operator_and_stream_option<S>(ctx);
                 auto& input0 = _get_input_data<Ct<S>>(inputs, *self.input_nodes[0]);
                 auto& input1 = _get_input_data<Ct<S>>(inputs, *self.input_nodes[1]);
-                auto& output0 = *std::any_cast<std::shared_ptr<Ct<S>>>(output);
+                auto& output0 = _create_output_data<S>(ctx, outputs, *self.output_nodes[0]);
                 operators.add(input0, input1, output0, stream_option);
             };
         }
@@ -120,10 +135,10 @@ template <heongpu::Scheme S> void bind_gpu_sub(ComputeNode& node) {
     if (node.input_nodes.size() == 1) {
         // Single input: ct - ct (same input)
         node.executor = [](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
-                           std::any& output, const ComputeNode& self) -> void {
+                           std::unordered_map<NodeIndex, std::any>& outputs, const ComputeNode& self) -> void {
             auto [operators, stream_option] = _get_operator_and_stream_option<S>(ctx);
             auto& input0 = _get_input_data<Ct<S>>(inputs, *self.input_nodes[0]);
-            auto& output0 = *std::any_cast<std::shared_ptr<Ct<S>>>(output);
+            auto& output0 = _create_output_data<S>(ctx, outputs, *self.output_nodes[0]);
             operators.sub(input0, input0, output0, stream_option);
         };
     } else {
@@ -131,33 +146,33 @@ template <heongpu::Scheme S> void bind_gpu_sub(ComputeNode& node) {
         if (pt_node) {
             if (pt_node->fhe_prop->p && pt_node->fhe_prop->p->is_ringt) {
                 node.executor = [](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
-                                   std::any& output, const ComputeNode& self) -> void {
+                                   std::unordered_map<NodeIndex, std::any>& outputs, const ComputeNode& self) -> void {
                     auto [operators, stream_option] = _get_operator_and_stream_option<S>(ctx);
                     auto& input0 = _get_input_data<Ct<S>>(inputs, *self.input_nodes[0]);
                     auto& input1 = _get_input_data<Pt<S>>(inputs, *self.input_nodes[1]);
-                    auto& output0 = *std::any_cast<std::shared_ptr<Ct<S>>>(output);
+                    auto& output0 = _create_output_data<S>(ctx, outputs, *self.output_nodes[0]);
                     input1.set_ringt(true);
                     operators.sub_plain(input0, input1, output0, stream_option);
                 };
             } else {
                 // ct - pt (normal plaintext)
                 node.executor = [](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
-                                   std::any& output, const ComputeNode& self) -> void {
+                                   std::unordered_map<NodeIndex, std::any>& outputs, const ComputeNode& self) -> void {
                     auto [operators, stream_option] = _get_operator_and_stream_option<S>(ctx);
                     auto& input0 = _get_input_data<Ct<S>>(inputs, *self.input_nodes[0]);
                     auto& input1 = _get_input_data<Pt<S>>(inputs, *self.input_nodes[1]);
-                    auto& output0 = *std::any_cast<std::shared_ptr<Ct<S>>>(output);
+                    auto& output0 = _create_output_data<S>(ctx, outputs, *self.output_nodes[0]);
                     operators.sub_plain(input0, input1, output0, stream_option);
                 };
             }
         } else {
             // ct - ct
             node.executor = [](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
-                               std::any& output, const ComputeNode& self) -> void {
+                               std::unordered_map<NodeIndex, std::any>& outputs, const ComputeNode& self) -> void {
                 auto [operators, stream_option] = _get_operator_and_stream_option<S>(ctx);
                 auto& input0 = _get_input_data<Ct<S>>(inputs, *self.input_nodes[0]);
                 auto& input1 = _get_input_data<Ct<S>>(inputs, *self.input_nodes[1]);
-                auto& output0 = *std::any_cast<std::shared_ptr<Ct<S>>>(output);
+                auto& output0 = _create_output_data<S>(ctx, outputs, *self.output_nodes[0]);
                 operators.sub(input0, input1, output0, stream_option);
             };
         }
@@ -165,11 +180,11 @@ template <heongpu::Scheme S> void bind_gpu_sub(ComputeNode& node) {
 }
 
 template <heongpu::Scheme S> void bind_gpu_neg(ComputeNode& node) {
-    node.executor = [](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs, std::any& output,
-                       const ComputeNode& self) -> void {
+    node.executor = [](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
+                       std::unordered_map<NodeIndex, std::any>& outputs, const ComputeNode& self) -> void {
         auto [operators, stream_option] = _get_operator_and_stream_option<S>(ctx);
         auto& input0 = _get_input_data<Ct<S>>(inputs, *self.input_nodes[0]);
-        auto& output0 = *std::any_cast<std::shared_ptr<Ct<S>>>(output);
+        auto& output0 = _create_output_data<S>(ctx, outputs, *self.output_nodes[0]);
         operators.negate(input0, output0, stream_option);
     };
 }
@@ -178,10 +193,10 @@ template <heongpu::Scheme S> void bind_gpu_mult(ComputeNode& node) {
     if (node.input_nodes.size() == 1) {
         // Single input: ct * ct (same input)
         node.executor = [](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
-                           std::any& output, const ComputeNode& self) -> void {
+                           std::unordered_map<NodeIndex, std::any>& outputs, const ComputeNode& self) -> void {
             auto [operators, stream_option] = _get_operator_and_stream_option<S>(ctx);
             auto& input0 = _get_input_data<Ct<S>>(inputs, *self.input_nodes[0]);
-            auto& output0 = *std::any_cast<std::shared_ptr<Ct<S>>>(output);
+            auto& output0 = _create_output_data<S>(ctx, outputs, *self.output_nodes[0]);
             operators.multiply(input0, input0, output0, stream_option);
         };
     } else {
@@ -189,11 +204,11 @@ template <heongpu::Scheme S> void bind_gpu_mult(ComputeNode& node) {
         if (pt_node) {
             if (pt_node->fhe_prop->p && pt_node->fhe_prop->p->is_ringt) {
                 node.executor = [](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
-                                   std::any& output, const ComputeNode& self) -> void {
+                                   std::unordered_map<NodeIndex, std::any>& outputs, const ComputeNode& self) -> void {
                     auto [operators, stream_option] = _get_operator_and_stream_option<S>(ctx);
                     auto& input0 = _get_input_data<Ct<S>>(inputs, *self.input_nodes[0]);
                     auto& input1 = _get_input_data<Pt<S>>(inputs, *self.input_nodes[1]);
-                    auto& output0 = *std::any_cast<std::shared_ptr<Ct<S>>>(output);
+                    auto& output0 = _create_output_data<S>(ctx, outputs, *self.output_nodes[0]);
                     input1.set_ringt(true);
                     operators.multiply_plain(input0, input1, output0, stream_option);
                 };
@@ -201,11 +216,12 @@ template <heongpu::Scheme S> void bind_gpu_mult(ComputeNode& node) {
                 // ct * pt (normal plaintext)
                 if constexpr (S == heongpu::Scheme::CKKS) {
                     node.executor = [](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
-                                       std::any& output, const ComputeNode& self) -> void {
+                                       std::unordered_map<NodeIndex, std::any>& outputs,
+                                       const ComputeNode& self) -> void {
                         auto [operators, stream_option] = _get_operator_and_stream_option<S>(ctx);
                         auto& input0 = _get_input_data<Ct<S>>(inputs, *self.input_nodes[0]);
                         auto& input1 = _get_input_data<Pt<S>>(inputs, *self.input_nodes[1]);
-                        auto& output0 = *std::any_cast<std::shared_ptr<Ct<S>>>(output);
+                        auto& output0 = _create_output_data<S>(ctx, outputs, *self.output_nodes[0]);
                         operators.multiply_plain(input0, input1, output0, stream_option);
                     };
                 } else {
@@ -215,11 +231,11 @@ template <heongpu::Scheme S> void bind_gpu_mult(ComputeNode& node) {
         } else {
             // ct * ct
             node.executor = [](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
-                               std::any& output, const ComputeNode& self) -> void {
+                               std::unordered_map<NodeIndex, std::any>& outputs, const ComputeNode& self) -> void {
                 auto [operators, stream_option] = _get_operator_and_stream_option<S>(ctx);
                 auto& input0 = _get_input_data<Ct<S>>(inputs, *self.input_nodes[0]);
                 auto& input1 = _get_input_data<Ct<S>>(inputs, *self.input_nodes[1]);
-                auto& output0 = *std::any_cast<std::shared_ptr<Ct<S>>>(output);
+                auto& output0 = _create_output_data<S>(ctx, outputs, *self.output_nodes[0]);
                 operators.multiply(input0, input1, output0, stream_option);
             };
         }
@@ -227,22 +243,22 @@ template <heongpu::Scheme S> void bind_gpu_mult(ComputeNode& node) {
 }
 
 template <heongpu::Scheme S> void bind_gpu_relin(ComputeNode& node) {
-    node.executor = [](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs, std::any& output,
-                       const ComputeNode& self) -> void {
+    node.executor = [](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
+                       std::unordered_map<NodeIndex, std::any>& outputs, const ComputeNode& self) -> void {
         auto [operators, stream_option] = _get_operator_and_stream_option<S>(ctx);
         auto& input0 = _get_input_data<Ct<S>>(inputs, *self.input_nodes[0]);
         auto& rlk = _get_input_data<Rlk<S>>(inputs, *self.input_nodes[1]);
-        auto& output0 = *std::any_cast<std::shared_ptr<Ct<S>>>(output);
+        auto& output0 = _create_output_data<S>(ctx, outputs, *self.output_nodes[0]);
         operators.relinearize(input0, output0, rlk, stream_option);
     };
 }
 
 template <heongpu::Scheme S> void bind_gpu_rescale(ComputeNode& node) {
-    node.executor = [](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs, std::any& output,
-                       const ComputeNode& self) -> void {
+    node.executor = [](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
+                       std::unordered_map<NodeIndex, std::any>& outputs, const ComputeNode& self) -> void {
         auto [operators, stream_option] = _get_operator_and_stream_option<S>(ctx);
         auto& input0 = _get_input_data<Ct<S>>(inputs, *self.input_nodes[0]);
-        auto& output0 = *std::any_cast<std::shared_ptr<Ct<S>>>(output);
+        auto& output0 = _create_output_data<S>(ctx, outputs, *self.output_nodes[0]);
         operators.rescale(input0, output0, stream_option);
     };
 }
@@ -250,10 +266,10 @@ template <heongpu::Scheme S> void bind_gpu_rescale(ComputeNode& node) {
 template <heongpu::Scheme S> void bind_gpu_drop_level(ComputeNode& node) {
     if constexpr (S == heongpu::Scheme::CKKS) {
         node.executor = [](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
-                           std::any& output, const ComputeNode& self) -> void {
+                           std::unordered_map<NodeIndex, std::any>& outputs, const ComputeNode& self) -> void {
             auto [operators, stream_option] = _get_operator_and_stream_option<S>(ctx);
             auto& input0 = _get_input_data<Ct<S>>(inputs, *self.input_nodes[0]);
-            auto& output0 = *std::any_cast<std::shared_ptr<Ct<S>>>(output);
+            auto& output0 = _create_output_data<S>(ctx, outputs, *self.output_nodes[0]);
             operators.mod_drop(input0, output0, stream_option);
         };
     } else {
@@ -267,22 +283,22 @@ template <heongpu::Scheme S> void bind_gpu_rotate_col(ComputeNode& node) {
     }
     int step = node.fhe_prop->p->rotation_step;
     node.executor = [step](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
-                           std::any& output, const ComputeNode& self) -> void {
+                           std::unordered_map<NodeIndex, std::any>& outputs, const ComputeNode& self) -> void {
         auto [operators, stream_option] = _get_operator_and_stream_option<S>(ctx);
         auto& input0 = _get_input_data<Ct<S>>(inputs, *self.input_nodes[0]);
         auto& glk = _get_input_data<Glk<S>>(inputs, *self.input_nodes[1]);
-        auto& output0 = *std::any_cast<std::shared_ptr<Ct<S>>>(output);
+        auto& output0 = _create_output_data<S>(ctx, outputs, *self.output_nodes[0]);
         operators.rotate_rows(input0, output0, glk, step, stream_option);
     };
 }
 
 template <heongpu::Scheme S> void bind_gpu_rotate_row(ComputeNode& node) {
-    node.executor = [](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs, std::any& output,
-                       const ComputeNode& self) -> void {
+    node.executor = [](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
+                       std::unordered_map<NodeIndex, std::any>& outputs, const ComputeNode& self) -> void {
         auto [operators, stream_option] = _get_operator_and_stream_option<S>(ctx);
         auto& input0 = _get_input_data<Ct<S>>(inputs, *self.input_nodes[0]);
         auto& glk = _get_input_data<Glk<S>>(inputs, *self.input_nodes[1]);
-        auto& output0 = *std::any_cast<std::shared_ptr<Ct<S>>>(output);
+        auto& output0 = _create_output_data<S>(ctx, outputs, *self.output_nodes[0]);
         if constexpr (S == heongpu::Scheme::BFV) {
             operators.rotate_columns(input0, output0, glk, stream_option);
         } else {
@@ -304,7 +320,7 @@ template <heongpu::Scheme S> void bind_gpu_cmpac_sum(ComputeNode& node) {
 
     if (pt_node->fhe_prop->p && pt_node->fhe_prop->p->is_ringt) {
         node.executor = [n](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
-                            std::any& output, const ComputeNode& self) -> void {
+                            std::unordered_map<NodeIndex, std::any>& outputs, const ComputeNode& self) -> void {
             auto [operators, stream_option] = _get_operator_and_stream_option<S>(ctx);
             auto& input_ct_0 = _get_input_data<Ct<S>>(inputs, *self.input_nodes[0]);
             auto& input_pt_0 = _get_input_data<Pt<S>>(inputs, *self.input_nodes[n + 1]);
@@ -320,14 +336,14 @@ template <heongpu::Scheme S> void bind_gpu_cmpac_sum(ComputeNode& node) {
                 operators.add_inplace(sum, product, stream_option);
             }
             auto& input_ct_n = _get_input_data<Ct<S>>(inputs, *self.input_nodes[n]);
-            auto& output0 = *std::any_cast<std::shared_ptr<Ct<S>>>(output);
+            auto& output0 = _create_output_data<S>(ctx, outputs, *self.output_nodes[0]);
             operators.add(sum, input_ct_n, output0, stream_option);
         };
     } else {
         // ct * pt (normal)
         if constexpr (S == heongpu::Scheme::CKKS) {
             node.executor = [n](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
-                                std::any& output, const ComputeNode& self) -> void {
+                                std::unordered_map<NodeIndex, std::any>& outputs, const ComputeNode& self) -> void {
                 auto [operators, stream_option] = _get_operator_and_stream_option<S>(ctx);
                 auto& input_ct_0 = _get_input_data<Ct<S>>(inputs, *self.input_nodes[0]);
                 auto& input_pt_0 = _get_input_data<Pt<S>>(inputs, *self.input_nodes[n + 1]);
@@ -341,7 +357,7 @@ template <heongpu::Scheme S> void bind_gpu_cmpac_sum(ComputeNode& node) {
                     operators.add_inplace(sum, product, stream_option);
                 }
                 auto& input_ct_n = _get_input_data<Ct<S>>(inputs, *self.input_nodes[n]);
-                auto& output0 = *std::any_cast<std::shared_ptr<Ct<S>>>(output);
+                auto& output0 = _create_output_data<S>(ctx, outputs, *self.output_nodes[0]);
                 operators.add(sum, input_ct_n, output0, stream_option);
             };
         } else {
@@ -363,7 +379,7 @@ template <heongpu::Scheme S> void bind_gpu_cmp_sum(ComputeNode& node) {
 
     if (pt_node->fhe_prop->p && pt_node->fhe_prop->p->is_ringt) {
         node.executor = [n](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
-                            std::any& output, const ComputeNode& self) -> void {
+                            std::unordered_map<NodeIndex, std::any>& outputs, const ComputeNode& self) -> void {
             auto [operators, stream_option] = _get_operator_and_stream_option<S>(ctx);
             auto& input_ct_0 = _get_input_data<Ct<S>>(inputs, *self.input_nodes[0]);
             auto& input_pt_0 = _get_input_data<Pt<S>>(inputs, *self.input_nodes[n]);
@@ -378,14 +394,14 @@ template <heongpu::Scheme S> void bind_gpu_cmp_sum(ComputeNode& node) {
                 operators.multiply_plain(input_ct_i, input_pt_i, product, stream_option);
                 operators.add_inplace(sum, product, stream_option);
             }
-            auto& output0 = *std::any_cast<std::shared_ptr<Ct<S>>>(output);
+            auto& output0 = _create_output_data<S>(ctx, outputs, *self.output_nodes[0]);
             output0 = std::move(sum);
         };
     } else {
         // ct * pt (normal)
         if constexpr (S == heongpu::Scheme::CKKS) {
             node.executor = [n](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
-                                std::any& output, const ComputeNode& self) -> void {
+                                std::unordered_map<NodeIndex, std::any>& outputs, const ComputeNode& self) -> void {
                 auto [operators, stream_option] = _get_operator_and_stream_option<S>(ctx);
                 auto& input_ct_0 = _get_input_data<Ct<S>>(inputs, *self.input_nodes[0]);
                 auto& input_pt_0 = _get_input_data<Pt<S>>(inputs, *self.input_nodes[n]);
@@ -398,7 +414,7 @@ template <heongpu::Scheme S> void bind_gpu_cmp_sum(ComputeNode& node) {
                     operators.multiply_plain(input_ct_i, input_pt_i, product, stream_option);
                     operators.add_inplace(sum, product, stream_option);
                 }
-                auto& output0 = *std::any_cast<std::shared_ptr<Ct<S>>>(output);
+                auto& output0 = _create_output_data<S>(ctx, outputs, *self.output_nodes[0]);
                 output0 = std::move(sum);
             };
         } else {
@@ -410,14 +426,14 @@ template <heongpu::Scheme S> void bind_gpu_cmp_sum(ComputeNode& node) {
 template <heongpu::Scheme S> void bind_gpu_bootstrap(ComputeNode& node) {
     if constexpr (S == heongpu::Scheme::CKKS) {
         node.executor = [](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
-                           std::any& output, const ComputeNode& self) -> void {
+                           std::unordered_map<NodeIndex, std::any>& outputs, const ComputeNode& self) -> void {
             auto [operators, stream_option] = _get_operator_and_stream_option<S>(ctx);
             auto& input0 = _get_input_data<Ct<S>>(inputs, *self.input_nodes[0]);
             auto& rlk = _get_input_data<Rlk<S>>(inputs, *self.input_nodes[1]);
             auto& glk = _get_input_data<Glk<S>>(inputs, *self.input_nodes[2]);
             auto& swk0 = _get_input_data<Swk<S>>(inputs, *self.input_nodes[self.input_nodes.size() - 2]);
             auto& swk1 = _get_input_data<Swk<S>>(inputs, *self.input_nodes[self.input_nodes.size() - 1]);
-            auto& output0 = *std::any_cast<std::shared_ptr<Ct<S>>>(output);
+            auto& output0 = _create_output_data<S>(ctx, outputs, *self.output_nodes[0]);
             output0 = operators.regular_bootstrapping_v2(input0, glk, rlk, &swk0, &swk1, stream_option);
         };
     } else {
@@ -426,16 +442,10 @@ template <heongpu::Scheme S> void bind_gpu_bootstrap(ComputeNode& node) {
 }
 
 template <heongpu::Scheme S> void bind_gpu_compound(ComputeNode& node) {
-    node.executor = [](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs, std::any& output,
-                       const ComputeNode& self) -> void {
+    node.executor = [](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
+                       std::unordered_map<NodeIndex, std::any>& outputs, const ComputeNode& self) -> void {
         if (!self.compound_prop.has_value()) {
             throw std::runtime_error("COMPOUND node missing compound property");
-        }
-
-        auto* context = ctx.get_other_arg<heongpu::HEContext<S>>(1);
-        auto* stream_option = ctx.get_other_arg<heongpu::ExecutionOptions>(0);
-        if (!context || !stream_option) {
-            throw std::runtime_error("GPU COMPOUND requires HEContext and stream options");
         }
 
         std::unordered_map<NodeIndex, std::any> local_data;
@@ -444,26 +454,16 @@ template <heongpu::Scheme S> void bind_gpu_compound(ComputeNode& node) {
         }
 
         for (const auto& internal_node : self.compound_prop->internal_nodes) {
-            if (internal_node.output_nodes.size() != 1) {
-                throw std::runtime_error("COMPOUND internal node must have exactly one output");
+            std::unordered_map<NodeIndex, std::any> internal_outputs;
+            internal_node.executor(ctx, local_data, internal_outputs, internal_node);
+            for (const auto* output_node : internal_node.output_nodes) {
+                local_data[output_node->index] = internal_outputs.at(output_node->index);
             }
-
-            const DatumNode* output_node = internal_node.output_nodes[0];
-            if (!output_node->fhe_prop.has_value() || output_node->datum_type != DataType::TYPE_CIPHERTEXT) {
-                throw std::runtime_error("GPU COMPOUND internal output must be a ciphertext");
-            }
-
-            std::any internal_output = std::make_shared<Ct<S>>(*context, output_node->fhe_prop->level, *stream_option);
-            internal_node.executor(ctx, local_data, internal_output, internal_node);
-            local_data[output_node->index] = internal_output;
         }
 
-        if (self.output_nodes.size() != 1) {
-            throw std::runtime_error("COMPOUND node must have exactly one output");
+        for (const auto* output_node : self.output_nodes) {
+            outputs[output_node->index] = local_data.at(output_node->index);
         }
-        auto final_output = std::any_cast<std::shared_ptr<Ct<S>>>(local_data.at(self.output_nodes[0]->index));
-        auto& output0 = *std::any_cast<std::shared_ptr<Ct<S>>>(output);
-        output0 = std::move(*final_output);
     };
 }
 

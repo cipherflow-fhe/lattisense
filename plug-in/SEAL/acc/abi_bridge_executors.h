@@ -69,7 +69,7 @@ inline void clear_seal_context() {
  */
 inline ExecutorFunc create_seal_abi_export_executor(int mf_nbits) {
     return [mf_nbits](ExecutionContext& /*ctx*/, const std::unordered_map<NodeIndex, std::any>& inputs,
-                      std::any& output, const ComputeNode& self) -> void {
+                      std::unordered_map<NodeIndex, std::any>& outputs, const ComputeNode& self) -> void {
         seal::SEALContext* context = g_seal_context;
         uint64_t param_id = g_seal_param_id;
         auto& key_ctx = *context->key_context_data();
@@ -95,7 +95,7 @@ inline ExecutorFunc create_seal_abi_export_executor(int mf_nbits) {
                 auto* c_ct = (CCiphertext*)malloc(sizeof(CCiphertext));
                 auto* src = static_cast<seal::Ciphertext*>(input_ptr.get());
                 _export_ciphertext(param_id, ntt_tables, src, c_ct);
-                output = std::shared_ptr<CCiphertext>(c_ct, [](CCiphertext* p) {
+                outputs[self.output_nodes[0]->index] = std::shared_ptr<CCiphertext>(c_ct, [](CCiphertext* p) {
                     free_ciphertext(p);
                     free(p);
                 });
@@ -105,7 +105,7 @@ inline ExecutorFunc create_seal_abi_export_executor(int mf_nbits) {
                 auto* src = static_cast<seal::Plaintext*>(input_ptr.get());
                 auto* c_pt = (CPlaintext*)malloc(sizeof(CPlaintext));
                 _export_plaintext(param_id, N, ntt_tables, src, c_pt);
-                output = std::shared_ptr<CPlaintext>(c_pt, [](CPlaintext* p) {
+                outputs[self.output_nodes[0]->index] = std::shared_ptr<CPlaintext>(c_pt, [](CPlaintext* p) {
                     free_plaintext(p);
                     free(p);
                 });
@@ -115,7 +115,7 @@ inline ExecutorFunc create_seal_abi_export_executor(int mf_nbits) {
                 auto* src = static_cast<seal::RelinKeys*>(input_ptr.get());
                 auto* c_rlk = (CRelinKey*)malloc(sizeof(CRelinKey));
                 _export_relin_key(param_id, scheme, ntt_tables, src, c_rlk, level, mf_nbits);
-                output = std::shared_ptr<CRelinKey>(c_rlk, [](CRelinKey* p) {
+                outputs[self.output_nodes[0]->index] = std::shared_ptr<CRelinKey>(c_rlk, [](CRelinKey* p) {
                     free_relin_key(p);
                     free(p);
                 });
@@ -126,7 +126,7 @@ inline ExecutorFunc create_seal_abi_export_executor(int mf_nbits) {
                 auto* c_glk = (CGaloisKey*)malloc(sizeof(CGaloisKey));
                 set_galois_key_steps(c_glk, &galois_element, 1);
                 _export_galois_key(param_id, scheme, ntt_tables, src, c_glk, level, mf_nbits);
-                output = std::shared_ptr<CGaloisKey>(c_glk, [](CGaloisKey* p) {
+                outputs[self.output_nodes[0]->index] = std::shared_ptr<CGaloisKey>(c_glk, [](CGaloisKey* p) {
                     free_galois_key(p);
                     free(p);
                 });
@@ -146,8 +146,8 @@ inline ExecutorFunc create_seal_abi_export_executor(int mf_nbits) {
  * extract_output_handle_map (same pattern as cxx_abi_bridge_executors.h).
  */
 inline ExecutorFunc create_seal_abi_import_executor() {
-    return [](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs, std::any& output,
-              const ComputeNode& self) -> void {
+    return [](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
+              std::unordered_map<NodeIndex, std::any>& outputs, const ComputeNode& self) -> void {
         seal::SEALContext* context = g_seal_context;
         uint64_t param_id = g_seal_param_id;
         auto& key_ctx = *context->key_context_data();
@@ -170,7 +170,7 @@ inline ExecutorFunc create_seal_abi_import_executor() {
                 void* dest_raw = ctx.get_other_arg<void>(0);
                 auto* dest = static_cast<seal::Ciphertext*>(dest_raw);
                 _import_ciphertext(param_id, ntt_tables, c_ct_ptr.get(), dest);
-                output = std::shared_ptr<void>(dest_raw, [](void*) {});
+                outputs[self.output_nodes[0]->index] = std::shared_ptr<void>(dest_raw, [](void*) {});
                 break;
             }
             default: throw std::runtime_error("Unsupported data type in SEAL IMPORT_FROM_ABI");
