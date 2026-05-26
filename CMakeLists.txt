@@ -232,10 +232,10 @@ if(LATTISENSE_ENABLE_GPU)
 
     # ── find HEonGPU and its dependencies ────────────────────────────────
     list(APPEND CMAKE_PREFIX_PATH "${HEONGPU_INSTALL_DIR}")
-    # Add CCCL from HEonGPU build directory
-    if(EXISTS "${HEONGPU_BUILD_DIR}/_deps/cccl-src/lib/cmake/cccl")
-        list(APPEND CMAKE_PREFIX_PATH "${HEONGPU_BUILD_DIR}/_deps/cccl-src/lib/cmake/cccl")
-    endif()
+    # HEonGPU's installed RMM must use the matching RAPIDS CCCL/libcudacxx
+    # headers, not the CUDA Toolkit copy, which has a different ABI namespace.
+    set(CCCL_CONFIG_FILE "${HEONGPU_INSTALL_DIR}/lib/rapids/cmake/cccl/cccl-config.cmake"
+        CACHE FILEPATH "HEonGPU CCCL config file" FORCE)
     include_directories("${HEONGPU_INSTALL_DIR}/include")
     link_directories("${HEONGPU_INSTALL_DIR}/lib")
     find_package(CUDAToolkit REQUIRED)
