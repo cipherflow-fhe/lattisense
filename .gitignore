@@ -1,54 +1,33 @@
-# Build directories
-build/
-install/
-.cache/
-
-# IDE and editor files
-.vscode/
+# OS, editors, and local workspaces
+.DS_Store
 .idea/
+.vscode/
 *.swp
 *.swo
 *~
-.DS_Store
 
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-venv/
-env/
-ENV/
-.Python
-pip-log.txt
-pip-delete-this-directory.txt
-.pytest_cache/
-.coverage
-htmlcov/
+# AI agent local state
+.claude/
+.codex/
+.superpowers/
+.worktrees/
+AGENTS.md
+CLAUDE.md
 
-# Go build artifacts
-# *.a
-*.so
-fhe_ops_lib/lattigo/go_sdk/liblattigo.a
-fhe_ops_lib/lattigo/go_sdk/liblattigo.so
-
-# Test and local development
-examples/test/
-local_test/
-scratch/
-test_results.xml
-
-# Temporary and backup files
+# Build and install outputs
+build/
+install/
+.cache/
+log/
 *.log
 *.tmp
 *.bak
 *.orig
-*~
-log/
 
-# Build artifacts
+# Compiled artifacts
 *.o
 *.obj
+*.so
 *.exe
 *.out
 *.app
@@ -65,19 +44,42 @@ Makefile
 !CMakeLists.txt
 !**/cmake/*.cmake
 
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+venv/
+env/
+ENV/
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Generated Lattigo artifacts
+fhe_ops_lib/lattigo/go_sdk/liblattigo.a
+fhe_ops_lib/lattigo/go_sdk/liblattigo.so
+
+# Tests and local development
+BFV*/
+CKKS*/
+Testing*/
+examples/test/
+local_test/
+scratch/
+test_results.xml
+unittests/log/
+unittests/test_config.py
+unittests/test_data/
+
 # Documentation build
 doc/html/
 doc/latex/
 *.html
 !manual.html
-
-# Submodule build artifacts (gitignored patterns)
-BFV*/
-CKKS*/
-CLAUDE*
-Testing*/
-unittests/test_config.py
-
 
 # Secrets and credentials
 *.pem
@@ -86,7 +88,3 @@ unittests/test_config.py
 credentials.json
 .env
 .env.local
-
-# Superpowers (AI agent workspace)
-.superpowers/
-.worktrees/
