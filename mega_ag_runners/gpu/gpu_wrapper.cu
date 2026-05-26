@@ -432,21 +432,6 @@ class FheGpuTask {
 public:
     FheGpuTask(const std::string& project_path) {
         mega_ag_ = MegaAG::load(project_path + "/mega_ag.json", Processor::GPU);
-
-        cudaSetDevice(0);  // Warm up default device; actual device is selected at run time
-
-        // Warm up the CUDA context, so that the computation time measurment is more accurate.
-        heongpu::HEContext<heongpu::Scheme::BFV> context =
-            heongpu::GenHEContext<heongpu::Scheme::BFV>(heongpu::sec_level_type::none);
-        context->set_poly_modulus_degree(8192);
-        context->set_coeff_modulus_values({18014398508400641, 18014398510645249, 18014398510661633},
-                                          {36028797018652673});
-        context->set_plain_modulus(65537);
-        heongpu::MemoryPoolConfig pool_config = heongpu::MemoryPoolConfig::Defaults();
-        context->generate(pool_config);
-        heongpu::HEKeyGenerator<heongpu::Scheme::BFV> keygen(context);
-        heongpu::Secretkey<heongpu::Scheme::BFV> secret_key(context);
-        keygen.generate_secret_key(secret_key);
     }
 
     ~FheGpuTask() {}
@@ -486,6 +471,7 @@ public:
             ProgressCallback progress_cb = nullptr,
             int gpu_device = 0) {
         std::lock_guard<std::mutex> run_lock(run_mutex_);
+        warm_up_device(gpu_device);
         auto cancel_flag = std::make_shared<std::atomic<bool>>(false);
         {
             std::lock_guard<std::mutex> lock(cancel_mutex_);
@@ -519,6 +505,29 @@ public:
     }
 
 protected:
+    void warm_up_device(int gpu_device) {
+        CHECK(cudaSetDevice(gpu_device));
+        if (warmed_device_ == gpu_device) {
+            return;
+        }
+
+        // Warm up the selected CUDA context before measuring real computation.
+        // This must happen after cudaSetDevice(gpu_device): HEonGPU/RMM memory
+        // resources are process-global and bind to the current CUDA device.
+        heongpu::HEContext<heongpu::Scheme::BFV> context =
+            heongpu::GenHEContext<heongpu::Scheme::BFV>(heongpu::sec_level_type::none);
+        context->set_poly_modulus_degree(8192);
+        context->set_coeff_modulus_values({18014398508400641, 18014398510645249, 18014398510661633},
+                                          {36028797018652673});
+        context->set_plain_modulus(65537);
+        heongpu::MemoryPoolConfig pool_config = heongpu::MemoryPoolConfig::Defaults();
+        context->generate(pool_config);
+        heongpu::HEKeyGenerator<heongpu::Scheme::BFV> keygen(context);
+        heongpu::Secretkey<heongpu::Scheme::BFV> secret_key(context);
+        keygen.generate_secret_key(secret_key);
+        warmed_device_ = gpu_device;
+    }
+
     void clear_cancel_flag(const std::shared_ptr<std::atomic<bool>>& cancel_flag) noexcept {
         std::lock_guard<std::mutex> lock(cancel_mutex_);
         if (cancel_flag_ == cancel_flag) {
@@ -530,6 +539,7 @@ protected:
     std::shared_ptr<std::atomic<bool>> cancel_flag_;
     std::mutex cancel_mutex_;
     std::mutex run_mutex_;
+    int warmed_device_ = -1;
 };
 };  // namespace gpu_wrapper
 
