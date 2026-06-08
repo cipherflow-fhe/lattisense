@@ -81,13 +81,13 @@ using namespace fhe_ops_lib;
 inline ExecutorFunc
 create_abi_export_executor(Algo algorithm, bool heterogeneous_mode = true, int mf_nbits = 64, int key_mf_nbits = 64) {
     if (algorithm == Algo::ALGO_BFV) {
-        return [heterogeneous_mode, mf_nbits,
-                key_mf_nbits](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
-                              std::unordered_map<NodeIndex, std::any>& outputs, const ComputeNode& self) -> void {
+        return [heterogeneous_mode, mf_nbits, key_mf_nbits](ExecutionContext& ctx,
+                                                            std::unordered_map<NodeIndex, std::any>& local_data,
+                                                            const ComputeNode& self) -> void {
             const DatumNode* input_node = self.input_nodes[0];
             DataType data_type = input_node->datum_type;
 
-            std::any input_any = inputs.at(input_node->index);
+            std::any input_any = local_data.at(input_node->index);
             std::shared_ptr<void> input_ptr;
             if (input_node->is_input) {
                 input_ptr = std::any_cast<std::shared_ptr<void>>(input_any);
@@ -110,7 +110,7 @@ create_abi_export_executor(Algo algorithm, bool heterogeneous_mode = true, int m
                                             static_cast<BfvCiphertext*>(input_ptr.get()) :
                                             std::any_cast<std::shared_ptr<BfvCiphertext>>(input_any).get();
                     if (!heterogeneous_mode) {
-                        outputs[self.output_nodes[0]->index] =
+                        local_data[self.output_nodes[0]->index] =
                             input_node->is_input ? std::shared_ptr<BfvCiphertext>(input_ptr, ct) :
                                                    std::any_cast<std::shared_ptr<BfvCiphertext>>(input_any);
                         break;
@@ -118,7 +118,7 @@ create_abi_export_executor(Algo algorithm, bool heterogeneous_mode = true, int m
                     CCiphertext* c_ct = (CCiphertext*)malloc(sizeof(CCiphertext));
                     export_bfv_ciphertext(ct->get(), c_ct);
 
-                    outputs[self.output_nodes[0]->index] = std::shared_ptr<CCiphertext>(c_ct, [](CCiphertext* p) {
+                    local_data[self.output_nodes[0]->index] = std::shared_ptr<CCiphertext>(c_ct, [](CCiphertext* p) {
                         free_ciphertext(p);
                         free(p);
                     });
@@ -131,14 +131,14 @@ create_abi_export_executor(Algo algorithm, bool heterogeneous_mode = true, int m
                                                     static_cast<BfvPlaintextRingt*>(input_ptr.get()) :
                                                     std::any_cast<std::shared_ptr<BfvPlaintextRingt>>(input_any).get();
                         if (!heterogeneous_mode) {
-                            outputs[self.output_nodes[0]->index] =
+                            local_data[self.output_nodes[0]->index] =
                                 input_node->is_input ? std::shared_ptr<BfvPlaintextRingt>(input_ptr, pt) :
                                                        std::any_cast<std::shared_ptr<BfvPlaintextRingt>>(input_any);
                             break;
                         }
                         CPlaintext* c_pt = (CPlaintext*)malloc(sizeof(CPlaintext));
                         export_bfv_plaintext_ringt(pt->get(), c_pt);
-                        outputs[self.output_nodes[0]->index] = std::shared_ptr<CPlaintext>(c_pt, [](CPlaintext* p) {
+                        local_data[self.output_nodes[0]->index] = std::shared_ptr<CPlaintext>(c_pt, [](CPlaintext* p) {
                             free_plaintext(p);
                             free(p);
                         });
@@ -147,7 +147,7 @@ create_abi_export_executor(Algo algorithm, bool heterogeneous_mode = true, int m
                                                   static_cast<BfvPlaintextMul*>(input_ptr.get()) :
                                                   std::any_cast<std::shared_ptr<BfvPlaintextMul>>(input_any).get();
                         if (!heterogeneous_mode) {
-                            outputs[self.output_nodes[0]->index] =
+                            local_data[self.output_nodes[0]->index] =
                                 input_node->is_input ? std::shared_ptr<BfvPlaintextMul>(input_ptr, pt) :
                                                        std::any_cast<std::shared_ptr<BfvPlaintextMul>>(input_any);
                             break;
@@ -155,7 +155,7 @@ create_abi_export_executor(Algo algorithm, bool heterogeneous_mode = true, int m
 
                         CPlaintext* c_pt = (CPlaintext*)malloc(sizeof(CPlaintext));
                         export_bfv_plaintext_mul(param.get(), pt->get(), mf_nbits, c_pt);
-                        outputs[self.output_nodes[0]->index] = std::shared_ptr<CPlaintext>(c_pt, [](CPlaintext* p) {
+                        local_data[self.output_nodes[0]->index] = std::shared_ptr<CPlaintext>(c_pt, [](CPlaintext* p) {
                             free_plaintext(p);
                             free(p);
                         });
@@ -164,14 +164,14 @@ create_abi_export_executor(Algo algorithm, bool heterogeneous_mode = true, int m
                                                static_cast<BfvPlaintext*>(input_ptr.get()) :
                                                std::any_cast<std::shared_ptr<BfvPlaintext>>(input_any).get();
                         if (!heterogeneous_mode) {
-                            outputs[self.output_nodes[0]->index] =
+                            local_data[self.output_nodes[0]->index] =
                                 input_node->is_input ? std::shared_ptr<BfvPlaintext>(input_ptr, pt) :
                                                        std::any_cast<std::shared_ptr<BfvPlaintext>>(input_any);
                             break;
                         }
                         CPlaintext* c_pt = (CPlaintext*)malloc(sizeof(CPlaintext));
                         export_bfv_plaintext(pt->get(), c_pt);
-                        outputs[self.output_nodes[0]->index] = std::shared_ptr<CPlaintext>(c_pt, [](CPlaintext* p) {
+                        local_data[self.output_nodes[0]->index] = std::shared_ptr<CPlaintext>(c_pt, [](CPlaintext* p) {
                             free_plaintext(p);
                             free(p);
                         });
@@ -185,7 +185,7 @@ create_abi_export_executor(Algo algorithm, bool heterogeneous_mode = true, int m
 
                     CRelinKey* c_rlk = (CRelinKey*)malloc(sizeof(CRelinKey));
                     export_bfv_relin_key(param.get(), rlk->get(), level, key_mf_nbits, c_rlk);
-                    outputs[self.output_nodes[0]->index] = std::shared_ptr<CRelinKey>(c_rlk, [](CRelinKey* p) {
+                    local_data[self.output_nodes[0]->index] = std::shared_ptr<CRelinKey>(c_rlk, [](CRelinKey* p) {
                         free_relin_key(p);
                         free(p);
                     });
@@ -205,7 +205,7 @@ create_abi_export_executor(Algo algorithm, bool heterogeneous_mode = true, int m
                     set_galois_key_steps(c_glk, &galois_element, 1);
 
                     export_bfv_galois_key(param.get(), glk->get(), level, key_mf_nbits, c_glk);
-                    outputs[self.output_nodes[0]->index] = std::shared_ptr<CGaloisKey>(c_glk, [](CGaloisKey* p) {
+                    local_data[self.output_nodes[0]->index] = std::shared_ptr<CGaloisKey>(c_glk, [](CGaloisKey* p) {
                         free_galois_key(p);
                         free(p);
                     });
@@ -216,7 +216,7 @@ create_abi_export_executor(Algo algorithm, bool heterogeneous_mode = true, int m
                     CustomData* raw = input_node->is_input ?
                                           static_cast<CustomData*>(input_ptr.get()) :
                                           std::any_cast<std::shared_ptr<CustomData>>(input_any).get();
-                    outputs[self.output_nodes[0]->index] =
+                    local_data[self.output_nodes[0]->index] =
                         std::shared_ptr<CustomData>(raw, [input_any](CustomData*) {});
                     break;
                 }
@@ -225,13 +225,13 @@ create_abi_export_executor(Algo algorithm, bool heterogeneous_mode = true, int m
             }
         };
     } else if (algorithm == Algo::ALGO_CKKS) {
-        return [mf_nbits, key_mf_nbits,
-                heterogeneous_mode](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
-                                    std::unordered_map<NodeIndex, std::any>& outputs, const ComputeNode& self) -> void {
+        return [mf_nbits, key_mf_nbits, heterogeneous_mode](ExecutionContext& ctx,
+                                                            std::unordered_map<NodeIndex, std::any>& local_data,
+                                                            const ComputeNode& self) -> void {
             const DatumNode* input_node = self.input_nodes[0];
             DataType data_type = input_node->datum_type;
 
-            std::any input_any = inputs.at(input_node->index);
+            std::any input_any = local_data.at(input_node->index);
             std::shared_ptr<void> input_ptr;
             if (input_node->is_input) {
                 input_ptr = std::any_cast<std::shared_ptr<void>>(input_any);
@@ -262,14 +262,14 @@ create_abi_export_executor(Algo algorithm, bool heterogeneous_mode = true, int m
                                              static_cast<CkksCiphertext*>(input_ptr.get()) :
                                              std::any_cast<std::shared_ptr<CkksCiphertext>>(input_any).get();
                     if (!heterogeneous_mode) {
-                        outputs[self.output_nodes[0]->index] =
+                        local_data[self.output_nodes[0]->index] =
                             input_node->is_input ? std::shared_ptr<CkksCiphertext>(input_ptr, ct) :
                                                    std::any_cast<std::shared_ptr<CkksCiphertext>>(input_any);
                         break;
                     }
                     CCiphertext* c_ct = (CCiphertext*)malloc(sizeof(CCiphertext));
                     export_ckks_ciphertext(ct->get(), c_ct);
-                    outputs[self.output_nodes[0]->index] = std::shared_ptr<CCiphertext>(c_ct, [](CCiphertext* p) {
+                    local_data[self.output_nodes[0]->index] = std::shared_ptr<CCiphertext>(c_ct, [](CCiphertext* p) {
                         free_ciphertext(p);
                         free(p);
                     });
@@ -282,14 +282,14 @@ create_abi_export_executor(Algo algorithm, bool heterogeneous_mode = true, int m
                             input_node->is_input ? static_cast<CkksPlaintextRingt*>(input_ptr.get()) :
                                                    std::any_cast<std::shared_ptr<CkksPlaintextRingt>>(input_any).get();
                         if (!heterogeneous_mode) {
-                            outputs[self.output_nodes[0]->index] =
+                            local_data[self.output_nodes[0]->index] =
                                 input_node->is_input ? std::shared_ptr<CkksPlaintextRingt>(input_ptr, pt) :
                                                        std::any_cast<std::shared_ptr<CkksPlaintextRingt>>(input_any);
                             break;
                         }
                         CPlaintext* c_pt = (CPlaintext*)malloc(sizeof(CPlaintext));
                         export_ckks_plaintext_ringt(pt->get(), c_pt);
-                        outputs[self.output_nodes[0]->index] = std::shared_ptr<CPlaintext>(c_pt, [](CPlaintext* p) {
+                        local_data[self.output_nodes[0]->index] = std::shared_ptr<CPlaintext>(c_pt, [](CPlaintext* p) {
                             free_plaintext(p);
                             free(p);
                         });
@@ -298,7 +298,7 @@ create_abi_export_executor(Algo algorithm, bool heterogeneous_mode = true, int m
                                                    static_cast<CkksPlaintextMul*>(input_ptr.get()) :
                                                    std::any_cast<std::shared_ptr<CkksPlaintextMul>>(input_any).get();
                         if (!heterogeneous_mode) {
-                            outputs[self.output_nodes[0]->index] =
+                            local_data[self.output_nodes[0]->index] =
                                 input_node->is_input ? std::shared_ptr<CkksPlaintextMul>(input_ptr, pt) :
                                                        std::any_cast<std::shared_ptr<CkksPlaintextMul>>(input_any);
                             break;
@@ -306,7 +306,7 @@ create_abi_export_executor(Algo algorithm, bool heterogeneous_mode = true, int m
 
                         CPlaintext* c_pt = (CPlaintext*)malloc(sizeof(CPlaintext));
                         export_ckks_plaintext_mul(param.get(), pt->get(), mf_nbits, c_pt);
-                        outputs[self.output_nodes[0]->index] = std::shared_ptr<CPlaintext>(c_pt, [](CPlaintext* p) {
+                        local_data[self.output_nodes[0]->index] = std::shared_ptr<CPlaintext>(c_pt, [](CPlaintext* p) {
                             free_plaintext(p);
                             free(p);
                         });
@@ -315,14 +315,14 @@ create_abi_export_executor(Algo algorithm, bool heterogeneous_mode = true, int m
                                                 static_cast<CkksPlaintext*>(input_ptr.get()) :
                                                 std::any_cast<std::shared_ptr<CkksPlaintext>>(input_any).get();
                         if (!heterogeneous_mode) {
-                            outputs[self.output_nodes[0]->index] =
+                            local_data[self.output_nodes[0]->index] =
                                 input_node->is_input ? std::shared_ptr<CkksPlaintext>(input_ptr, pt) :
                                                        std::any_cast<std::shared_ptr<CkksPlaintext>>(input_any);
                             break;
                         }
                         CPlaintext* c_pt = (CPlaintext*)malloc(sizeof(CPlaintext));
                         export_ckks_plaintext(pt->get(), c_pt);
-                        outputs[self.output_nodes[0]->index] = std::shared_ptr<CPlaintext>(c_pt, [](CPlaintext* p) {
+                        local_data[self.output_nodes[0]->index] = std::shared_ptr<CPlaintext>(c_pt, [](CPlaintext* p) {
                             free_plaintext(p);
                             free(p);
                         });
@@ -336,7 +336,7 @@ create_abi_export_executor(Algo algorithm, bool heterogeneous_mode = true, int m
 
                     CRelinKey* c_rlk = (CRelinKey*)malloc(sizeof(CRelinKey));
                     export_ckks_relin_key(param.get(), rlk->get(), level, key_mf_nbits, c_rlk);
-                    outputs[self.output_nodes[0]->index] = std::shared_ptr<CRelinKey>(c_rlk, [](CRelinKey* p) {
+                    local_data[self.output_nodes[0]->index] = std::shared_ptr<CRelinKey>(c_rlk, [](CRelinKey* p) {
                         free_relin_key(p);
                         free(p);
                     });
@@ -355,7 +355,7 @@ create_abi_export_executor(Algo algorithm, bool heterogeneous_mode = true, int m
                     set_galois_key_steps(c_glk, &galois_element, 1);
 
                     export_ckks_galois_key(param.get(), glk->get(), level, key_mf_nbits, c_glk);
-                    outputs[self.output_nodes[0]->index] = std::shared_ptr<CGaloisKey>(c_glk, [](CGaloisKey* p) {
+                    local_data[self.output_nodes[0]->index] = std::shared_ptr<CGaloisKey>(c_glk, [](CGaloisKey* p) {
                         free_galois_key(p);
                         free(p);
                     });
@@ -369,10 +369,11 @@ create_abi_export_executor(Algo algorithm, bool heterogeneous_mode = true, int m
 
                     CKeySwitchKey* c_swk = (CKeySwitchKey*)malloc(sizeof(CKeySwitchKey));
                     export_ckks_switching_key(param.get(), swk->get(), level, sp_level, key_mf_nbits, c_swk);
-                    outputs[self.output_nodes[0]->index] = std::shared_ptr<CKeySwitchKey>(c_swk, [](CKeySwitchKey* p) {
-                        free_relin_key(p);  // CKeySwitchKey is typedef of CRelinKey
-                        free(p);
-                    });
+                    local_data[self.output_nodes[0]->index] =
+                        std::shared_ptr<CKeySwitchKey>(c_swk, [](CKeySwitchKey* p) {
+                            free_relin_key(p);  // CKeySwitchKey is typedef of CRelinKey
+                            free(p);
+                        });
                     break;
                 }
 
@@ -380,7 +381,7 @@ create_abi_export_executor(Algo algorithm, bool heterogeneous_mode = true, int m
                     CustomData* raw = input_node->is_input ?
                                           static_cast<CustomData*>(input_ptr.get()) :
                                           std::any_cast<std::shared_ptr<CustomData>>(input_any).get();
-                    outputs[self.output_nodes[0]->index] =
+                    local_data[self.output_nodes[0]->index] =
                         std::shared_ptr<CustomData>(raw, [input_any](CustomData*) {});
                     break;
                 }
@@ -411,8 +412,8 @@ create_abi_export_executor(Algo algorithm, bool heterogeneous_mode = true, int m
  */
 inline ExecutorFunc create_abi_import_executor(Algo algorithm, bool heterogeneous_mode = true) {
     if (algorithm == Algo::ALGO_BFV) {
-        return [heterogeneous_mode](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
-                                    std::unordered_map<NodeIndex, std::any>& outputs, const ComputeNode& self) -> void {
+        return [heterogeneous_mode](ExecutionContext& ctx, std::unordered_map<NodeIndex, std::any>& local_data,
+                                    const ComputeNode& self) -> void {
             const DatumNode* input_node = self.input_nodes[0];
             DataType data_type = input_node->datum_type;
 
@@ -423,20 +424,20 @@ inline ExecutorFunc create_abi_import_executor(Algo algorithm, bool heterogeneou
             switch (data_type) {
                 case DataType::TYPE_CIPHERTEXT: {
                     if (heterogeneous_mode) {
-                        const std::any& input_any = inputs.at(input_node->index);
+                        const std::any& input_any = local_data.at(input_node->index);
                         if (input_any.type() == typeid(std::shared_ptr<CCiphertext>)) {
                             auto c_ct_ptr = std::any_cast<std::shared_ptr<CCiphertext>>(input_any);
                             if (!ctx.other_args.empty()) {
                                 // output node: import (copy) into pre-allocated dest handle
                                 void* dest_raw = ctx.get_other_arg<void>(0);
                                 import_bfv_ciphertext(static_cast<BfvCiphertext*>(dest_raw)->get(), c_ct_ptr.get());
-                                outputs[self.output_nodes[0]->index] = std::shared_ptr<void>(dest_raw, [](void*) {});
+                                local_data[self.output_nodes[0]->index] = std::shared_ptr<void>(dest_raw, [](void*) {});
                             } else {
                                 // intermediate data: create new handle then import inplace
                                 int level = input_node->fhe_prop->level;
                                 auto* bfv_ct = new BfvCiphertext(bfv_ctx->new_ciphertext(level));
                                 import_bfv_ciphertext(bfv_ct->get(), c_ct_ptr.get());
-                                outputs[self.output_nodes[0]->index] =
+                                local_data[self.output_nodes[0]->index] =
                                     std::shared_ptr<BfvCiphertext>(bfv_ct, [](BfvCiphertext* p) { delete p; });
                             }
                         } else {
@@ -452,20 +453,22 @@ inline ExecutorFunc create_abi_import_executor(Algo algorithm, bool heterogeneou
                                 auto sp = std::any_cast<std::shared_ptr<BfvCiphertext>>(input_any);
                                 sp->copy_to(*static_cast<BfvCiphertext*>(dest_raw));
                             }
-                            outputs[self.output_nodes[0]->index] = std::shared_ptr<void>(dest_raw, [](void*) {});
+                            local_data[self.output_nodes[0]->index] = std::shared_ptr<void>(dest_raw, [](void*) {});
                         }
                     } else {
                         // CPU mode: other_args must supply pre-allocated dest
                         if (ctx.other_args.empty())
                             throw std::runtime_error("CPU IMPORT_FROM_ABI requires pre-allocated dest via other_args");
-                        Handle* dest = static_cast<Handle*>(ctx.get_other_arg<void>(0));
+                        void* dest_raw = ctx.get_other_arg<void>(0);
+                        Handle* dest = static_cast<Handle*>(dest_raw);
                         if (input_node->fhe_prop->degree == 2) {
-                            auto sp = std::any_cast<std::shared_ptr<BfvCiphertext3>>(inputs.at(input_node->index));
+                            auto sp = std::any_cast<std::shared_ptr<BfvCiphertext3>>(local_data.at(input_node->index));
                             sp->copy_to(*static_cast<BfvCiphertext3*>(dest));
                         } else {
-                            auto sp = std::any_cast<std::shared_ptr<BfvCiphertext>>(inputs.at(input_node->index));
+                            auto sp = std::any_cast<std::shared_ptr<BfvCiphertext>>(local_data.at(input_node->index));
                             sp->copy_to(*static_cast<BfvCiphertext*>(dest));
                         }
+                        local_data[self.output_nodes[0]->index] = std::shared_ptr<void>(dest_raw, [](void*) {});
                     }
                     break;
                 }
@@ -474,8 +477,8 @@ inline ExecutorFunc create_abi_import_executor(Algo algorithm, bool heterogeneou
             }
         };
     } else if (algorithm == Algo::ALGO_CKKS) {
-        return [heterogeneous_mode](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
-                                    std::unordered_map<NodeIndex, std::any>& outputs, const ComputeNode& self) -> void {
+        return [heterogeneous_mode](ExecutionContext& ctx, std::unordered_map<NodeIndex, std::any>& local_data,
+                                    const ComputeNode& self) -> void {
             const DatumNode* input_node = self.input_nodes[0];
             DataType data_type = input_node->datum_type;
 
@@ -491,21 +494,21 @@ inline ExecutorFunc create_abi_import_executor(Algo algorithm, bool heterogeneou
             switch (data_type) {
                 case DataType::TYPE_CIPHERTEXT: {
                     if (heterogeneous_mode) {
-                        const std::any& input_any = inputs.at(input_node->index);
+                        const std::any& input_any = local_data.at(input_node->index);
                         if (input_any.type() == typeid(std::shared_ptr<CCiphertext>)) {
                             auto c_ct_ptr = std::any_cast<std::shared_ptr<CCiphertext>>(input_any);
                             if (!ctx.other_args.empty()) {
                                 // output node: import (copy) into pre-allocated dest handle
                                 void* dest_raw = ctx.get_other_arg<void>(0);
                                 import_ckks_ciphertext(static_cast<CkksCiphertext*>(dest_raw)->get(), c_ct_ptr.get());
-                                outputs[self.output_nodes[0]->index] = std::shared_ptr<void>(dest_raw, [](void*) {});
+                                local_data[self.output_nodes[0]->index] = std::shared_ptr<void>(dest_raw, [](void*) {});
                             } else {
                                 // intermediate data: create new handle then import inplace
                                 int level = input_node->fhe_prop->level;
                                 double scale = ckks_ctx->get_parameter().get_default_scale();
                                 auto* ckks_ct = new CkksCiphertext(ckks_ctx->new_ciphertext(level, scale));
                                 import_ckks_ciphertext(ckks_ct->get(), c_ct_ptr.get());
-                                outputs[self.output_nodes[0]->index] =
+                                local_data[self.output_nodes[0]->index] =
                                     std::shared_ptr<CkksCiphertext>(ckks_ct, [](CkksCiphertext* p) { delete p; });
                             }
                         } else {
@@ -521,20 +524,22 @@ inline ExecutorFunc create_abi_import_executor(Algo algorithm, bool heterogeneou
                                 auto sp = std::any_cast<std::shared_ptr<CkksCiphertext>>(input_any);
                                 sp->copy_to(*static_cast<CkksCiphertext*>(dest_raw));
                             }
-                            outputs[self.output_nodes[0]->index] = std::shared_ptr<void>(dest_raw, [](void*) {});
+                            local_data[self.output_nodes[0]->index] = std::shared_ptr<void>(dest_raw, [](void*) {});
                         }
                     } else {
                         // CPU mode: other_args must supply pre-allocated dest
                         if (ctx.other_args.empty())
                             throw std::runtime_error("CPU IMPORT_FROM_ABI requires pre-allocated dest via other_args");
-                        Handle* dest = static_cast<Handle*>(ctx.get_other_arg<void>(0));
+                        void* dest_raw = ctx.get_other_arg<void>(0);
+                        Handle* dest = static_cast<Handle*>(dest_raw);
                         if (input_node->fhe_prop->degree == 2) {
-                            auto sp = std::any_cast<std::shared_ptr<CkksCiphertext3>>(inputs.at(input_node->index));
+                            auto sp = std::any_cast<std::shared_ptr<CkksCiphertext3>>(local_data.at(input_node->index));
                             sp->copy_to(*static_cast<CkksCiphertext3*>(dest));
                         } else {
-                            auto sp = std::any_cast<std::shared_ptr<CkksCiphertext>>(inputs.at(input_node->index));
+                            auto sp = std::any_cast<std::shared_ptr<CkksCiphertext>>(local_data.at(input_node->index));
                             sp->copy_to(*static_cast<CkksCiphertext*>(dest));
                         }
+                        local_data[self.output_nodes[0]->index] = std::shared_ptr<void>(dest_raw, [](void*) {});
                     }
                     break;
                 }

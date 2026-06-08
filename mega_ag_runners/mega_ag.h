@@ -36,6 +36,7 @@ using NodeIndex = uint64_t;
 
 // Forward declarations
 struct ComputeNode;
+struct CompoundComputeNode;
 
 enum class Processor { CPU, FPGA, GPU };
 
@@ -60,10 +61,8 @@ struct ExecutionContext {
 };
 
 // Unified executor function signature
-using ExecutorFunc = std::function<void(ExecutionContext& ctx,
-                                        const std::unordered_map<NodeIndex, std::any>& inputs,
-                                        std::unordered_map<NodeIndex, std::any>& outputs,
-                                        const ComputeNode& self)>;
+using ExecutorFunc = std::function<
+    void(ExecutionContext& ctx, std::unordered_map<NodeIndex, std::any>& local_data, const ComputeNode& self)>;
 
 enum class OperationType {
     UNKNOWN,
@@ -80,8 +79,6 @@ enum class OperationType {
     MAC_W_PARTIAL_SUM,
     BOOTSTRAP,
 
-    COMPOUND,
-
     FPGA_KERNEL,  // Composite FPGA sub-project operator (heterogeneous mode)
 
     // ABI bridge operations (inserted automatically by from_json for heterogeneous mode)
@@ -97,8 +94,8 @@ enum class OperationType {
 struct DatumNode {
     NodeIndex index;
     std::string id;
-    std::vector<ComputeNode*> predecessors;  // Producer compute nodes (both FHE and custom)
-    std::vector<ComputeNode*> successors;    // Consumer compute nodes (both FHE and custom)
+    std::vector<CompoundComputeNode*> predecessors;  // Producer top-level compute nodes
+    std::vector<CompoundComputeNode*> successors;    // Consumer top-level compute nodes
     bool is_input = false;
     bool is_output = false;
     DataType datum_type = TYPE_CUSTOM;  // Unified data type (TYPE_CUSTOM for custom nodes)
@@ -142,12 +139,6 @@ struct ComputeNode {
     // Unified executor function (CPU and GPU)
     ExecutorFunc executor;
 
-    // Execution target: true if this node runs on CPU
-    bool on_cpu = false;
-
-    // Scheduling priority: higher value runs first (pre-computed at compile time, read from JSON)
-    int priority = 0;
-
     // FHE-specific properties (use custom_prop.has_value() to check if custom node)
     struct FheProperty {
         OperationType op_type = OperationType::UNKNOWN;
@@ -166,16 +157,38 @@ struct ComputeNode {
         nlohmann::json attributes;  // Custom attributes from JSON (e.g., level, scale)
     };
     std::optional<CustomProperty> custom_prop;
-
-    struct CompoundProperty {
-        std::vector<ComputeNode> internal_nodes;
-    };
-    std::optional<CompoundProperty> compound_prop;
 };
+
+struct CompoundComputeNode {
+    NodeIndex index;
+    std::string id;
+
+    std::vector<DatumNode*> input_nodes;
+    std::vector<DatumNode*> output_nodes;
+    std::vector<ComputeNode> ops;
+
+    bool on_cpu = false;
+    int priority = 0;
+
+    void execute(ExecutionContext& exec_ctx, std::unordered_map<NodeIndex, std::any>& data_cache) const {
+        for (const auto& op : ops) {
+            op.executor(exec_ctx, data_cache, op);
+        }
+    }
+};
+
+inline bool compute_contains_operation(const CompoundComputeNode& node, OperationType op_type) {
+    for (const auto& op : node.ops) {
+        if (op.fhe_prop.has_value() && op.fhe_prop->op_type == op_type) {
+            return true;
+        }
+    }
+    return false;
+}
 
 struct MegaAG {
     std::unordered_map<NodeIndex, DatumNode> data;
-    std::unordered_map<NodeIndex, ComputeNode> computes;
+    std::unordered_map<NodeIndex, CompoundComputeNode> computes;
     std::vector<NodeIndex> inputs;
     std::vector<NodeIndex> outputs;
     std::vector<NodeIndex> offline_inputs;
@@ -192,24 +205,17 @@ struct MegaAG {
                                    const ExecutorFunc& abi_import,
                                    const ExecutorFunc& backend_load = {},
                                    const ExecutorFunc& backend_store = {}) {
-        auto bind_one = [&](ComputeNode& compute) {
-            if (!compute.fhe_prop.has_value()) {
-                return;
-            }
-            switch (compute.fhe_prop->op_type) {
-                case OperationType::EXPORT_TO_ABI: compute.executor = abi_export; break;
-                case OperationType::IMPORT_FROM_ABI: compute.executor = abi_import; break;
-                case OperationType::LOAD_TO_BACKEND: compute.executor = backend_load; break;
-                case OperationType::STORE_FROM_BACKEND: compute.executor = backend_store; break;
-                default: break;
-            }
-        };
-
         for (auto& [index, compute] : computes) {
-            bind_one(compute);
-            if (compute.compound_prop.has_value()) {
-                for (auto& internal_compute : compute.compound_prop->internal_nodes) {
-                    bind_one(internal_compute);
+            for (auto& op : compute.ops) {
+                if (!op.fhe_prop.has_value()) {
+                    continue;
+                }
+                switch (op.fhe_prop->op_type) {
+                    case OperationType::EXPORT_TO_ABI: op.executor = abi_export; break;
+                    case OperationType::IMPORT_FROM_ABI: op.executor = abi_import; break;
+                    case OperationType::LOAD_TO_BACKEND: op.executor = backend_load; break;
+                    case OperationType::STORE_FROM_BACKEND: op.executor = backend_store; break;
+                    default: break;
                 }
             }
         }
@@ -221,10 +227,13 @@ struct MegaAG {
      */
     void bind_custom_executors(const std::unordered_map<std::string, ExecutorFunc>& custom_executors) {
         for (auto& [index, compute] : computes) {
-            if (compute.custom_prop.has_value()) {
-                auto it = custom_executors.find(compute.custom_prop->type);
+            for (auto& op : compute.ops) {
+                if (!op.custom_prop.has_value()) {
+                    continue;
+                }
+                auto it = custom_executors.find(op.custom_prop->type);
                 if (it != custom_executors.end()) {
-                    compute.executor = it->second;
+                    op.executor = it->second;
                 }
             }
         }
@@ -252,7 +261,7 @@ struct MegaAG {
 
     template <typename T>
     std::unordered_set<NodeIndex>
-    step_available_computes(const ComputeNode& completed_compute,
+    step_available_computes(const CompoundComputeNode& completed_compute,
                             const std::unordered_map<NodeIndex, T>& available_data) const {
         std::unordered_set<NodeIndex> newly_available_computes;
 
@@ -276,12 +285,12 @@ struct MegaAG {
     }
 
     template <typename T>
-    void purge_unused_data(const ComputeNode& compute_node,
+    void purge_unused_data(const CompoundComputeNode& compute_node,
                            std::unordered_map<NodeIndex, std::atomic<int>>& data_ref_counts,
                            std::unordered_map<NodeIndex, T>& available_data) const {
         for (const auto* input_node : compute_node.input_nodes) {
             int remaining_use = data_ref_counts[input_node->index].fetch_sub(1) - 1;
-            if (remaining_use <= 0 && !input_node->is_output && !input_node->is_input) {
+            if (remaining_use <= 0) {
                 available_data.erase(input_node->index);
             }
         }

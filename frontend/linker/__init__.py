@@ -29,15 +29,19 @@ Usage:
     compiled = compile_mega_ag(dag, processor=Processor.GPU, ctx=ctx)
 """
 
-from .chain_former import compile_mega_ag, compute_properties
-from .processor_layout import apply_processor_layout
+from .chain_former import compute_bottom_levels, compute_properties, form_single_op_tasks
+from .linker import compile_mega_ag
+from .processor_layout import apply_processor_layout, compute_runs_on_cpu
 from .serializer import serialize_dag, serialize_signature
 from .task_context import _TaskContext
 
 __all__ = [
     'compile_mega_ag',
+    'compute_bottom_levels',
     'compute_properties',
+    'form_single_op_tasks',
     'apply_processor_layout',
+    'compute_runs_on_cpu',
     'serialize_dag',
     'serialize_signature',
     '_TaskContext',

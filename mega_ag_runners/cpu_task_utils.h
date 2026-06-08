@@ -379,7 +379,7 @@ void run_tasks(const MegaAG& mega_ag,
                BS::priority_thread_pool& pool,
                const std::unique_ptr<TContext>& base_context,
                std::unordered_map<NodeIndex, std::any>& available_data,
-               std::function<std::vector<std::any>(const ComputeNode&)> get_other_args = nullptr,
+               std::function<std::vector<std::any>(const CompoundComputeNode&)> get_other_args = nullptr,
                std::function<void(NodeIndex,
                                   std::mutex&,
                                   std::priority_queue<TaskInfo>&,
@@ -426,16 +426,16 @@ void run_tasks(const MegaAG& mega_ag,
                  &progress_callback, &last_progress_time, progress_interval]() {
                     auto thread_id = BS::this_thread::get_index().value();
 
-                    const ComputeNode& compute_node = mega_ag.computes.at(task_index);
+                    const CompoundComputeNode& compute_node = mega_ag.computes.at(task_index);
                     const std::vector<DatumNode*>& compute_input_nodes = compute_node.input_nodes;
 
                     // Cache input data for this thread
-                    std::unordered_map<NodeIndex, std::any> thread_input_cache;
+                    std::unordered_map<NodeIndex, std::any> thread_data_cache;
                     {
                         std::lock_guard<std::mutex> lock(m_mutex);
 
                         for (const auto* input_node : compute_input_nodes) {
-                            thread_input_cache[input_node->index] = available_data.at(input_node->index);
+                            thread_data_cache[input_node->index] = available_data.at(input_node->index);
                         }
                     }
 
@@ -444,10 +444,8 @@ void run_tasks(const MegaAG& mega_ag,
                     exec_ctx.context = context_ptrs[thread_id].get();
                     exec_ctx.other_args = other_args;
 
-                    // Execute the compute node using its bound executor
-                    std::unordered_map<NodeIndex, std::any> outputs;
                     try {
-                        compute_node.executor(exec_ctx, thread_input_cache, outputs, compute_node);
+                        compute_node.execute(exec_ctx, thread_data_cache);
                     } catch (const std::exception& e) {
                         // Still increment completed_tasks to avoid deadlock
                         if (completed_tasks.fetch_add(1) + 1 >= total_tasks) {
@@ -462,7 +460,7 @@ void run_tasks(const MegaAG& mega_ag,
                         std::lock_guard<std::mutex> lock(m_mutex);
 
                         for (const auto* output_node : compute_node.output_nodes) {
-                            available_data[output_node->index] = outputs.at(output_node->index);
+                            available_data[output_node->index] = thread_data_cache.at(output_node->index);
                         }
 
                         // Clean up unreferenced data
@@ -525,7 +523,7 @@ void run_tasks(const MegaAG& mega_ag,
         if (has_task) {
             progress_bar.update(completed_tasks.load());
 
-            const ComputeNode& compute_node = mega_ag.computes.at(next_task);
+            const CompoundComputeNode& compute_node = mega_ag.computes.at(next_task);
             if (compute_node.on_cpu) {
                 // Submit to CPU thread pool
                 std::vector<std::any> other_args_vec;

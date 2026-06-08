@@ -137,19 +137,6 @@ void init_gpu_context(const nlohmann::json& param_json,
     }
 }
 
-static bool contains_internal_load_to_backend(const ComputeNode& node) {
-    if (!node.fhe_prop.has_value() || node.fhe_prop->op_type != OperationType::COMPOUND ||
-        !node.compound_prop.has_value()) {
-        return false;
-    }
-
-    return std::any_of(node.compound_prop->internal_nodes.begin(), node.compound_prop->internal_nodes.end(),
-                       [](const ComputeNode& internal_node) {
-                           return internal_node.fhe_prop.has_value() &&
-                                  internal_node.fhe_prop->op_type == OperationType::LOAD_TO_BACKEND;
-                       });
-}
-
 template <heongpu::Scheme SchemeType, typename TContext>
 void _run_mega_ag_impl(gsl::span<CArgument> input_args,
                        gsl::span<CArgument> output_args,
@@ -228,25 +215,23 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
                     CHECK(cudaSetDevice(device));
                     auto stream_id = BS::this_thread::get_index().value();
 
-                    const ComputeNode& compute_node = mega_ag.computes.at(task_index);
-
-                    // Get operation type outside lock
-                    OperationType op =
-                        compute_node.fhe_prop.has_value() ? compute_node.fhe_prop->op_type : OperationType::UNKNOWN;
+                    const CompoundComputeNode& compute_node = mega_ag.computes.at(task_index);
 
                     const std::vector<DatumNode*>& compute_input_nodes = compute_node.input_nodes;
-                    const bool accepts_inputs_without_events =
-                        op == OperationType::LOAD_TO_BACKEND || contains_internal_load_to_backend(compute_node);
+                    const bool has_load_to_backend =
+                        compute_contains_operation(compute_node, OperationType::LOAD_TO_BACKEND);
+                    const bool has_store_from_backend =
+                        compute_contains_operation(compute_node, OperationType::STORE_FROM_BACKEND);
 
                     std::vector<cudaEvent_t> events_to_wait;
-                    std::unordered_map<uint64_t, std::any> thread_input_cache;
+                    std::unordered_map<NodeIndex, std::any> thread_data_cache;
                     {
                         std::lock_guard<std::mutex> lock(m_mutex);
 
                         // Check if all BACKEND input events are available.
                         // ABI inputs for LOAD_TO_BACKEND don't have events.
                         bool events_ready = true;
-                        if (!accepts_inputs_without_events) {
+                        if (!has_load_to_backend) {
                             for (const auto* input_node : compute_input_nodes) {
                                 auto event_it = data_ready_events.find(input_node->index);
                                 if (event_it == data_ready_events.end()) {
@@ -258,17 +243,16 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
 
                         if (!events_ready) {
                             queued_computes.erase(task_index);
-                            task_queue.push({mega_ag.computes.at(task_index).priority, task_index});
+                            task_queue.push({compute_node.priority, task_index});
                             return;
                         }
 
                         // Collect events to wait for and cache data pointers.
                         for (const auto* input_node : compute_input_nodes) {
-                            thread_input_cache[input_node->index] = available_data[input_node->index];
+                            thread_data_cache[input_node->index] = available_data[input_node->index];
 
-                            auto event_it = data_ready_events.find(input_node->index);
-                            if (event_it != data_ready_events.end()) {
-                                events_to_wait.push_back(event_it->second);
+                            if (!has_load_to_backend) {
+                                events_to_wait.push_back(data_ready_events.at(input_node->index));
                             }
                         }
                     }
@@ -285,19 +269,17 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
                     exec_ctx.other_args.push_back(&context);
 
                     // LOAD_TO_BACKEND needs galois_key parameters after the common stream/context args.
-                    if (accepts_inputs_without_events) {
+                    if (has_load_to_backend) {
                         exec_ctx.other_args.push_back(&galois_key);
                         exec_ctx.other_args.push_back(&galois_key_mutex);
                         exec_ctx.other_args.push_back(&all_galois_elts);
                     }
 
-                    std::unordered_map<NodeIndex, std::any> outputs;
-
-                    compute_node.executor(exec_ctx, thread_input_cache, outputs, compute_node);
+                    compute_node.execute(exec_ctx, thread_data_cache);
 
                     // Create events for GPU backend outputs (not STORE_FROM_BACKEND which outputs to C struct)
                     std::vector<cudaEvent_t> output_events;
-                    if (op != OperationType::STORE_FROM_BACKEND) {
+                    if (!has_store_from_backend) {
                         output_events.reserve(compute_node.output_nodes.size());
                         for (size_t i = 0; i < compute_node.output_nodes.size(); ++i) {
                             cudaEvent_t output_event;
@@ -311,7 +293,7 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
                         std::lock_guard<std::mutex> lock(m_mutex);
 
                         for (const auto* output_node : compute_node.output_nodes) {
-                            available_data[output_node->index] = outputs.at(output_node->index);
+                            available_data[output_node->index] = thread_data_cache.at(output_node->index);
                         }
                         auto newly_available_computes = mega_ag.step_available_computes(compute_node, available_data);
 
@@ -351,9 +333,9 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
         };
 
     // Define get_other_args for IMPORT_FROM_ABI nodes: pass output Handle* as other_arg
-    auto get_other_args = [&](const ComputeNode& compute_node) -> std::vector<std::any> {
+    auto get_other_args = [&](const CompoundComputeNode& compute_node) -> std::vector<std::any> {
         std::vector<std::any> other_args_vec;
-        if (compute_node.fhe_prop.has_value() && compute_node.fhe_prop->op_type == OperationType::IMPORT_FROM_ABI) {
+        if (compute_contains_operation(compute_node, OperationType::IMPORT_FROM_ABI)) {
             NodeIndex output_node_index = compute_node.output_nodes[0]->index;
             auto it = output_handle_map.find(output_node_index);
             if (it != output_handle_map.end()) {

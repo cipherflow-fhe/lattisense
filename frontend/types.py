@@ -84,7 +84,6 @@ class OperationType(Enum):
     CmpacSum = 'cmpac_sum'
     CmpSum = 'cmp_sum'
     Bootstrap = 'bootstrap'
-    Compound = 'compound'
     FpgaKernel = 'fpga_kernel'
     ExportToAbi = 'export_to_abi'
     ImportFromAbi = 'import_from_abi'
@@ -831,6 +830,28 @@ class ComputeNode:
         return f'({self.type}, {self.id})'
 
 
+class _CompoundComputeNode:
+    def __init__(self, on_cpu: bool, ops: list[dict], ext_inputs: list, ext_outputs: list) -> None:
+        self.index = gen_compute_node_index()
+        self.id = f'compound_compute_{self.index}'
+        self.ops = ops
+        self._ext_inputs = ext_inputs
+        self._ext_outputs = ext_outputs
+        self.on_cpu = on_cpu
+        self.priority = 0
+
+    def __repr__(self):
+        return f'(compound_compute, {self.id})'
+
+    def to_json_dict(self, dag: nx.DiGraph) -> dict:
+        return {
+            'id': self.id,
+            'ops': self.ops,
+            'inputs': [d.index for d in self._ext_inputs],
+            'outputs': [d.index for d in self._ext_outputs],
+        }
+
+
 class FheComputeNode(ComputeNode):
     """
     @class FheComputeNode
@@ -1004,7 +1025,7 @@ def is_bridge_compute(node) -> bool:
 
 
 def is_compute_node(node) -> bool:
-    return isinstance(node, ComputeNode)
+    return isinstance(node, (ComputeNode, _CompoundComputeNode))
 
 
 def is_data_node(node) -> bool:
@@ -1013,7 +1034,6 @@ def is_data_node(node) -> bool:
 
 class BridgeDataNode(DataNode):
     is_custom: bool = False
-    is_bridge: bool = True
 
     def __init__(self, node_type: DataType | str) -> None:
         super().__init__(type=node_type)
@@ -1024,7 +1044,6 @@ class BridgeDataNode(DataNode):
         self.sp_level: int | None = None
         self.poly1_rns_sp_decomped: bool = False
         self.galois_element: int | None = None
-        self.on_cpu: bool | None = None
 
     def __repr__(self) -> str:
         return f'(bridge_data, {self.id})'
@@ -1093,27 +1112,20 @@ def _copy_bridge_data_attrs(dst: BridgeDataNode, src: DataNode) -> None:
 
 
 class BridgeComputeNode(ComputeNode):
-    is_custom: bool = False
-    is_bridge: bool = True
-
     def __init__(self, op_type: OperationType) -> None:
         assert op_type in BRIDGE_OP_TYPES
         super().__init__(type=op_type)
-        self.on_cpu: bool | None = None
 
     def __repr__(self) -> str:
         return f'(bridge_{self.type.value}, {self.id})'
 
     def to_json_dict(self, dag) -> dict:
-        d = {
+        return {
             'id': self.id,
             'type': self.type.value,
             'inputs': [p.index for p in dag.predecessors(self)],
             'outputs': [s.index for s in dag.successors(self)],
         }
-        if self.on_cpu is not None:
-            d['on_cpu'] = self.on_cpu
-        return d
 
 
 class ExportToAbiNode(BridgeComputeNode):

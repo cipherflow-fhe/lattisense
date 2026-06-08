@@ -1234,7 +1234,7 @@ def process_custom_task(
     except ImportError:
         from linker.task_context import _TaskContext
     ctx = _TaskContext.build(
-        input_args, output_args, offline_input_args, g_swk_node_dict, name='Acc task', algorithm=g_param.algo.value
+        input_args, output_args, offline_input_args, g_swk_node_dict, name='Acc task', algorithm=g_param.algo
     )
 
     # Validate all input nodes exist in g_dag and feed at least one operation
@@ -1291,7 +1291,7 @@ def process_custom_task(
     except ImportError:
         from linker import serialize_dag, serialize_signature
 
-    _meta = {'name': ctx.name, 'algorithm': ctx.algorithm}
+    _meta = {'name': ctx.name, 'algorithm': ctx.algorithm.value}
     mag = serialize_dag(
         g_dag,
         inputs=ctx.inputs,
@@ -1314,21 +1314,18 @@ def process_custom_task(
 
     if processor == Processor.FPGA:
         try:
-            from .linker import apply_processor_layout, compute_properties
-            from .fpga_backend import _build_fpga_kernels, run_fpga_linker
+            from .fpga_backend import compile_fpga_mega_ag, run_fpga_linker
         except ImportError:
-            from linker import apply_processor_layout, compute_properties
-            from fpga_backend import _build_fpga_kernels, run_fpga_linker
+            from fpga_backend import compile_fpga_mega_ag, run_fpga_linker
 
-        bridge_dag = apply_processor_layout(g_dag, Processor.FPGA, ctx.inputs, ctx.outputs)
-        kernel_mags = _build_fpga_kernels(bridge_dag, g_param, ctx.outputs, ctx.offline)
-        bridge_dag = compute_properties(bridge_dag)
+        compiled_dag, kernel_mags = compile_fpga_mega_ag(g_dag, g_param, ctx)
         compiled = serialize_dag(
-            bridge_dag,
+            compiled_dag,
             inputs=ctx.inputs,
             outputs=ctx.outputs,
             offline_inputs=ctx.offline,
             meta=_meta,
+            use_ops=True,
         )
         with open(os.path.join(output_instruction_path, 'compiled_mega_ag.json'), 'w', encoding='utf-8') as f:
             json.dump(compiled, f, indent=2)
@@ -1353,6 +1350,7 @@ def process_custom_task(
             outputs=ctx.outputs,
             offline_inputs=ctx.offline,
             meta=_meta,
+            use_ops=True,
         )
         with open(os.path.join(output_instruction_path, 'compiled_mega_ag.json'), 'w', encoding='utf-8') as f:
             json.dump(compiled, f, indent=2)

@@ -74,9 +74,9 @@ extern "C" void set_lattigo_params_handle(uintptr_t h) {
 }
 
 extern "C" void* create_lattigo_abi_export_executor(int algo, int mf_nbits, int key_mf_nbits) {
-    auto* fn = new ExecutorFunc([algo, mf_nbits, key_mf_nbits](
-                                    ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
-                                    std::unordered_map<NodeIndex, std::any>& outputs, const ComputeNode& self) -> void {
+    auto* fn = new ExecutorFunc([algo, mf_nbits, key_mf_nbits](ExecutionContext& /*ctx*/,
+                                                               std::unordered_map<NodeIndex, std::any>& local_data,
+                                                               const ComputeNode& self) -> void {
         const DatumNode* input_node = self.input_nodes[0];
         if (!input_node->fhe_prop.has_value()) {
             throw std::runtime_error("Input node missing FHE properties for EXPORT_TO_ABI");
@@ -92,7 +92,7 @@ extern "C" void* create_lattigo_abi_export_executor(int algo, int mf_nbits, int 
                                       0;
 
         uintptr_t params_handle = g_lattigo_params_handle;
-        auto input_sptr = std::any_cast<std::shared_ptr<void>>(inputs.at(input_node->index));
+        auto input_sptr = std::any_cast<std::shared_ptr<void>>(local_data.at(input_node->index));
         uintptr_t input_handle = (uintptr_t)input_sptr.get();
 
         switch (data_type) {
@@ -103,7 +103,7 @@ extern "C" void* create_lattigo_abi_export_executor(int algo, int mf_nbits, int 
                 else
                     ExportLattigoCkksCiphertext(input_handle, c_ct);
 
-                outputs[self.output_nodes[0]->index] = std::shared_ptr<CCiphertext>(c_ct, [](CCiphertext* p) {
+                local_data[self.output_nodes[0]->index] = std::shared_ptr<CCiphertext>(c_ct, [](CCiphertext* p) {
                     free_ciphertext(p);
                     free(p);
                 });
@@ -120,7 +120,7 @@ extern "C" void* create_lattigo_abi_export_executor(int algo, int mf_nbits, int 
                 else
                     ExportLattigoCkksPlaintext(input_handle, c_pt);
 
-                outputs[self.output_nodes[0]->index] = std::shared_ptr<CPlaintext>(c_pt, [](CPlaintext* p) {
+                local_data[self.output_nodes[0]->index] = std::shared_ptr<CPlaintext>(c_pt, [](CPlaintext* p) {
                     free_plaintext(p);
                     free(p);
                 });
@@ -129,7 +129,7 @@ extern "C" void* create_lattigo_abi_export_executor(int algo, int mf_nbits, int 
             case TYPE_RELIN_KEY: {
                 auto* c_rlk = (CRelinKey*)malloc(sizeof(CRelinKey));
                 ExportLattigoRelinKey(params_handle, input_handle, level, key_mf_nbits, c_rlk);
-                outputs[self.output_nodes[0]->index] = std::shared_ptr<CRelinKey>(c_rlk, [](CRelinKey* p) {
+                local_data[self.output_nodes[0]->index] = std::shared_ptr<CRelinKey>(c_rlk, [](CRelinKey* p) {
                     free_relin_key(p);
                     free(p);
                 });
@@ -139,7 +139,7 @@ extern "C" void* create_lattigo_abi_export_executor(int algo, int mf_nbits, int 
                 auto* c_glk = (CGaloisKey*)malloc(sizeof(CGaloisKey));
                 ExportLattigoGaloisKey(params_handle, input_handle, galois_element, level, key_mf_nbits, c_glk);
 
-                outputs[self.output_nodes[0]->index] = std::shared_ptr<CGaloisKey>(c_glk, [](CGaloisKey* p) {
+                local_data[self.output_nodes[0]->index] = std::shared_ptr<CGaloisKey>(c_glk, [](CGaloisKey* p) {
                     free_galois_key(p);
                     free(p);
                 });
@@ -153,34 +153,33 @@ extern "C" void* create_lattigo_abi_export_executor(int algo, int mf_nbits, int 
 }
 
 extern "C" void* create_lattigo_abi_import_executor(int algo) {
-    auto* fn =
-        new ExecutorFunc([algo](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
-                                std::unordered_map<NodeIndex, std::any>& outputs, const ComputeNode& self) -> void {
-            const DatumNode* input_node = self.input_nodes[0];
-            if (!input_node->fhe_prop.has_value()) {
-                throw std::runtime_error("Input node missing FHE properties for IMPORT_FROM_ABI");
+    auto* fn = new ExecutorFunc([algo](ExecutionContext& ctx, std::unordered_map<NodeIndex, std::any>& local_data,
+                                       const ComputeNode& self) -> void {
+        const DatumNode* input_node = self.input_nodes[0];
+        if (!input_node->fhe_prop.has_value()) {
+            throw std::runtime_error("Input node missing FHE properties for IMPORT_FROM_ABI");
+        }
+
+        if (ctx.other_args.empty())
+            throw std::runtime_error("Lattigo IMPORT_FROM_ABI requires pre-allocated dest via other_args");
+
+        DataType data_type = input_node->datum_type;
+
+        switch (data_type) {
+            case TYPE_CIPHERTEXT: {
+                auto c_ct_ptr = std::any_cast<std::shared_ptr<CCiphertext>>(local_data.at(input_node->index));
+
+                uintptr_t dest_handle = (uintptr_t)ctx.get_other_arg<void>(0);
+                if (algo == ALGO_BFV)
+                    ImportLattigoBfvCiphertext(dest_handle, c_ct_ptr.get());
+                else
+                    ImportLattigoCkksCiphertext(dest_handle, c_ct_ptr.get());
+                local_data[self.output_nodes[0]->index] = std::shared_ptr<void>((void*)dest_handle, [](void*) {});
+                break;
             }
-
-            if (ctx.other_args.empty())
-                throw std::runtime_error("Lattigo IMPORT_FROM_ABI requires pre-allocated dest via other_args");
-
-            DataType data_type = input_node->datum_type;
-
-            switch (data_type) {
-                case TYPE_CIPHERTEXT: {
-                    auto c_ct_ptr = std::any_cast<std::shared_ptr<CCiphertext>>(inputs.at(input_node->index));
-
-                    uintptr_t dest_handle = (uintptr_t)ctx.get_other_arg<void>(0);
-                    if (algo == ALGO_BFV)
-                        ImportLattigoBfvCiphertext(dest_handle, c_ct_ptr.get());
-                    else
-                        ImportLattigoCkksCiphertext(dest_handle, c_ct_ptr.get());
-                    outputs[self.output_nodes[0]->index] = std::shared_ptr<void>((void*)dest_handle, [](void*) {});
-                    break;
-                }
-                default: throw std::runtime_error("Unsupported data type in Lattigo IMPORT_FROM_ABI");
-            }
-        });
+            default: throw std::runtime_error("Unsupported data type in Lattigo IMPORT_FROM_ABI");
+        }
+    });
 
     return static_cast<void*>(fn);
 }

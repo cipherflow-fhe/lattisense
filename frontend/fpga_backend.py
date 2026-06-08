@@ -19,7 +19,7 @@ import sys
 
 import networkx as nx
 
-from .linker import serialize_dag
+from .linker import apply_processor_layout, compute_properties, compute_runs_on_cpu, form_single_op_tasks, serialize_dag
 from .types import (
     BridgeComputeNode,
     BridgeDataNode,
@@ -28,6 +28,7 @@ from .types import (
     FheComputeNode,
     FheDataNode,
     FpgaKernelNode,
+    Processor,
 )
 
 
@@ -72,7 +73,9 @@ def _build_fpga_kernels(
             else:
                 pred = compute_preds[0]
                 pred_partition = node_partition.get(pred, -1)
-                node_partition[node] = pred_partition + 1 if getattr(pred, 'on_cpu', False) else pred_partition
+                node_partition[node] = (
+                    pred_partition + 1 if compute_runs_on_cpu(pred, Processor.FPGA) else pred_partition
+                )
         elif isinstance(node, FheComputeNode):
             preds = [
                 node_partition[p]
@@ -203,6 +206,15 @@ def _build_fpga_kernels(
         result.append((kernel, sub_mag, sub_sig))
 
     return result
+
+
+def compile_fpga_mega_ag(dag: nx.DiGraph, param, ctx) -> tuple[nx.DiGraph, list[tuple[FpgaKernelNode, dict, dict]]]:
+    """Apply FPGA processor layout, build FPGA kernel MAGs, and compute priorities."""
+    compiled_dag = apply_processor_layout(dag, Processor.FPGA, ctx.inputs, ctx.outputs)
+    kernel_mags = _build_fpga_kernels(compiled_dag, param, ctx.outputs, ctx.offline)
+    compiled_dag = form_single_op_tasks(compiled_dag, Processor.FPGA)
+    compiled_dag = compute_properties(compiled_dag)
+    return compiled_dag, kernel_mags
 
 
 def run_fpga_linker(output_instruction_path: str) -> None:

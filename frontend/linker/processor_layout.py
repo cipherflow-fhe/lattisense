@@ -15,7 +15,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-processor_layout.py — ABI bridge node insertion for GPU/CPU backends.
+processor_layout.py — ABI bridge node insertion for CPU/GPU/FPGA backends.
 
 Mirrors the logic previously in mega_ag_runners/mega_ag.cpp:
   - insert_backend_abi_bridge_nodes()  for GPU
@@ -54,7 +54,7 @@ def apply_processor_layout(
     input_nodes: list,
     output_nodes: list,
 ) -> nx.DiGraph:
-    """Insert ABI bridge nodes and set on_cpu flags for the target processor.
+    """Insert ABI bridge nodes for the target processor.
 
     Args:
         dag:          g_dag (modified in place).
@@ -63,7 +63,7 @@ def apply_processor_layout(
         output_nodes: List of DataNode objects that are graph outputs.
 
     Returns:
-        The input DiGraph with bridge compute/data nodes inserted and on_cpu set.
+        The input DiGraph with bridge compute/data nodes inserted.
     """
     input_set = set(input_nodes)
     output_set = set(output_nodes)
@@ -75,7 +75,6 @@ def apply_processor_layout(
     else:
         raise ValueError(f'Unsupported processor for layout: {processor!r}')
 
-    _set_on_cpu(dag, processor)
     return dag
 
 
@@ -266,30 +265,17 @@ def _is_backend_data(dag: nx.DiGraph, data_node) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# on_cpu flag assignment
+# Task placement
 # ---------------------------------------------------------------------------
 
 
-def _set_on_cpu(dag: nx.DiGraph, processor: Processor) -> None:
-    """Set .on_cpu on every compute node in the graph.
-
-    CPU:  all nodes → on_cpu = True
-    GPU:  custom nodes → True
-          export_to_abi / import_from_abi → True
-          other FHE/bridge nodes → False
-    FPGA: custom / bridge nodes → True
-          regular FHE / fpga_kernel nodes → False
-    """
-    for node in dag.nodes():
-        if not is_compute_node(node):
-            continue
-
-        custom = is_custom_compute(node)
-        if processor == Processor.CPU:
-            node.on_cpu = True
-        elif processor == Processor.GPU:
-            node.on_cpu = True if custom else node.type in (OperationType.ExportToAbi, OperationType.ImportFromAbi)
-        elif processor == Processor.FPGA:
-            node.on_cpu = custom or is_bridge_compute(node)
-        else:
-            raise ValueError(f'Unsupported processor for on_cpu assignment: {processor!r}')
+def compute_runs_on_cpu(node, processor: Processor) -> bool:
+    """Return whether a single op should execute on CPU for this processor layout."""
+    custom = is_custom_compute(node)
+    if processor == Processor.CPU:
+        return True
+    if processor == Processor.GPU:
+        return True if custom else node.type in (OperationType.ExportToAbi, OperationType.ImportFromAbi)
+    if processor == Processor.FPGA:
+        return custom or is_bridge_compute(node)
+    raise ValueError(f'Unsupported processor for task placement: {processor!r}')

@@ -44,7 +44,6 @@ const std::unordered_map<std::string, OperationType> str_to_operation_type = {
     {"cmp_sum", OperationType::MAC_WO_PARTIAL_SUM},
     {"cmpac_sum", OperationType::MAC_W_PARTIAL_SUM},
     {"bootstrap", OperationType::BOOTSTRAP},
-    {"compound", OperationType::COMPOUND},
     {"fpga_kernel", OperationType::FPGA_KERNEL},
     {"export_to_abi", OperationType::EXPORT_TO_ABI},
     {"import_from_abi", OperationType::IMPORT_FROM_ABI},
@@ -74,7 +73,8 @@ static ComputeNode::FheProperty parse_fhe_property(const nlohmann::json& value, 
     return fhe_prop;
 }
 
-static void attach_io_nodes(ComputeNode& node,
+template <typename NodeType>
+static void attach_io_nodes(NodeType& node,
                             MegaAG& mega_ag,
                             const std::vector<NodeIndex>& input_indices,
                             const std::vector<NodeIndex>& output_indices,
@@ -93,21 +93,32 @@ static void attach_io_nodes(ComputeNode& node,
 
 static ComputeNode parse_internal_compute_node(const nlohmann::json& value, MegaAG& mega_ag, Processor processor) {
     const std::string& json_type = value["type"].get<std::string>();
-    OperationType op_type = str_to_operation_type.at(json_type);
 
     ComputeNode internal;
-    internal.index = value.contains("index") ? value["index"].get<NodeIndex>() : 0;
-    internal.id = value.contains("id") ? value["id"].get<std::string>() : json_type;
-    internal.fhe_prop = parse_fhe_property(value, op_type);
+    internal.index = value["index"].get<NodeIndex>();
+    internal.id = value["id"].get<std::string>();
+
+    OperationType op_type = OperationType::UNKNOWN;
+    if (value.contains("is_custom") && value["is_custom"].get<bool>()) {
+        ComputeNode::CustomProperty custom_prop;
+        custom_prop.type = json_type;
+        if (value.contains("attributes")) {
+            custom_prop.attributes = value["attributes"];
+        }
+        internal.custom_prop = custom_prop;
+    } else {
+        op_type = str_to_operation_type.at(json_type);
+        internal.fhe_prop = parse_fhe_property(value, op_type);
+    }
 
     auto input_indices = value["inputs"].get<std::vector<NodeIndex>>();
     auto output_indices = value["outputs"].get<std::vector<NodeIndex>>();
     if (output_indices.size() != 1) {
-        throw std::runtime_error("COMPOUND internal node must have exactly one output");
+        throw std::runtime_error("Compute op must have exactly one output");
     }
     attach_io_nodes(internal, mega_ag, input_indices, output_indices, processor);
 
-    if (!is_abi_bridge_operation(op_type) && processor != Processor::FPGA) {
+    if (internal.fhe_prop.has_value() && !is_abi_bridge_operation(op_type) && processor != Processor::FPGA) {
         ExecutorBinder::bind_executor(internal, processor, mega_ag.algo);
     }
 
@@ -210,51 +221,22 @@ MegaAG MegaAG::load(const std::string& project_path, Processor processor) {
 
     for (auto& [key, value] : computes_json.items()) {
         NodeIndex index = std::stoull(key);
-        const std::string& json_type = value["type"].get<std::string>();
 
-        ComputeNode node;
+        CompoundComputeNode node;
         node.index = index;
         node.id = value["id"].get<std::string>();
 
         auto input_indices = value["inputs"].get<std::vector<NodeIndex>>();
         auto output_indices = value["outputs"].get<std::vector<NodeIndex>>();
 
-        if (value.contains("is_custom") && value["is_custom"].get<bool>()) {
-            // Custom compute node
-            ComputeNode::CustomProperty custom_prop;
-            custom_prop.type = json_type;
-            if (value.contains("attributes")) {
-                custom_prop.attributes = value["attributes"];
-            }
-            node.custom_prop = custom_prop;
-        } else {
-            // FHE compute node
-            OperationType op_type = str_to_operation_type.at(json_type);
-            node.fhe_prop = parse_fhe_property(value, op_type);
+        if (!value.contains("ops")) {
+            throw std::runtime_error("Compiled compute node is missing ops");
+        }
+        for (const auto& op_json : value["ops"]) {
+            node.ops.push_back(parse_internal_compute_node(op_json, mega_ag, processor));
         }
 
-        // Add input/output nodes (common for both custom and FHE)
         attach_io_nodes(node, mega_ag, input_indices, output_indices, processor);
-
-        if (node.fhe_prop.has_value() && node.fhe_prop->op_type == OperationType::COMPOUND) {
-            if (node.output_nodes.empty()) {
-                throw std::runtime_error("COMPOUND node must have at least one output");
-            }
-            if (!value.contains("internal_ops")) {
-                throw std::runtime_error("COMPOUND node is missing internal_ops");
-            }
-            ComputeNode::CompoundProperty compound_prop;
-            for (const auto& internal_json : value["internal_ops"]) {
-                compound_prop.internal_nodes.push_back(parse_internal_compute_node(internal_json, mega_ag, processor));
-            }
-            node.compound_prop = std::move(compound_prop);
-        }
-
-        // Bind executor for regular FHE nodes. ABI bridge executors are bound later via bind_abi_bridge_executors().
-        if (node.fhe_prop.has_value() && !is_abi_bridge_operation(node.fhe_prop->op_type) &&
-            processor != Processor::FPGA) {
-            ExecutorBinder::bind_executor(node, processor, mega_ag.algo);
-        }
 
         if (value.contains("on_cpu"))
             node.on_cpu = value["on_cpu"].get<bool>();

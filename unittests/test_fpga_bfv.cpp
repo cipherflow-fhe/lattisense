@@ -1389,27 +1389,27 @@ TEMPLATE_TEST_CASE_METHOD(BfvFpgaFixture, "BFV custom_cmpac", "", BfvFpgaTestPar
             FheTaskFpga fpga_project(path);
 
             std::unordered_map<std::string, ExecutorFunc> custom_executors;
-            custom_executors["encode_ringt"] =
-                [this](ExecutionContext& exec_ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
-                       std::unordered_map<NodeIndex, std::any>& outputs, const ComputeNode& self) -> void {
+            custom_executors["encode_ringt"] = [this](ExecutionContext& exec_ctx,
+                                                      std::unordered_map<NodeIndex, std::any>& local_data,
+                                                      const ComputeNode& self) -> void {
                 auto* bfv_ctx = exec_ctx.get_arithmetic_context<BfvContext>();
                 auto input_node_idx = self.input_nodes[0]->index;
-                auto input_handle_ptr = std::any_cast<std::shared_ptr<CustomData>>(inputs.at(input_node_idx));
+                auto input_handle_ptr = std::any_cast<std::shared_ptr<CustomData>>(local_data.at(input_node_idx));
                 auto* msg_vec = input_handle_ptr->get_typed_data<std::vector<uint64_t>>();
-                outputs[self.output_nodes[0]->index] =
+                local_data[self.output_nodes[0]->index] =
                     std::make_shared<BfvPlaintextRingt>(bfv_ctx->encode_ringt(*msg_vec));
             };
-            custom_executors["encode"] =
-                [this](ExecutionContext& exec_ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
-                       std::unordered_map<NodeIndex, std::any>& outputs, const ComputeNode& self) -> void {
+            custom_executors["encode"] = [this](ExecutionContext& exec_ctx,
+                                                std::unordered_map<NodeIndex, std::any>& local_data,
+                                                const ComputeNode& self) -> void {
                 auto* bfv_ctx = exec_ctx.get_arithmetic_context<BfvContext>();
                 if (!self.custom_prop.has_value())
                     throw std::runtime_error("Custom property not found for encode operation");
                 int encode_level = self.custom_prop->attributes["level"].get<int>();
                 auto input_node_idx = self.input_nodes[0]->index;
-                auto input_handle_ptr = std::any_cast<std::shared_ptr<CustomData>>(inputs.at(input_node_idx));
+                auto input_handle_ptr = std::any_cast<std::shared_ptr<CustomData>>(local_data.at(input_node_idx));
                 auto* msg_vec = input_handle_ptr->get_typed_data<std::vector<uint64_t>>();
-                outputs[self.output_nodes[0]->index] =
+                local_data[self.output_nodes[0]->index] =
                     std::make_shared<BfvPlaintext>(bfv_ctx->encode(*msg_vec, encode_level));
             };
 
@@ -1453,27 +1453,27 @@ TEMPLATE_TEST_CASE_METHOD(BfvFpgaFixture, "BFV custom_compute_at_start", "", Bfv
             FheTaskFpga fpga_project(path);
 
             std::unordered_map<std::string, ExecutorFunc> custom_executors;
-            custom_executors["encode_ringt"] =
-                [this](ExecutionContext& exec_ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
-                       std::unordered_map<NodeIndex, std::any>& outputs, const ComputeNode& self) -> void {
+            custom_executors["encode_ringt"] = [this](ExecutionContext& exec_ctx,
+                                                      std::unordered_map<NodeIndex, std::any>& local_data,
+                                                      const ComputeNode& self) -> void {
                 auto* bfv_ctx = exec_ctx.get_arithmetic_context<BfvContext>();
                 auto input_node_idx = self.input_nodes[0]->index;
-                auto input_handle_ptr = std::any_cast<std::shared_ptr<CustomData>>(inputs.at(input_node_idx));
+                auto input_handle_ptr = std::any_cast<std::shared_ptr<CustomData>>(local_data.at(input_node_idx));
                 auto* msg_vec = input_handle_ptr->get_typed_data<std::vector<uint64_t>>();
-                outputs[self.output_nodes[0]->index] =
+                local_data[self.output_nodes[0]->index] =
                     std::make_shared<BfvPlaintextRingt>(bfv_ctx->encode_ringt(*msg_vec));
             };
-            custom_executors["encode"] =
-                [this](ExecutionContext& exec_ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
-                       std::unordered_map<NodeIndex, std::any>& outputs, const ComputeNode& self) -> void {
+            custom_executors["encode"] = [this](ExecutionContext& exec_ctx,
+                                                std::unordered_map<NodeIndex, std::any>& local_data,
+                                                const ComputeNode& self) -> void {
                 auto* bfv_ctx = exec_ctx.get_arithmetic_context<BfvContext>();
                 if (!self.custom_prop.has_value())
                     throw std::runtime_error("Custom property not found for encode operation");
                 int encode_level = self.custom_prop->attributes["level"].get<int>();
                 auto input_node_idx = self.input_nodes[0]->index;
-                auto input_handle_ptr = std::any_cast<std::shared_ptr<CustomData>>(inputs.at(input_node_idx));
+                auto input_handle_ptr = std::any_cast<std::shared_ptr<CustomData>>(local_data.at(input_node_idx));
                 auto* msg_vec = input_handle_ptr->get_typed_data<std::vector<uint64_t>>();
-                outputs[self.output_nodes[0]->index] =
+                local_data[self.output_nodes[0]->index] =
                     std::make_shared<BfvPlaintext>(bfv_ctx->encode(*msg_vec, encode_level));
             };
 
@@ -1510,13 +1510,13 @@ TEMPLATE_TEST_CASE_METHOD(BfvFpgaFixture, "BFV custom_compute_at_end", "", BfvFp
             FheTaskFpga fpga_project(path);
 
             std::unordered_map<std::string, ExecutorFunc> custom_executors;
-            custom_executors["custom_add"] =
-                [this](ExecutionContext& exec_ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
-                       std::unordered_map<NodeIndex, std::any>& outputs, const ComputeNode& self) -> void {
+            custom_executors["custom_add"] = [this](ExecutionContext& exec_ctx,
+                                                    std::unordered_map<NodeIndex, std::any>& local_data,
+                                                    const ComputeNode& self) -> void {
                 auto* bfv_ctx = exec_ctx.get_arithmetic_context<BfvContext>();
                 auto input_node_idx = self.input_nodes[0]->index;
-                auto input_ptr = std::any_cast<std::shared_ptr<BfvCiphertext>>(inputs.at(input_node_idx));
-                outputs[self.output_nodes[0]->index] =
+                auto input_ptr = std::any_cast<std::shared_ptr<BfvCiphertext>>(local_data.at(input_node_idx));
+                local_data[self.output_nodes[0]->index] =
                     std::make_shared<BfvCiphertext>(bfv_ctx->add(*input_ptr, *input_ptr));
             };
             fpga_project.bind_custom_executors(custom_executors);
@@ -1556,13 +1556,13 @@ TEMPLATE_TEST_CASE_METHOD(BfvFpgaFixture, "BFV custom_compute_in_middle", "", Bf
             FheTaskFpga fpga_project(path);
 
             std::unordered_map<std::string, ExecutorFunc> custom_executors;
-            custom_executors["custom_add"] =
-                [this](ExecutionContext& exec_ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
-                       std::unordered_map<NodeIndex, std::any>& outputs, const ComputeNode& self) -> void {
+            custom_executors["custom_add"] = [this](ExecutionContext& exec_ctx,
+                                                    std::unordered_map<NodeIndex, std::any>& local_data,
+                                                    const ComputeNode& self) -> void {
                 auto* bfv_ctx = exec_ctx.get_arithmetic_context<BfvContext>();
                 auto input_node_idx = self.input_nodes[0]->index;
-                auto input_ptr = std::any_cast<std::shared_ptr<BfvCiphertext>>(inputs.at(input_node_idx));
-                outputs[self.output_nodes[0]->index] =
+                auto input_ptr = std::any_cast<std::shared_ptr<BfvCiphertext>>(local_data.at(input_node_idx));
+                local_data[self.output_nodes[0]->index] =
                     std::make_shared<BfvCiphertext>(bfv_ctx->add(*input_ptr, *input_ptr));
             };
             fpga_project.bind_custom_executors(custom_executors);

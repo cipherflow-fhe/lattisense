@@ -58,7 +58,7 @@ using namespace fhe_ops_lib;
         if (!input_node->fhe_prop.has_value()) {                                                                       \
             throw std::runtime_error("FHE property not found for input node");                                         \
         }                                                                                                              \
-        auto input_any = inputs.at(input_node->index);                                                                 \
+        auto input_any = local_data.at(input_node->index);                                                             \
         if (input_node->datum_type == TYPE_CIPHERTEXT) {                                                               \
             if (input_node->fhe_prop->degree == 2) {                                                                   \
                 ciphertexts3.push_back(std::any_cast<std::shared_ptr<Ciphertext3Type>>(input_any).get());              \
@@ -96,10 +96,10 @@ static DatumNode* find_plaintext_node(const ComputeNode& node) {
 template <HEScheme SchemeType> void bind_cpu_add(ComputeNode& node) {
     if (node.input_nodes.size() == 1) {
         // Single input: ct + ct (same input)
-        node.executor = [](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
-                           std::unordered_map<NodeIndex, std::any>& outputs, const ComputeNode& self) -> void {
+        node.executor = [](ExecutionContext& ctx, std::unordered_map<NodeIndex, std::any>& local_data,
+                           const ComputeNode& self) -> void {
             CPU_EXECUTOR_SETUP(SchemeType);
-            outputs[self.output_nodes[0]->index] =
+            local_data[self.output_nodes[0]->index] =
                 std::make_shared<CiphertextType>(context->add(*ciphertexts[0], *ciphertexts[0]));
         };
     } else {
@@ -107,27 +107,27 @@ template <HEScheme SchemeType> void bind_cpu_add(ComputeNode& node) {
         if (pt_node) {
             if (pt_node->fhe_prop->p && pt_node->fhe_prop->p->is_ringt) {
                 // ct + pt_ringt (BFV and CKKS)
-                node.executor = [](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
-                                   std::unordered_map<NodeIndex, std::any>& outputs, const ComputeNode& self) -> void {
+                node.executor = [](ExecutionContext& ctx, std::unordered_map<NodeIndex, std::any>& local_data,
+                                   const ComputeNode& self) -> void {
                     CPU_EXECUTOR_SETUP(SchemeType);
-                    outputs[self.output_nodes[0]->index] = std::make_shared<CiphertextType>(
+                    local_data[self.output_nodes[0]->index] = std::make_shared<CiphertextType>(
                         context->add_plain_ringt(*ciphertexts[0], *plaintexts_ringt[0]));
                 };
             } else {
                 // ct + pt (normal)
-                node.executor = [](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
-                                   std::unordered_map<NodeIndex, std::any>& outputs, const ComputeNode& self) -> void {
+                node.executor = [](ExecutionContext& ctx, std::unordered_map<NodeIndex, std::any>& local_data,
+                                   const ComputeNode& self) -> void {
                     CPU_EXECUTOR_SETUP(SchemeType);
-                    outputs[self.output_nodes[0]->index] =
+                    local_data[self.output_nodes[0]->index] =
                         std::make_shared<CiphertextType>(context->add_plain(*ciphertexts[0], *plaintexts[0]));
                 };
             }
         } else {
             // ct + ct
-            node.executor = [](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
-                               std::unordered_map<NodeIndex, std::any>& outputs, const ComputeNode& self) -> void {
+            node.executor = [](ExecutionContext& ctx, std::unordered_map<NodeIndex, std::any>& local_data,
+                               const ComputeNode& self) -> void {
                 CPU_EXECUTOR_SETUP(SchemeType);
-                outputs[self.output_nodes[0]->index] =
+                local_data[self.output_nodes[0]->index] =
                     std::make_shared<CiphertextType>(context->add(*ciphertexts[0], *ciphertexts[1]));
             };
         }
@@ -137,10 +137,10 @@ template <HEScheme SchemeType> void bind_cpu_add(ComputeNode& node) {
 template <HEScheme SchemeType> void bind_cpu_sub(ComputeNode& node) {
     if (node.input_nodes.size() == 1) {
         // Single input: ct - ct (same input)
-        node.executor = [](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
-                           std::unordered_map<NodeIndex, std::any>& outputs, const ComputeNode& self) -> void {
+        node.executor = [](ExecutionContext& ctx, std::unordered_map<NodeIndex, std::any>& local_data,
+                           const ComputeNode& self) -> void {
             CPU_EXECUTOR_SETUP(SchemeType);
-            outputs[self.output_nodes[0]->index] =
+            local_data[self.output_nodes[0]->index] =
                 std::make_shared<CiphertextType>(context->sub(*ciphertexts[0], *ciphertexts[0]));
         };
     } else {
@@ -148,27 +148,27 @@ template <HEScheme SchemeType> void bind_cpu_sub(ComputeNode& node) {
         if (pt_node) {
             if (pt_node->fhe_prop->p && pt_node->fhe_prop->p->is_ringt) {
                 // ct - pt_ringt (BFV and CKKS)
-                node.executor = [](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
-                                   std::unordered_map<NodeIndex, std::any>& outputs, const ComputeNode& self) -> void {
+                node.executor = [](ExecutionContext& ctx, std::unordered_map<NodeIndex, std::any>& local_data,
+                                   const ComputeNode& self) -> void {
                     CPU_EXECUTOR_SETUP(SchemeType);
-                    outputs[self.output_nodes[0]->index] = std::make_shared<CiphertextType>(
+                    local_data[self.output_nodes[0]->index] = std::make_shared<CiphertextType>(
                         context->sub_plain_ringt(*ciphertexts[0], *plaintexts_ringt[0]));
                 };
             } else {
                 // ct - pt (normal)
-                node.executor = [](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
-                                   std::unordered_map<NodeIndex, std::any>& outputs, const ComputeNode& self) -> void {
+                node.executor = [](ExecutionContext& ctx, std::unordered_map<NodeIndex, std::any>& local_data,
+                                   const ComputeNode& self) -> void {
                     CPU_EXECUTOR_SETUP(SchemeType);
-                    outputs[self.output_nodes[0]->index] =
+                    local_data[self.output_nodes[0]->index] =
                         std::make_shared<CiphertextType>(context->sub_plain(*ciphertexts[0], *plaintexts[0]));
                 };
             }
         } else {
             // ct - ct
-            node.executor = [](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
-                               std::unordered_map<NodeIndex, std::any>& outputs, const ComputeNode& self) -> void {
+            node.executor = [](ExecutionContext& ctx, std::unordered_map<NodeIndex, std::any>& local_data,
+                               const ComputeNode& self) -> void {
                 CPU_EXECUTOR_SETUP(SchemeType);
-                outputs[self.output_nodes[0]->index] =
+                local_data[self.output_nodes[0]->index] =
                     std::make_shared<CiphertextType>(context->sub(*ciphertexts[0], *ciphertexts[1]));
             };
         }
@@ -176,20 +176,20 @@ template <HEScheme SchemeType> void bind_cpu_sub(ComputeNode& node) {
 }
 
 template <HEScheme SchemeType> void bind_cpu_neg(ComputeNode& node) {
-    node.executor = [](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
-                       std::unordered_map<NodeIndex, std::any>& outputs, const ComputeNode& self) -> void {
+    node.executor = [](ExecutionContext& ctx, std::unordered_map<NodeIndex, std::any>& local_data,
+                       const ComputeNode& self) -> void {
         CPU_EXECUTOR_SETUP(SchemeType);
-        outputs[self.output_nodes[0]->index] = std::make_shared<CiphertextType>(context->negate(*ciphertexts[0]));
+        local_data[self.output_nodes[0]->index] = std::make_shared<CiphertextType>(context->negate(*ciphertexts[0]));
     };
 }
 
 template <HEScheme SchemeType> void bind_cpu_mult(ComputeNode& node) {
     if (node.input_nodes.size() == 1) {
         // Single input: ct * ct (same input)
-        node.executor = [](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
-                           std::unordered_map<NodeIndex, std::any>& outputs, const ComputeNode& self) -> void {
+        node.executor = [](ExecutionContext& ctx, std::unordered_map<NodeIndex, std::any>& local_data,
+                           const ComputeNode& self) -> void {
             CPU_EXECUTOR_SETUP(SchemeType);
-            outputs[self.output_nodes[0]->index] =
+            local_data[self.output_nodes[0]->index] =
                 std::make_shared<Ciphertext3Type>(context->mult(*ciphertexts[0], *ciphertexts[0]));
         };
     } else {
@@ -198,47 +198,45 @@ template <HEScheme SchemeType> void bind_cpu_mult(ComputeNode& node) {
             if (pt_node->fhe_prop->p && pt_node->fhe_prop->p->is_ringt) {
                 // ct * pt_ringt
                 if constexpr (SchemeType == HEScheme::BFV) {
-                    node.executor = [](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
-                                       std::unordered_map<NodeIndex, std::any>& outputs,
+                    node.executor = [](ExecutionContext& ctx, std::unordered_map<NodeIndex, std::any>& local_data,
                                        const ComputeNode& self) -> void {
                         CPU_EXECUTOR_SETUP(SchemeType);
-                        outputs[self.output_nodes[0]->index] = std::make_shared<CiphertextType>(
+                        local_data[self.output_nodes[0]->index] = std::make_shared<CiphertextType>(
                             context->mult_plain_ringt(*ciphertexts[0], *plaintexts_ringt[0]));
                     };
                 } else {
-                    node.executor = [](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
-                                       std::unordered_map<NodeIndex, std::any>& outputs,
+                    node.executor = [](ExecutionContext& ctx, std::unordered_map<NodeIndex, std::any>& local_data,
                                        const ComputeNode& self) -> void {
                         CPU_EXECUTOR_SETUP(SchemeType);
                         int level = ciphertexts[0]->get_level();
                         PlaintextMulType pt_mul = context->ringt_to_mul(*plaintexts_ringt[0], level);
-                        outputs[self.output_nodes[0]->index] =
+                        local_data[self.output_nodes[0]->index] =
                             std::make_shared<CiphertextType>(context->mult_plain_mul(*ciphertexts[0], pt_mul));
                     };
                 }
             } else if (pt_node->fhe_prop->is_ntt && pt_node->fhe_prop->is_mform) {
                 // ct * pt_mul
-                node.executor = [](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
-                                   std::unordered_map<NodeIndex, std::any>& outputs, const ComputeNode& self) -> void {
+                node.executor = [](ExecutionContext& ctx, std::unordered_map<NodeIndex, std::any>& local_data,
+                                   const ComputeNode& self) -> void {
                     CPU_EXECUTOR_SETUP(SchemeType);
-                    outputs[self.output_nodes[0]->index] =
+                    local_data[self.output_nodes[0]->index] =
                         std::make_shared<CiphertextType>(context->mult_plain_mul(*ciphertexts[0], *plaintexts_mul[0]));
                 };
             } else {
                 // ct * pt (normal)
-                node.executor = [](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
-                                   std::unordered_map<NodeIndex, std::any>& outputs, const ComputeNode& self) -> void {
+                node.executor = [](ExecutionContext& ctx, std::unordered_map<NodeIndex, std::any>& local_data,
+                                   const ComputeNode& self) -> void {
                     CPU_EXECUTOR_SETUP(SchemeType);
-                    outputs[self.output_nodes[0]->index] =
+                    local_data[self.output_nodes[0]->index] =
                         std::make_shared<CiphertextType>(context->mult_plain(*ciphertexts[0], *plaintexts[0]));
                 };
             }
         } else {
             // ct * ct
-            node.executor = [](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
-                               std::unordered_map<NodeIndex, std::any>& outputs, const ComputeNode& self) -> void {
+            node.executor = [](ExecutionContext& ctx, std::unordered_map<NodeIndex, std::any>& local_data,
+                               const ComputeNode& self) -> void {
                 CPU_EXECUTOR_SETUP(SchemeType);
-                outputs[self.output_nodes[0]->index] =
+                local_data[self.output_nodes[0]->index] =
                     std::make_shared<Ciphertext3Type>(context->mult(*ciphertexts[0], *ciphertexts[1]));
             };
         }
@@ -246,21 +244,23 @@ template <HEScheme SchemeType> void bind_cpu_mult(ComputeNode& node) {
 }
 
 template <HEScheme SchemeType> void bind_cpu_relin(ComputeNode& node) {
-    node.executor = [](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
-                       std::unordered_map<NodeIndex, std::any>& outputs, const ComputeNode& self) -> void {
+    node.executor = [](ExecutionContext& ctx, std::unordered_map<NodeIndex, std::any>& local_data,
+                       const ComputeNode& self) -> void {
         CPU_EXECUTOR_SETUP(SchemeType);
-        outputs[self.output_nodes[0]->index] = std::make_shared<CiphertextType>(context->relinearize(*ciphertexts3[0]));
+        local_data[self.output_nodes[0]->index] =
+            std::make_shared<CiphertextType>(context->relinearize(*ciphertexts3[0]));
     };
 }
 
 template <HEScheme SchemeType> void bind_cpu_rescale(ComputeNode& node) {
-    node.executor = [](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
-                       std::unordered_map<NodeIndex, std::any>& outputs, const ComputeNode& self) -> void {
+    node.executor = [](ExecutionContext& ctx, std::unordered_map<NodeIndex, std::any>& local_data,
+                       const ComputeNode& self) -> void {
         CPU_EXECUTOR_SETUP(SchemeType);
         if constexpr (SchemeType == HEScheme::BFV) {
-            outputs[self.output_nodes[0]->index] = std::make_shared<CiphertextType>(context->rescale(*ciphertexts[0]));
+            local_data[self.output_nodes[0]->index] =
+                std::make_shared<CiphertextType>(context->rescale(*ciphertexts[0]));
         } else {
-            outputs[self.output_nodes[0]->index] = std::make_shared<CiphertextType>(
+            local_data[self.output_nodes[0]->index] = std::make_shared<CiphertextType>(
                 context->rescale(*ciphertexts[0], context->get_parameter().get_default_scale()));
         }
     };
@@ -268,10 +268,10 @@ template <HEScheme SchemeType> void bind_cpu_rescale(ComputeNode& node) {
 
 template <HEScheme SchemeType> void bind_cpu_drop_level(ComputeNode& node) {
     if constexpr (SchemeType == HEScheme::CKKS) {
-        node.executor = [](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
-                           std::unordered_map<NodeIndex, std::any>& outputs, const ComputeNode& self) -> void {
+        node.executor = [](ExecutionContext& ctx, std::unordered_map<NodeIndex, std::any>& local_data,
+                           const ComputeNode& self) -> void {
             CPU_EXECUTOR_SETUP(SchemeType);
-            outputs[self.output_nodes[0]->index] =
+            local_data[self.output_nodes[0]->index] =
                 std::make_shared<CiphertextType>(context->drop_level(*ciphertexts[0], 1));
         };
     } else {
@@ -284,28 +284,28 @@ template <HEScheme SchemeType> void bind_cpu_rotate_col(ComputeNode& node) {
         throw std::runtime_error("ROTATE_COL requires rotation_step property");
     }
     int step = node.fhe_prop->p->rotation_step;
-    node.executor = [step](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
-                           std::unordered_map<NodeIndex, std::any>& outputs, const ComputeNode& self) -> void {
+    node.executor = [step](ExecutionContext& ctx, std::unordered_map<NodeIndex, std::any>& local_data,
+                           const ComputeNode& self) -> void {
         CPU_EXECUTOR_SETUP(SchemeType);
         if constexpr (SchemeType == HEScheme::BFV) {
-            outputs[self.output_nodes[0]->index] =
+            local_data[self.output_nodes[0]->index] =
                 std::make_shared<CiphertextType>(context->advanced_rotate_cols(*ciphertexts[0], step));
         } else {
-            outputs[self.output_nodes[0]->index] =
+            local_data[self.output_nodes[0]->index] =
                 std::make_shared<CiphertextType>(context->advanced_rotate(*ciphertexts[0], step));
         }
     };
 }
 
 template <HEScheme SchemeType> void bind_cpu_rotate_row(ComputeNode& node) {
-    node.executor = [](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
-                       std::unordered_map<NodeIndex, std::any>& outputs, const ComputeNode& self) -> void {
+    node.executor = [](ExecutionContext& ctx, std::unordered_map<NodeIndex, std::any>& local_data,
+                       const ComputeNode& self) -> void {
         CPU_EXECUTOR_SETUP(SchemeType);
         if constexpr (SchemeType == HEScheme::BFV) {
-            outputs[self.output_nodes[0]->index] =
+            local_data[self.output_nodes[0]->index] =
                 std::make_shared<CiphertextType>(context->rotate_rows(*ciphertexts[0]));
         } else {
-            outputs[self.output_nodes[0]->index] =
+            local_data[self.output_nodes[0]->index] =
                 std::make_shared<CiphertextType>(context->conjugate(*ciphertexts[0]));
         }
     };
@@ -324,8 +324,8 @@ template <HEScheme SchemeType> void bind_cpu_cmpac_sum(ComputeNode& node) {
     if (pt_node->fhe_prop->p && pt_node->fhe_prop->p->is_ringt) {
         // ct * pt_ringt
         if constexpr (SchemeType == HEScheme::BFV) {
-            node.executor = [n](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
-                                std::unordered_map<NodeIndex, std::any>& outputs, const ComputeNode& self) -> void {
+            node.executor = [n](ExecutionContext& ctx, std::unordered_map<NodeIndex, std::any>& local_data,
+                                const ComputeNode& self) -> void {
                 CPU_EXECUTOR_SETUP(SchemeType);
                 std::vector<CiphertextType> products(n);
                 for (int i = 0; i < n; i++) {
@@ -335,13 +335,13 @@ template <HEScheme SchemeType> void bind_cpu_cmpac_sum(ComputeNode& node) {
                 for (int i = 0; i < n - 1; i++) {
                     sum = context->add(sum, products[i + 1]);
                 }
-                outputs[self.output_nodes[0]->index] =
+                local_data[self.output_nodes[0]->index] =
                     std::make_shared<CiphertextType>(context->add(sum, *ciphertexts[n]));
             };
         } else {
             // CKKS: convert pt_ringt to pt_mul then multiply
-            node.executor = [n](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
-                                std::unordered_map<NodeIndex, std::any>& outputs, const ComputeNode& self) -> void {
+            node.executor = [n](ExecutionContext& ctx, std::unordered_map<NodeIndex, std::any>& local_data,
+                                const ComputeNode& self) -> void {
                 CPU_EXECUTOR_SETUP(SchemeType);
                 std::vector<CiphertextType> products(n);
                 for (int i = 0; i < n; i++) {
@@ -353,14 +353,14 @@ template <HEScheme SchemeType> void bind_cpu_cmpac_sum(ComputeNode& node) {
                 for (int i = 0; i < n - 1; i++) {
                     sum = context->add(sum, products[i + 1]);
                 }
-                outputs[self.output_nodes[0]->index] =
+                local_data[self.output_nodes[0]->index] =
                     std::make_shared<CiphertextType>(context->add(sum, *ciphertexts[n]));
             };
         }
     } else if (pt_node->fhe_prop->is_ntt && pt_node->fhe_prop->is_mform) {
         // ct * pt_mul
-        node.executor = [n](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
-                            std::unordered_map<NodeIndex, std::any>& outputs, const ComputeNode& self) -> void {
+        node.executor = [n](ExecutionContext& ctx, std::unordered_map<NodeIndex, std::any>& local_data,
+                            const ComputeNode& self) -> void {
             CPU_EXECUTOR_SETUP(SchemeType);
             std::vector<CiphertextType> products(n);
             for (int i = 0; i < n; i++) {
@@ -370,12 +370,13 @@ template <HEScheme SchemeType> void bind_cpu_cmpac_sum(ComputeNode& node) {
             for (int i = 0; i < n - 1; i++) {
                 sum = context->add(sum, products[i + 1]);
             }
-            outputs[self.output_nodes[0]->index] = std::make_shared<CiphertextType>(context->add(sum, *ciphertexts[n]));
+            local_data[self.output_nodes[0]->index] =
+                std::make_shared<CiphertextType>(context->add(sum, *ciphertexts[n]));
         };
     } else {
         // ct * pt (normal)
-        node.executor = [n](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
-                            std::unordered_map<NodeIndex, std::any>& outputs, const ComputeNode& self) -> void {
+        node.executor = [n](ExecutionContext& ctx, std::unordered_map<NodeIndex, std::any>& local_data,
+                            const ComputeNode& self) -> void {
             CPU_EXECUTOR_SETUP(SchemeType);
             std::vector<CiphertextType> products(n);
             for (int i = 0; i < n; i++) {
@@ -385,7 +386,8 @@ template <HEScheme SchemeType> void bind_cpu_cmpac_sum(ComputeNode& node) {
             for (int i = 0; i < n - 1; i++) {
                 sum = context->add(sum, products[i + 1]);
             }
-            outputs[self.output_nodes[0]->index] = std::make_shared<CiphertextType>(context->add(sum, *ciphertexts[n]));
+            local_data[self.output_nodes[0]->index] =
+                std::make_shared<CiphertextType>(context->add(sum, *ciphertexts[n]));
         };
     }
 }
@@ -403,8 +405,8 @@ template <HEScheme SchemeType> void bind_cpu_cmp_sum(ComputeNode& node) {
     if (pt_node->fhe_prop->p && pt_node->fhe_prop->p->is_ringt) {
         // ct * pt_ringt
         if constexpr (SchemeType == HEScheme::BFV) {
-            node.executor = [n](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
-                                std::unordered_map<NodeIndex, std::any>& outputs, const ComputeNode& self) -> void {
+            node.executor = [n](ExecutionContext& ctx, std::unordered_map<NodeIndex, std::any>& local_data,
+                                const ComputeNode& self) -> void {
                 CPU_EXECUTOR_SETUP(SchemeType);
                 std::vector<CiphertextType> products(n);
                 for (int i = 0; i < n; i++) {
@@ -414,12 +416,12 @@ template <HEScheme SchemeType> void bind_cpu_cmp_sum(ComputeNode& node) {
                 for (int i = 0; i < n - 1; i++) {
                     sum = context->add(sum, products[i + 1]);
                 }
-                outputs[self.output_nodes[0]->index] = std::make_shared<CiphertextType>(std::move(sum));
+                local_data[self.output_nodes[0]->index] = std::make_shared<CiphertextType>(std::move(sum));
             };
         } else {
             // CKKS: convert pt_ringt to pt_mul then multiply
-            node.executor = [n](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
-                                std::unordered_map<NodeIndex, std::any>& outputs, const ComputeNode& self) -> void {
+            node.executor = [n](ExecutionContext& ctx, std::unordered_map<NodeIndex, std::any>& local_data,
+                                const ComputeNode& self) -> void {
                 CPU_EXECUTOR_SETUP(SchemeType);
                 std::vector<CiphertextType> products(n);
                 for (int i = 0; i < n; i++) {
@@ -431,13 +433,13 @@ template <HEScheme SchemeType> void bind_cpu_cmp_sum(ComputeNode& node) {
                 for (int i = 0; i < n - 1; i++) {
                     sum = context->add(sum, products[i + 1]);
                 }
-                outputs[self.output_nodes[0]->index] = std::make_shared<CiphertextType>(std::move(sum));
+                local_data[self.output_nodes[0]->index] = std::make_shared<CiphertextType>(std::move(sum));
             };
         }
     } else if (pt_node->fhe_prop->is_ntt && pt_node->fhe_prop->is_mform) {
         // ct * pt_mul
-        node.executor = [n](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
-                            std::unordered_map<NodeIndex, std::any>& outputs, const ComputeNode& self) -> void {
+        node.executor = [n](ExecutionContext& ctx, std::unordered_map<NodeIndex, std::any>& local_data,
+                            const ComputeNode& self) -> void {
             CPU_EXECUTOR_SETUP(SchemeType);
             std::vector<CiphertextType> products(n);
             for (int i = 0; i < n; i++) {
@@ -447,12 +449,12 @@ template <HEScheme SchemeType> void bind_cpu_cmp_sum(ComputeNode& node) {
             for (int i = 0; i < n - 1; i++) {
                 sum = context->add(sum, products[i + 1]);
             }
-            outputs[self.output_nodes[0]->index] = std::make_shared<CiphertextType>(std::move(sum));
+            local_data[self.output_nodes[0]->index] = std::make_shared<CiphertextType>(std::move(sum));
         };
     } else {
         // ct * pt (normal)
-        node.executor = [n](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
-                            std::unordered_map<NodeIndex, std::any>& outputs, const ComputeNode& self) -> void {
+        node.executor = [n](ExecutionContext& ctx, std::unordered_map<NodeIndex, std::any>& local_data,
+                            const ComputeNode& self) -> void {
             CPU_EXECUTOR_SETUP(SchemeType);
             std::vector<CiphertextType> products(n);
             for (int i = 0; i < n; i++) {
@@ -462,15 +464,15 @@ template <HEScheme SchemeType> void bind_cpu_cmp_sum(ComputeNode& node) {
             for (int i = 0; i < n - 1; i++) {
                 sum = context->add(sum, products[i + 1]);
             }
-            outputs[self.output_nodes[0]->index] = std::make_shared<CiphertextType>(std::move(sum));
+            local_data[self.output_nodes[0]->index] = std::make_shared<CiphertextType>(std::move(sum));
         };
     }
 }
 
 template <HEScheme SchemeType> void bind_cpu_bootstrap(ComputeNode& node) {
     if constexpr (SchemeType == HEScheme::CKKS) {
-        node.executor = [](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
-                           std::unordered_map<NodeIndex, std::any>& outputs, const ComputeNode& self) -> void {
+        node.executor = [](ExecutionContext& ctx, std::unordered_map<NodeIndex, std::any>& local_data,
+                           const ComputeNode& self) -> void {
             CPU_EXECUTOR_SETUP(SchemeType);
             auto* btp_context = dynamic_cast<CkksBtpContext*>(context);
             if (!btp_context) {
@@ -480,37 +482,11 @@ template <HEScheme SchemeType> void bind_cpu_bootstrap(ComputeNode& node) {
             ciphertexts[0]->set_scale(btp_context->get_parameter().get_default_scale());
             auto result = btp_context->bootstrap(*ciphertexts[0]);
             result.set_scale(input_scale);
-            outputs[self.output_nodes[0]->index] = std::make_shared<CiphertextType>(std::move(result));
+            local_data[self.output_nodes[0]->index] = std::make_shared<CiphertextType>(std::move(result));
         };
     } else {
         throw std::runtime_error("BOOTSTRAP only supported for CKKS scheme");
     }
-}
-
-void bind_cpu_compound(ComputeNode& node) {
-    node.executor = [](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
-                       std::unordered_map<NodeIndex, std::any>& outputs, const ComputeNode& self) -> void {
-        if (!self.compound_prop.has_value()) {
-            throw std::runtime_error("COMPOUND node missing compound property");
-        }
-
-        std::unordered_map<NodeIndex, std::any> local_data;
-        for (const auto* input_node : self.input_nodes) {
-            local_data[input_node->index] = inputs.at(input_node->index);
-        }
-
-        for (const auto& internal_node : self.compound_prop->internal_nodes) {
-            std::unordered_map<NodeIndex, std::any> internal_outputs;
-            internal_node.executor(ctx, local_data, internal_outputs, internal_node);
-            for (const auto* output_node : internal_node.output_nodes) {
-                local_data[output_node->index] = internal_outputs.at(output_node->index);
-            }
-        }
-
-        for (const auto* output_node : self.output_nodes) {
-            outputs[output_node->index] = local_data.at(output_node->index);
-        }
-    };
 }
 
 // Explicit template instantiations
@@ -567,7 +543,6 @@ void bind_cpu_executor(ComputeNode& node, Algo algorithm) {
                 case OperationType::ROTATE_ROW: bind_cpu_rotate_row<HEScheme::BFV>(node); break;
                 case OperationType::MAC_W_PARTIAL_SUM: bind_cpu_cmpac_sum<HEScheme::BFV>(node); break;
                 case OperationType::MAC_WO_PARTIAL_SUM: bind_cpu_cmp_sum<HEScheme::BFV>(node); break;
-                case OperationType::COMPOUND: bind_cpu_compound(node); break;
                 default: throw std::runtime_error("Unsupported operation type for CPU BFV");
             }
             break;
@@ -585,7 +560,6 @@ void bind_cpu_executor(ComputeNode& node, Algo algorithm) {
                 case OperationType::MAC_W_PARTIAL_SUM: bind_cpu_cmpac_sum<HEScheme::CKKS>(node); break;
                 case OperationType::MAC_WO_PARTIAL_SUM: bind_cpu_cmp_sum<HEScheme::CKKS>(node); break;
                 case OperationType::BOOTSTRAP: bind_cpu_bootstrap<HEScheme::CKKS>(node); break;
-                case OperationType::COMPOUND: bind_cpu_compound(node); break;
                 default: throw std::runtime_error("Unsupported operation type for CPU CKKS");
             }
             break;

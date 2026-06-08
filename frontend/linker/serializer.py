@@ -33,7 +33,7 @@ Two entry points:
 
 import networkx as nx
 
-from frontend.types import is_compute_node, is_data_node
+from frontend.types import _CompoundComputeNode, is_compute_node, is_data_node
 from .task_context import _TaskContext
 
 
@@ -49,6 +49,7 @@ def serialize_dag(
     offline_inputs: list,
     meta: dict,
     data_serializer=None,
+    use_ops: bool = False,
 ) -> dict:
     """Serialize a DiGraph of FHE node objects to the mega_ag dict format.
 
@@ -62,6 +63,8 @@ def serialize_dag(
         meta:           Dict with keys 'name', 'algorithm'.
         data_serializer: Optional callable used to serialize each data node.
                          Defaults to node.to_json_dict().
+        use_ops:         When true, serialize each top-level compute as a task
+                         with an ops list instead of a top-level operation type.
 
     Returns:
         Dict suitable for json.dump — matches the mega_ag.json schema.
@@ -83,7 +86,7 @@ def serialize_dag(
         if is_data_node(node):
             result['data'][node.index] = data_serializer(node)
         elif is_compute_node(node):
-            d = node.to_json_dict(dag)
+            d = _serialize_ops_task(dag, node) if use_ops else node.to_json_dict(dag)
             on_cpu = getattr(node, 'on_cpu', None)
             if on_cpu is not None:
                 d['on_cpu'] = on_cpu
@@ -92,6 +95,19 @@ def serialize_dag(
             result['compute'][node.index] = d
 
     return result
+
+
+def _serialize_ops_task(dag: nx.DiGraph, node) -> dict:
+    if isinstance(node, _CompoundComputeNode):
+        return node.to_json_dict(dag)
+
+    op_json = node.to_json_dict(dag)
+    return {
+        'id': op_json['id'],
+        'ops': [{'index': node.index, **op_json}],
+        'inputs': op_json['inputs'],
+        'outputs': op_json['outputs'],
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -111,7 +127,7 @@ def serialize_signature(ctx: _TaskContext) -> dict:
         is non-empty.
     """
     signature: dict = {
-        'algorithm': ctx.algorithm,
+        'algorithm': ctx.algorithm.value,
         'key': {
             'rlk': ctx.rlk_sig,
             'glk': ctx.glk_sig,

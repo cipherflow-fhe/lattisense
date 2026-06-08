@@ -211,8 +211,8 @@ template <heongpu::Scheme SchemeType> void import_ciphertext(heongpu::Ciphertext
  * @note Requires galois_key_mutex in ExecutionContext other_args[3]
  */
 template <heongpu::Scheme SchemeType> ExecutorFunc create_load_to_gpu_executor() {
-    return [](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
-              std::unordered_map<NodeIndex, std::any>& outputs, const ComputeNode& self) -> void {
+    return [](ExecutionContext& ctx, std::unordered_map<NodeIndex, std::any>& local_data,
+              const ComputeNode& self) -> void {
         // Get GPU context and options from execution context
         auto* operators = ctx.get_arithmetic_context<heongpu::HEArithmeticOperator<SchemeType>>();
         auto* stream_option = ctx.get_other_arg<heongpu::ExecutionOptions>(0);
@@ -234,7 +234,7 @@ template <heongpu::Scheme SchemeType> ExecutorFunc create_load_to_gpu_executor()
 
         DataType data_type = input_node->datum_type;
 
-        std::any c_struct = inputs.at(input_node->index);
+        std::any c_struct = local_data.at(input_node->index);
 
         uint32_t galois_element = 0;
         if (data_type == TYPE_GALOIS_KEY && input_node->fhe_prop->p.has_value()) {
@@ -250,7 +250,7 @@ template <heongpu::Scheme SchemeType> ExecutorFunc create_load_to_gpu_executor()
                 auto gpu_plaintext =
                     std::make_shared<heongpu::Plaintext<SchemeType>>(*context, c_pt->level, *stream_option);
                 export_plaintext(*c_pt, *gpu_plaintext);
-                outputs[output_index] = gpu_plaintext;
+                local_data[output_index] = gpu_plaintext;
                 break;
             }
             case TYPE_CIPHERTEXT: {
@@ -259,7 +259,7 @@ template <heongpu::Scheme SchemeType> ExecutorFunc create_load_to_gpu_executor()
                 auto gpu_ciphertext =
                     std::make_shared<heongpu::Ciphertext<SchemeType>>(*context, c_ct->level, *stream_option);
                 export_ciphertext(*c_ct, *gpu_ciphertext);
-                outputs[output_index] = gpu_ciphertext;
+                local_data[output_index] = gpu_ciphertext;
                 break;
             }
             case TYPE_RELIN_KEY: {
@@ -268,7 +268,7 @@ template <heongpu::Scheme SchemeType> ExecutorFunc create_load_to_gpu_executor()
                 auto gpu_relin_key = std::make_shared<heongpu::Relinkey<SchemeType>>(*context, *stream_option);
                 export_relin_key(*c_rlk, *gpu_relin_key, (*context)->get_ciphertext_modulus_count(),
                                  (*context)->get_key_modulus_count());
-                outputs[output_index] = gpu_relin_key;
+                local_data[output_index] = gpu_relin_key;
                 break;
             }
             case TYPE_GALOIS_KEY: {
@@ -285,7 +285,7 @@ template <heongpu::Scheme SchemeType> ExecutorFunc create_load_to_gpu_executor()
 
                 export_galois_key(*c_glk, **galois_key_ptr, galois_element, (*context)->get_ciphertext_modulus_count(),
                                   (*context)->get_key_modulus_count());
-                outputs[output_index] = *galois_key_ptr;
+                local_data[output_index] = *galois_key_ptr;
                 break;
             }
             case TYPE_SWITCH_KEY: {
@@ -294,7 +294,7 @@ template <heongpu::Scheme SchemeType> ExecutorFunc create_load_to_gpu_executor()
                 auto gpu_switch_key = std::make_shared<heongpu::Switchkey<SchemeType>>(*context, *stream_option);
                 export_switching_key(*c_swk, *gpu_switch_key, (*context)->get_ciphertext_modulus_count(),
                                      (*context)->get_key_modulus_count());
-                outputs[output_index] = gpu_switch_key;
+                local_data[output_index] = gpu_switch_key;
                 break;
             }
             default: throw std::runtime_error("Unsupported data type in H2D transfer");
@@ -317,8 +317,8 @@ template <heongpu::Scheme SchemeType> ExecutorFunc create_load_to_gpu_executor()
  * @note C struct memory is allocated here and freed by shared_ptr deleter
  */
 template <heongpu::Scheme SchemeType> ExecutorFunc create_store_from_gpu_executor() {
-    return [](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs,
-              std::unordered_map<NodeIndex, std::any>& outputs, const ComputeNode& self) -> void {
+    return [](ExecutionContext& ctx, std::unordered_map<NodeIndex, std::any>& local_data,
+              const ComputeNode& self) -> void {
         // Get input node and GPU data
         const DatumNode* input_node = self.input_nodes[0];
         // Determine data type
@@ -328,7 +328,7 @@ template <heongpu::Scheme SchemeType> ExecutorFunc create_store_from_gpu_executo
 
         DataType data_type = input_node->datum_type;
 
-        std::any gpu_data = inputs.at(input_node->index);
+        std::any gpu_data = local_data.at(input_node->index);
 
         // Perform D2H transfer and allocate C struct
         std::any c_struct;
@@ -351,7 +351,7 @@ template <heongpu::Scheme SchemeType> ExecutorFunc create_store_from_gpu_executo
         }
 
         // Output is the allocated C struct
-        outputs[self.output_nodes[0]->index] = c_struct;
+        local_data[self.output_nodes[0]->index] = c_struct;
     };
 }
 

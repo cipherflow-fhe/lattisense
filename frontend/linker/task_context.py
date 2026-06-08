@@ -17,7 +17,7 @@
 """
 task_context.py — _TaskContext dataclass shared between custom_task.py and the linker.
 
-Only the dataclass fields use basic Python types to avoid circular imports.
+Type-only references are guarded by TYPE_CHECKING to avoid circular imports.
 Custom-task types (Argument, FheDataNode, etc.) are imported lazily inside
 _TaskContext.build() which is the sole constructor entry point.
 
@@ -31,6 +31,10 @@ Consumed by:
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from frontend.types import Algo
 
 
 @dataclass
@@ -44,7 +48,7 @@ class _TaskContext:
     """
 
     name: str
-    algorithm: str  # 'BFV' or 'CKKS'
+    algorithm: 'Algo'
 
     # Graph operation data — DataNode objects
     inputs: list  # online inputs + offline inputs + key nodes
@@ -67,7 +71,7 @@ class _TaskContext:
         offline_input_args,
         swk_node_dict: dict,
         name: str,
-        algorithm: str,
+        algorithm: 'Algo',
     ) -> _TaskContext:
         """Resolve Argument objects into a _TaskContext.
 
@@ -77,7 +81,7 @@ class _TaskContext:
             offline_input_args:  Offline input Argument list (or None).
             swk_node_dict:       Global switch-key node dict (g_swk_node_dict).
             name:                Task name string.
-            algorithm:           'BFV' or 'CKKS' (from param.algo.value).
+            algorithm:           FHE algorithm enum.
         """
         from frontend.types import (  # noqa: PLC0415
             FheDataNode,

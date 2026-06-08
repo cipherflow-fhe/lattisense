@@ -20,7 +20,7 @@ chain_former.py — Chain formation, priority computation, and serialization.
 Steps:
     1. apply_processor_layout  — insert ABI bridge nodes (processor_layout.py)
     2. form_chains()           — merge eligible serial FHE ops into COMPOUND nodes
-    3. compute_properties()    — compute bottom_level priority per compute node
+    3. compute_properties()    — compute bottom_level priority per top-level task node
     4. _serialize_dag()        — emit compiled_mega_ag.json dict
 
 Entry point: compile_mega_ag(dag, processor, *, inputs, outputs, ...)
@@ -31,41 +31,16 @@ from collections import defaultdict
 import networkx as nx
 
 from frontend.types import (
-    ComputeNode,
     OperationType,
     Processor,
+    _CompoundComputeNode,
     is_key_data_node,
     is_custom_compute,
     is_bridge_compute,
     is_compute_node,
     is_data_node,
 )
-from .processor_layout import apply_processor_layout
-from .task_context import _TaskContext
-
-
-def compile_mega_ag(
-    dag: nx.DiGraph,
-    processor: Processor,
-    ctx: _TaskContext,
-) -> nx.DiGraph:
-    """Apply processor layout and compute priorities.
-
-    Args:
-        dag:       g_dag from process_custom_task (not modified in place).
-        processor: Target processor.
-        ctx:       Resolved task context from _TaskContext.build().
-
-    Returns:
-        New DiGraph with bridge nodes inserted and priority set on each
-        compute node.  Caller is responsible for serialization and I/O.
-    """
-    dag = apply_processor_layout(dag, processor, ctx.inputs, ctx.outputs)
-    dag = form_chains(dag, processor, ctx.outputs)
-    dag = compute_properties(dag)
-    dag = form_gpu_load_batches(dag, processor)
-    dag = compute_properties(dag)
-    return dag
+from .processor_layout import compute_runs_on_cpu
 
 
 # ---------------------------------------------------------------------------
@@ -90,30 +65,6 @@ _MERGEABLE_OP_TYPES: frozenset[OperationType] = frozenset(
 )
 _LOAD_BATCH_MAX_SIZE = 4
 _LOAD_BATCH_MIN_SIZE = 2
-
-
-class _CompoundComputeNode(ComputeNode):
-    is_custom = False
-    is_bridge = False
-    is_compound = True
-
-    def __init__(self, processor: Processor, internal_ops: list[dict], ext_inputs: list, ext_outputs: list) -> None:
-        super().__init__(OperationType.Compound)
-        self.id = f'chain_{self.index}'
-        self.internal_ops = internal_ops
-        self._ext_inputs = ext_inputs
-        self._ext_outputs = ext_outputs
-        self.on_cpu = processor == Processor.CPU
-        self.priority = 0
-
-    def to_json_dict(self, dag: nx.DiGraph) -> dict:
-        return {
-            'id': self.id,
-            'type': OperationType.Compound.value,
-            'internal_ops': self.internal_ops,
-            'inputs': [d.index for d in self._ext_inputs],
-            'outputs': [d.index for d in self._ext_outputs],
-        }
 
 
 def form_chains(dag: nx.DiGraph, processor: Processor, graph_outputs: list) -> nx.DiGraph:
@@ -235,18 +186,15 @@ def _build_compound_dag(dag: nx.DiGraph, chains: list[list], processor: Processo
 
 
 def _make_compound_node(dag: nx.DiGraph, chain: list, processor: Processor, graph_outputs: set) -> _CompoundComputeNode:
-    """Build a COMPOUND compute node for a validated chain."""
-    internal_ops = []
-    for op in chain:
-        op_json = op.to_json_dict(dag)
-        internal_ops.append({'index': op.index, **op_json})
-
-    return _CompoundComputeNode(
-        processor=processor,
-        internal_ops=internal_ops,
+    """Build a multi-op task node for a validated FHE chain."""
+    task = _CompoundComputeNode(
+        on_cpu=compute_runs_on_cpu(chain[0], processor),
+        ops=[_internal_op_json(dag, op) for op in chain],
         ext_inputs=_chain_external_inputs(dag, chain),
         ext_outputs=_chain_external_outputs(dag, chain, graph_outputs),
     )
+    task.id = f'chain_{task.index}'
+    return task
 
 
 # ---------------------------------------------------------------------------
@@ -259,11 +207,12 @@ def form_gpu_load_batches(dag: nx.DiGraph, processor: Processor) -> nx.DiGraph:
     if processor != Processor.GPU:
         return dag
 
+    bottom_levels = compute_bottom_levels(dag)
     compute_topo = [n for n in nx.topological_sort(dag) if is_compute_node(n)]
     loads_by_priority: dict[int, list] = defaultdict(list)
     for node in compute_topo:
         if _is_load_batch_eligible(dag, node):
-            loads_by_priority[node.priority].append(node)
+            loads_by_priority[bottom_levels[node]].append(node)
 
     first_load_to_batch: dict[object, list] = {}
     batched_loads: set = set()
@@ -305,6 +254,42 @@ def form_gpu_load_batches(dag: nx.DiGraph, processor: Processor) -> nx.DiGraph:
     return new_dag
 
 
+def form_single_op_tasks(dag: nx.DiGraph, processor: Processor) -> nx.DiGraph:
+    """Wrap remaining single ops as one-op top-level compound tasks."""
+    compute_topo = [n for n in nx.topological_sort(dag) if is_compute_node(n)]
+    new_dag = nx.DiGraph()
+
+    for node in dag.nodes():
+        if is_data_node(node):
+            new_dag.add_node(node)
+
+    for node in compute_topo:
+        task = node if isinstance(node, _CompoundComputeNode) else _make_single_op_task(dag, node, processor)
+        new_dag.add_node(task)
+        for data in _data_predecessors(dag, node):
+            new_dag.add_edge(data, task)
+        for data in _data_successors(dag, node):
+            new_dag.add_edge(task, data)
+
+    return new_dag
+
+
+def _make_single_op_task(dag: nx.DiGraph, op, processor: Processor) -> _CompoundComputeNode:
+    task = _CompoundComputeNode(
+        on_cpu=compute_runs_on_cpu(op, processor),
+        ops=[_internal_op_json(dag, op)],
+        ext_inputs=_data_predecessors(dag, op),
+        ext_outputs=_data_successors(dag, op),
+    )
+    task.index = op.index
+    task.id = op.id
+    return task
+
+
+def _internal_op_json(dag: nx.DiGraph, op) -> dict:
+    return {'index': op.index, **op.to_json_dict(dag)}
+
+
 def _is_load_batch_eligible(dag: nx.DiGraph, node) -> bool:
     if not is_bridge_compute(node) or getattr(node, 'type', None) != OperationType.LoadToBackend:
         return False
@@ -315,15 +300,14 @@ def _is_load_batch_eligible(dag: nx.DiGraph, node) -> bool:
 
 
 def _make_load_batch_compound_node(dag: nx.DiGraph, loads: list, processor: Processor) -> _CompoundComputeNode:
-    internal_ops = []
+    ops = []
     ext_inputs = []
     ext_outputs = []
     seen_inputs: set = set()
     seen_outputs: set = set()
 
     for op in loads:
-        op_json = op.to_json_dict(dag)
-        internal_ops.append({'index': op.index, **op_json})
+        ops.append(_internal_op_json(dag, op))
 
         for data in _data_predecessors(dag, op):
             if data not in seen_inputs:
@@ -334,15 +318,14 @@ def _make_load_batch_compound_node(dag: nx.DiGraph, loads: list, processor: Proc
                 ext_outputs.append(data)
                 seen_outputs.add(data)
 
-    compound = _CompoundComputeNode(
-        processor=processor,
-        internal_ops=internal_ops,
+    task = _CompoundComputeNode(
+        on_cpu=False,
+        ops=ops,
         ext_inputs=ext_inputs,
         ext_outputs=ext_outputs,
     )
-    compound.id = f'load_batch_{compound.index}'
-    compound.on_cpu = False
-    return compound
+    task.id = f'load_batch_{task.index}'
+    return task
 
 
 def _chain_external_inputs(dag: nx.DiGraph, chain: list) -> list:
@@ -410,13 +393,27 @@ def _is_mergeable_op(node) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def compute_properties(dag: nx.DiGraph) -> nx.DiGraph:
-    """Compute bottom_level for each compute node and store as .priority.
+def compute_bottom_levels(dag: nx.DiGraph) -> dict:
+    """Compute bottom-level priority values without mutating nodes."""
+    cg = _compute_dependency_graph(dag)
+    bottom_level: dict = {n: 0 for n in cg}
+    for node in reversed(list(nx.topological_sort(cg))):
+        for succ in cg.successors(node):
+            candidate = bottom_level[succ] + 1
+            if bottom_level[node] < candidate:
+                bottom_level[node] = candidate
+    return bottom_level
 
-    bottom_level(v) = length of the longest path from v to any sink
-    in the compute-to-compute dependency graph.
-    """
-    # Build compute-to-compute dependency graph
+
+def compute_properties(dag: nx.DiGraph) -> nx.DiGraph:
+    """Store bottom-level priority only on top-level compound task nodes."""
+    for node, priority in compute_bottom_levels(dag).items():
+        if isinstance(node, _CompoundComputeNode):
+            node.priority = priority
+    return dag
+
+
+def _compute_dependency_graph(dag: nx.DiGraph) -> nx.DiGraph:
     cg = nx.DiGraph()
     cg.add_nodes_from(n for n in dag if is_compute_node(n))
     for data in (n for n in dag if is_data_node(n)):
@@ -426,19 +423,7 @@ def compute_properties(dag: nx.DiGraph) -> nx.DiGraph:
             for c in consumers:
                 if not cg.has_edge(p, c):
                     cg.add_edge(p, c)
-
-    # Propagate bottom_level from sinks to sources (reverse topological order)
-    bottom_level: dict = {n: 0 for n in cg}
-    for node in reversed(list(nx.topological_sort(cg))):
-        for succ in cg.successors(node):
-            candidate = bottom_level[succ] + 1
-            if bottom_level[node] < candidate:
-                bottom_level[node] = candidate
-
-    for node in cg:
-        node.priority = bottom_level[node]
-
-    return dag
+    return cg
 
 
 # ---------------------------------------------------------------------------
