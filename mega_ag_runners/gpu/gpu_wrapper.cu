@@ -78,27 +78,78 @@ static size_t env_size_or_default(const char* name, size_t default_value) {
     return static_cast<size_t>(parsed);
 }
 
-struct CudaHostDeleter {
-    void operator()(void* ptr) const {
-        if (ptr) {
-            cudaFreeHost(ptr);
+class BulkPlaintextRingtStagingBuffer {
+public:
+    BulkPlaintextRingtStagingBuffer(int device, size_t data_capacity_bytes, size_t max_destinations)
+        : device_(device), data_capacity_bytes_(data_capacity_bytes), destination_capacity_(max_destinations) {
+        CHECK(cudaSetDevice(device_));
+        CHECK(cudaHostAlloc(&host_staging_, data_capacity_bytes_, cudaHostAllocDefault));
+        CHECK(cudaMalloc(&device_staging_, data_capacity_bytes_));
+        CHECK(cudaMalloc(&device_destinations_, destination_capacity_ * sizeof(uint64_t*)));
+        CHECK(cudaEventCreateWithFlags(&ready_event_, cudaEventDisableTiming));
+    }
+
+    ~BulkPlaintextRingtStagingBuffer() {
+        cudaSetDevice(device_);
+        if (has_pending_work_) {
+            cudaEventSynchronize(ready_event_);
+        }
+        if (ready_event_) {
+            cudaEventDestroy(ready_event_);
+        }
+        if (device_destinations_) {
+            cudaFree(device_destinations_);
+        }
+        if (device_staging_) {
+            cudaFree(device_staging_);
+        }
+        if (host_staging_) {
+            cudaFreeHost(host_staging_);
         }
     }
-};
 
-struct CudaDeviceDeleter {
-    void operator()(void* ptr) const {
-        if (ptr) {
-            cudaFree(ptr);
+    BulkPlaintextRingtStagingBuffer(const BulkPlaintextRingtStagingBuffer&) = delete;
+    BulkPlaintextRingtStagingBuffer& operator=(const BulkPlaintextRingtStagingBuffer&) = delete;
+
+    bool can_hold(size_t data_bytes, size_t destination_count) const {
+        return data_bytes <= data_capacity_bytes_ && destination_count <= destination_capacity_;
+    }
+
+    void wait_until_available() {
+        if (has_pending_work_) {
+            CHECK(cudaEventSynchronize(ready_event_));
+            has_pending_work_ = false;
         }
     }
-};
 
-struct BulkPlaintextRingtTransferResources {
-    std::unique_ptr<void, CudaHostDeleter> host_staging;
-    std::unique_ptr<void, CudaDeviceDeleter> device_staging;
-    std::unique_ptr<void, CudaDeviceDeleter> device_destinations;
+    void mark_pending(cudaStream_t stream) {
+        CHECK(cudaEventRecord(ready_event_, stream));
+        has_pending_work_ = true;
+    }
+
+    void* host_staging() {
+        return host_staging_;
+    }
+
+    void* device_staging() {
+        return device_staging_;
+    }
+
+    void* device_destinations() {
+        return device_destinations_;
+    }
+
     std::vector<uint64_t*> host_destinations;
+
+private:
+    int device_;
+    size_t data_capacity_bytes_;
+    size_t destination_capacity_;
+    void* host_staging_ = nullptr;
+    void* device_staging_ = nullptr;
+    void* device_destinations_ = nullptr;
+    cudaEvent_t ready_event_ = nullptr;
+    bool has_pending_work_ = false;
 };
 
 __global__ void scatter_plaintext_ringt_batch_kernel(uint64_t** destinations,
@@ -193,7 +244,8 @@ template <heongpu::Scheme SchemeType>
 bool bulk_load_plaintext_ringt_batch(const std::vector<const ComputeNode*>& compute_nodes,
                                      const std::unordered_map<NodeIndex, std::any>& inputs,
                                      std::vector<std::any>& outputs,
-                                     std::shared_ptr<BulkPlaintextRingtTransferResources>& transfer_resources,
+                                     BulkPlaintextRingtStagingBuffer& staging_buffer,
+                                     size_t min_bulk_bytes,
                                      heongpu::HEContext<SchemeType>& context,
                                      heongpu::ExecutionOptions& stream_option) {
     if (compute_nodes.size() < 2) {
@@ -217,49 +269,43 @@ bool bulk_load_plaintext_ringt_batch(const std::vector<const ComputeNode*>& comp
     const size_t payload_bytes = plaintext_payload_bytes(*c_plaintexts[0]);
     const size_t words_per_plaintext = payload_bytes / sizeof(uint64_t);
     const size_t total_bytes = payload_bytes * c_plaintexts.size();
+    if (!should_use_bulk_plaintext_ringt_batch(c_plaintexts.size(), payload_bytes, min_bulk_bytes) ||
+        !staging_buffer.can_hold(total_bytes, c_plaintexts.size())) {
+        return false;
+    }
 
-    void* host_staging_raw = nullptr;
-    CHECK(cudaHostAlloc(&host_staging_raw, total_bytes, cudaHostAllocDefault));
-    auto resources = std::make_shared<BulkPlaintextRingtTransferResources>();
-    resources->host_staging.reset(host_staging_raw);
+    staging_buffer.wait_until_available();
 
-    auto* host_bytes = static_cast<uint8_t*>(resources->host_staging.get());
+    auto* host_bytes = static_cast<uint8_t*>(staging_buffer.host_staging());
     for (size_t i = 0; i < c_plaintexts.size(); ++i) {
         std::memcpy(host_bytes + i * payload_bytes, c_plaintexts[i]->poly.contiguous_data, payload_bytes);
     }
 
-    void* device_staging_raw = nullptr;
-    CHECK(cudaMalloc(&device_staging_raw, total_bytes));
-    resources->device_staging.reset(device_staging_raw);
-
-    void* device_destinations_raw = nullptr;
-    CHECK(cudaMalloc(&device_destinations_raw, c_plaintexts.size() * sizeof(uint64_t*)));
-    resources->device_destinations.reset(device_destinations_raw);
-
     outputs.clear();
     outputs.reserve(c_plaintexts.size());
-    resources->host_destinations.reserve(c_plaintexts.size());
+    staging_buffer.host_destinations.clear();
+    staging_buffer.host_destinations.reserve(c_plaintexts.size());
     for (const auto& c_pt : c_plaintexts) {
         auto output_ptr = std::make_shared<heongpu::Plaintext<SchemeType>>(context, c_pt->level, stream_option);
-        resources->host_destinations.push_back(output_ptr->data());
+        staging_buffer.host_destinations.push_back(output_ptr->data());
         outputs.push_back(output_ptr);
     }
 
     cudaStream_t stream = std::any_cast<std::shared_ptr<heongpu::Plaintext<SchemeType>>>(outputs[0])->stream();
-    CHECK(cudaMemcpyAsync(resources->device_destinations.get(), resources->host_destinations.data(),
+    CHECK(cudaMemcpyAsync(staging_buffer.device_destinations(), staging_buffer.host_destinations.data(),
                           c_plaintexts.size() * sizeof(uint64_t*), cudaMemcpyHostToDevice, stream));
-    CHECK(cudaMemcpyAsync(resources->device_staging.get(), resources->host_staging.get(), total_bytes,
+    CHECK(cudaMemcpyAsync(staging_buffer.device_staging(), staging_buffer.host_staging(), total_bytes,
                           cudaMemcpyHostToDevice, stream));
 
     constexpr int threads = 256;
     size_t blocks = (words_per_plaintext * c_plaintexts.size() + threads - 1) / threads;
     blocks = std::min<size_t>(blocks, 65535);
     scatter_plaintext_ringt_batch_kernel<<<static_cast<unsigned int>(blocks), threads, 0, stream>>>(
-        static_cast<uint64_t**>(resources->device_destinations.get()),
-        static_cast<const uint64_t*>(resources->device_staging.get()), words_per_plaintext, c_plaintexts.size());
+        static_cast<uint64_t**>(staging_buffer.device_destinations()),
+        static_cast<const uint64_t*>(staging_buffer.device_staging()), words_per_plaintext, c_plaintexts.size());
     CHECK(cudaGetLastError());
 
-    transfer_resources = resources;
+    staging_buffer.mark_pending(stream);
     return true;
 }
 
@@ -413,6 +459,21 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
         stream_options[i] = heongpu::ExecutionOptions().set_stream(streams[i]);
     }
 
+    const size_t bulk_pt_ringt_batch_size =
+        env_size_or_default("LATTISENSE_GPU_BULK_PT_RINGT_BATCH_SIZE", 64);
+    const size_t bulk_pt_ringt_min_bytes =
+        env_size_or_default("LATTISENSE_GPU_BULK_PT_RINGT_MIN_BYTES", 8 * 1024 * 1024);
+    const size_t bulk_pt_ringt_staging_bytes = bulk_pt_ringt_batch_size * kBulkPlaintextRingtPayloadBytes;
+    std::vector<std::unique_ptr<BulkPlaintextRingtStagingBuffer>> bulk_pt_ringt_staging_buffers;
+    bulk_pt_ringt_staging_buffers.reserve(num_streams);
+    for (int i = 0; i < num_streams; ++i) {
+        bulk_pt_ringt_staging_buffers.push_back(
+            std::make_unique<BulkPlaintextRingtStagingBuffer>(device, bulk_pt_ringt_staging_bytes,
+                                                              bulk_pt_ringt_batch_size));
+    }
+    std::cout << "[GPU] bulk_pt_ringt_batch_size: " << bulk_pt_ringt_batch_size
+              << ", min_bytes: " << bulk_pt_ringt_min_bytes << std::endl;
+
     // CPU thread pool for CPU tasks (custom nodes + ABI bridge nodes)
     int num_cpu_threads = std::min(16, static_cast<int>(std::thread::hardware_concurrency())) - num_streams;
     if (const char* env_cpu_threads = std::getenv("LATTISENSE_GPU_NUM_CPU_THREADS")) {
@@ -463,8 +524,6 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
             const BS::priority_t pool_priority = mega_ag.computes.at(task_index).priority;
             std::vector<NodeIndex> task_indices{task_index};
             const bool bulk_pt_ringt_enabled = env_flag_enabled("LATTISENSE_GPU_BULK_PT_RINGT_H2D", true);
-            const size_t bulk_pt_ringt_batch_size =
-                env_size_or_default("LATTISENSE_GPU_BULK_PT_RINGT_BATCH_SIZE", 64);
 
             if (bulk_pt_ringt_enabled && bulk_pt_ringt_batch_size > 1 &&
                 is_bulk_plaintext_ringt_load_node(mega_ag.computes.at(task_index))) {
@@ -483,7 +542,8 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
                 [task_indices, pool_priority, device, &gpu_pool, &mega_ag, &m_mutex, &task_queue, &queued_computes,
                  &completed_tasks, &total_tasks, &completion_cv, &completion_mutex, &available_data, &operators,
                  &data_ready_events, &stream_options, &streams, &context, &galois_key, &galois_key_mutex,
-                 &data_ref_counts, &all_galois_elts, &event_pool, cancel_flag]() {
+                 &data_ref_counts, &all_galois_elts, &event_pool, &bulk_pt_ringt_staging_buffers,
+                 bulk_pt_ringt_min_bytes, cancel_flag]() {
                     CHECK(cudaSetDevice(device));
                     if (cancel_flag && cancel_flag->load()) {
                         return;
@@ -519,10 +579,11 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
                         exec_ctx.other_args.push_back(&all_galois_elts);
 
                         std::vector<std::any> outputs;
-                        std::shared_ptr<BulkPlaintextRingtTransferResources> transfer_resources;
+                        BulkPlaintextRingtStagingBuffer& staging_buffer =
+                            *bulk_pt_ringt_staging_buffers[stream_id];
                         bool used_bulk_loader = bulk_load_plaintext_ringt_batch<SchemeType>(
-                            batch_compute_nodes, thread_input_cache, outputs, transfer_resources, context,
-                            stream_options[stream_id]);
+                            batch_compute_nodes, thread_input_cache, outputs, staging_buffer, bulk_pt_ringt_min_bytes,
+                            context, stream_options[stream_id]);
 
                         if (!used_bulk_loader) {
                             outputs.clear();
@@ -558,11 +619,10 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
                         }
 
                         gpu_pool.detach_task(
-                            [batch_compute_node_copies, output_event, transfer_resources, device, &m_mutex,
-                             &available_data, &data_ref_counts, &data_ready_events]() {
+                            [batch_compute_node_copies, output_event, device, &m_mutex, &available_data,
+                             &data_ref_counts, &data_ready_events]() {
                                 CHECK(cudaSetDevice(device));
                                 CHECK(cudaEventSynchronize(output_event->get()));
-                                (void)transfer_resources;
 
                                 {
                                     std::lock_guard<std::mutex> lock(m_mutex);

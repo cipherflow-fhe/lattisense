@@ -67,6 +67,13 @@ inline bool is_bulk_plaintext_ringt_payload(const CPlaintext& plaintext,
     return plaintext_payload_bytes(plaintext) == expected_bytes;
 }
 
+inline bool should_use_bulk_plaintext_ringt_batch(size_t count, size_t payload_bytes, size_t min_bulk_bytes) {
+    if (count < 2 || payload_bytes == 0) {
+        return false;
+    }
+    return count * payload_bytes >= min_bulk_bytes;
+}
+
 inline bool is_bulk_plaintext_ringt_load_node(const ComputeNode& node) {
     if (!node.fhe_prop.has_value() || node.fhe_prop->op_type != OperationType::LOAD_TO_BACKEND ||
         node.input_nodes.size() != 1 || node.output_nodes.size() != 1) {

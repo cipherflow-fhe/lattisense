@@ -126,6 +126,10 @@ int main(void) {
     alloc_plaintext(&plaintext, 0, 65536);
     CHECK_TRUE(gpu_wrapper::is_bulk_plaintext_ringt_payload(plaintext));
     CHECK_TRUE(gpu_wrapper::plaintext_payload_bytes(plaintext) == 512 * 1024);
+    CHECK_TRUE(!gpu_wrapper::should_use_bulk_plaintext_ringt_batch(2, gpu_wrapper::plaintext_payload_bytes(plaintext),
+                                                                   8 * 1024 * 1024));
+    CHECK_TRUE(gpu_wrapper::should_use_bulk_plaintext_ringt_batch(16, gpu_wrapper::plaintext_payload_bytes(plaintext),
+                                                                  8 * 1024 * 1024));
 
     plaintext.poly.components[0].data = plaintext.poly.contiguous_data + 1;
     CHECK_TRUE(!gpu_wrapper::is_bulk_plaintext_ringt_payload(plaintext));
