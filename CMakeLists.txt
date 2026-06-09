@@ -251,10 +251,23 @@ endif()
 # set(CMAKE_CXX_COMPILER "/usr/local/bin/g++")
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -maes")
-    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -lstdc++")
-    set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -lstdc++")
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -m64")
     add_compile_definitions(_GLIBCXX_USE_CXX11_ABI=1)
+endif()
+
+set(LATTISENSE_CXX_STDLIB stdc++)
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+    find_library(LATTISENSE_CXX_STDLIB_LIBRARY
+        NAMES stdc++
+        PATHS ${CMAKE_CXX_IMPLICIT_LINK_DIRECTORIES}
+        NO_DEFAULT_PATH
+    )
+    if(LATTISENSE_CXX_STDLIB_LIBRARY)
+        set(LATTISENSE_CXX_STDLIB "${LATTISENSE_CXX_STDLIB_LIBRARY}")
+        message(STATUS "LattiSense C++ standard library: ${LATTISENSE_CXX_STDLIB}")
+    else()
+        message(STATUS "LattiSense C++ standard library: stdc++")
+    endif()
 endif()
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED TRUE)
@@ -430,7 +443,7 @@ if(LATTISENSE_BUILD_MODE STREQUAL "SHARED")
             m
             rt
             Threads::Threads
-            stdc++
+            ${LATTISENSE_CXX_STDLIB}
     )
 
     if(LATTISENSE_ENABLE_GPU)

@@ -19,6 +19,18 @@ using namespace seal::util;
 // Low-level SEAL → C struct export / import
 // ---------------------------------------------------------------------------
 
+inline void _alloc_contiguous_polynomial(CPolynomial* dest, int n_component, int N) {
+    dest->n_component = n_component;
+    dest->components = (CComponent*)malloc(sizeof(CComponent) * n_component);
+    dest->contiguous_data = (uint64_t*)malloc(sizeof(uint64_t) * (size_t)n_component * (size_t)N);
+    dest->owns_contiguous_data = 1;
+
+    for (int j = 0; j < n_component; j++) {
+        dest->components[j].n = N;
+        dest->components[j].data = dest->contiguous_data + (size_t)j * (size_t)N;
+    }
+}
+
 inline void
 _export_ciphertext(uint64_t param_id, const ConstNTTTablesIter& ntt_tables, seal::Ciphertext* src, CCiphertext* dest) {
     dest->level = src->coeff_modulus_size() - 1;
@@ -27,13 +39,10 @@ _export_ciphertext(uint64_t param_id, const ConstNTTTablesIter& ntt_tables, seal
     dest->polys = (CPolynomial*)malloc(sizeof(CPolynomial) * src->size());
 
     for (int i = 0; i < (int)src->size(); i++) {
-        dest->polys[i].n_component = dest->level + 1;
-        dest->polys[i].components = (CComponent*)malloc(sizeof(CComponent) * (dest->level + 1));
+        _alloc_contiguous_polynomial(&dest->polys[i], dest->level + 1, N);
 
         for (int j = 0; j < dest->level + 1; j++) {
-            // Copy component data first, then do in-place transforms on the copy.
-            // dest->data points directly into the copy (no extra malloc needed).
-            uint64_t* copy = (uint64_t*)malloc(sizeof(uint64_t) * N);
+            uint64_t* copy = dest->polys[i].components[j].data;
             memcpy(copy, &src->data(i)[j * N], N * sizeof(uint64_t));
 
             if (src->is_ntt_form()) {
@@ -41,9 +50,6 @@ _export_ciphertext(uint64_t param_id, const ConstNTTTablesIter& ntt_tables, seal
                 inverse_ntt_negacyclic_harvey(copy_coeff, ntt_tables[j]);
                 ckks_component_ntt(param_id, copy, j);
             }
-
-            dest->polys[i].components[j].n = N;
-            dest->polys[i].components[j].data = copy;
         }
     }
 }
@@ -72,11 +78,10 @@ inline void _export_plaintext(uint64_t param_id,
                               seal::Plaintext* src,
                               CPlaintext* dest) {
     dest->level = src->coeff_count() / N - 1;
-    dest->poly.n_component = dest->level + 1;
-    dest->poly.components = (CComponent*)malloc(sizeof(CComponent) * (dest->level + 1));
+    _alloc_contiguous_polynomial(&dest->poly, dest->level + 1, N);
 
     for (int j = 0; j < dest->level + 1; j++) {
-        uint64_t* copy = (uint64_t*)malloc(sizeof(uint64_t) * N);
+        uint64_t* copy = dest->poly.components[j].data;
         memcpy(copy, &src->data()[j * N], N * sizeof(uint64_t));
 
         if (src->is_ntt_form()) {
@@ -84,9 +89,6 @@ inline void _export_plaintext(uint64_t param_id,
             inverse_ntt_negacyclic_harvey(copy_coeff, ntt_tables[j]);
             ckks_component_ntt(param_id, copy, j);
         }
-
-        dest->poly.components[j].n = N;
-        dest->poly.components[j].data = copy;
     }
 }
 
@@ -110,14 +112,10 @@ inline void _export_key_switch_key(uint64_t param_id,
         dest->public_keys[k].polys = (CPolynomial*)malloc(sizeof(CPolynomial) * 2);
 
         for (int i = 0; i < 2; i++) {
-            dest->public_keys[k].polys[i].n_component = n_component;
-            dest->public_keys[k].polys[i].components = (CComponent*)malloc(sizeof(CComponent) * n_component);
+            _alloc_contiguous_polynomial(&dest->public_keys[k].polys[i], n_component, N);
 
             for (int j = 0; j < n_component; j++) {
-                dest->public_keys[k].polys[i].components[j].n = N;
-
-                // Copy first, then do in-place transforms on the copy.
-                uint64_t* copy = (uint64_t*)malloc(sizeof(uint64_t) * N);
+                uint64_t* copy = dest->public_keys[k].polys[i].components[j].data;
                 memcpy(copy, &src[k].data().data(i)[j * N], N * sizeof(uint64_t));
 
                 CoeffIter copy_coeff(copy);
@@ -134,8 +132,6 @@ inline void _export_key_switch_key(uint64_t param_id,
                         ckks_component_mul_by_pow2(param_id, copy, j, mf_nbits);
                     }
                 }
-
-                dest->public_keys[k].polys[i].components[j].data = copy;
             }
         }
     }

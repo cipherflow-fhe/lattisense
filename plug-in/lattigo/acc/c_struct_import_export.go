@@ -28,13 +28,30 @@ func export_component(src *[]uint64, dest *C.CComponent) {
 	copy(unsafe.Slice((*uint64)(unsafe.Pointer(dest.data)), N), *src)
 }
 
-func export_polynomial(src *ring.Poly, dest *C.CPolynomial) {
-	n_component := src.Level() + 1
+func cUint64At(base *C.uint64_t, offset int) *C.uint64_t {
+	return (*C.uint64_t)(unsafe.Pointer(uintptr(unsafe.Pointer(base)) + uintptr(offset)*unsafe.Sizeof(C.uint64_t(0))))
+}
+
+func alloc_contiguous_polynomial(dest *C.CPolynomial, n_component int, n int) []C.CComponent {
 	dest.n_component = C.int(n_component)
 	dest.components = (*C.CComponent)(C.malloc(C.size_t(unsafe.Sizeof(C.CComponent{})) * C.ulong(n_component)))
+	dest.contiguous_data = (*C.uint64_t)(C.malloc(C.size_t(n_component*n) * C.size_t(unsafe.Sizeof(C.uint64_t(0)))))
+	dest.owns_contiguous_data = 1
+
 	component_slice := unsafe.Slice(dest.components, n_component)
 	for i := 0; i < n_component; i++ {
-		export_component(&src.Coeffs[i], &component_slice[i])
+		component_slice[i].n = C.int(n)
+		component_slice[i].data = cUint64At(dest.contiguous_data, i*n)
+	}
+	return component_slice
+}
+
+func export_polynomial(src *ring.Poly, dest *C.CPolynomial) {
+	n_component := src.Level() + 1
+	N := len(src.Coeffs[0])
+	component_slice := alloc_contiguous_polynomial(dest, n_component, N)
+	for i := 0; i < n_component; i++ {
+		copy(unsafe.Slice((*uint64)(unsafe.Pointer(component_slice[i].data)), N), src.Coeffs[i])
 	}
 }
 
@@ -47,14 +64,13 @@ func export_polynomial_qp(src *ringqp.Poly, dest *C.CPolynomial, level int) {
 	}
 	n_p_component := src.LevelP() + 1
 	n_component := n_q_component + n_p_component
-	dest.n_component = C.int(n_component)
-	dest.components = (*C.CComponent)(C.malloc(C.size_t(unsafe.Sizeof(C.CComponent{})) * C.ulong(n_component)))
-	component_slice := unsafe.Slice(dest.components, n_component)
+	N := len(src.Q.Coeffs[0])
+	component_slice := alloc_contiguous_polynomial(dest, n_component, N)
 	for i := 0; i < n_q_component; i++ {
-		export_component(&src.Q.Coeffs[i], &component_slice[i])
+		copy(unsafe.Slice((*uint64)(unsafe.Pointer(component_slice[i].data)), N), src.Q.Coeffs[i])
 	}
 	for i := 0; i < n_p_component; i++ {
-		export_component(&src.P.Coeffs[i], &component_slice[n_q_component+i])
+		copy(unsafe.Slice((*uint64)(unsafe.Pointer(component_slice[n_q_component+i].data)), N), src.P.Coeffs[i])
 	}
 }
 

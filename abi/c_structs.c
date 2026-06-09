@@ -29,8 +29,11 @@ void alloc_polynomial(CPolynomial* polynomial, int level, int n) {
     int n_component = level + 1;
     polynomial->n_component = n_component;
     polynomial->components = (CComponent*)malloc(n_component * sizeof(CComponent));
+    polynomial->contiguous_data = (uint64_t*)malloc((size_t)n_component * (size_t)n * sizeof(uint64_t));
+    polynomial->owns_contiguous_data = 1;
     for (int i = 0; i < n_component; i++) {
-        alloc_component(&polynomial->components[i], n);
+        polynomial->components[i].n = n;
+        polynomial->components[i].data = polynomial->contiguous_data + (size_t)i * (size_t)n;
     }
 }
 
@@ -65,8 +68,14 @@ void set_galois_key_steps(CGaloisKey* glk, uint64_t* galois_elements, int n_galo
 }
 
 void free_polynomial(CPolynomial* polynomial) {
-    for (int i = 0; i < polynomial->n_component; i++) {
-        free(polynomial->components[i].data);
+    if (polynomial->contiguous_data != NULL) {
+        if (polynomial->owns_contiguous_data) {
+            free(polynomial->contiguous_data);
+        }
+    } else {
+        for (int i = 0; i < polynomial->n_component; i++) {
+            free(polynomial->components[i].data);
+        }
     }
     free(polynomial->components);
 }

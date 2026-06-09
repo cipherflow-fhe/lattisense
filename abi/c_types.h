@@ -31,6 +31,8 @@ typedef struct {
 typedef struct {
     int n_component;
     CComponent* components;
+    uint64_t* contiguous_data;
+    int owns_contiguous_data;
 } CPolynomial;
 
 typedef struct {

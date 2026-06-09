@@ -54,12 +54,31 @@ inline void CHECK(cudaError_t err) {
     }
 }
 
+inline bool is_contiguous_polynomial(const CPolynomial& poly, int N) {
+    if (poly.contiguous_data == nullptr || poly.components == nullptr) {
+        return false;
+    }
+    for (int i = 0; i < poly.n_component; i++) {
+        if (poly.components[i].n != N || poly.components[i].data != poly.contiguous_data + static_cast<size_t>(i) * N) {
+            return false;
+        }
+    }
+    return true;
+}
+
 /**
  * @brief Export plaintext from C struct to GPU device memory
  */
 template <heongpu::Scheme SchemeType>
 void export_plaintext(const CPlaintext& src, heongpu::Plaintext<SchemeType>& dest) {
     int N = src.poly.components->n;
+    if (is_contiguous_polynomial(src.poly, N)) {
+        CHECK(cudaMemcpyAsync(dest.data(), src.poly.contiguous_data,
+                              static_cast<size_t>(src.poly.n_component) * static_cast<size_t>(N) * sizeof(uint64_t),
+                              cudaMemcpyHostToDevice, dest.stream()));
+        return;
+    }
+
     for (int i = 0; i < src.poly.n_component; i++) {
         CHECK(cudaMemcpyAsync(&(dest.data()[i * N]), src.poly.components[i].data, N * sizeof(uint64_t),
                               cudaMemcpyHostToDevice, dest.stream()));

@@ -30,8 +30,7 @@ if(LATTISENSE_ENABLE_GPU)
     list(APPEND LINK_LIBS gpu_mega_ag_runner CUDA::cudart)
 endif()
 
-target_link_libraries(cxx_sdk_v2 PUBLIC ${LINK_LIBS})
-target_link_libraries(cxx_sdk_v2 PRIVATE stdc++)
+target_link_libraries(cxx_sdk_v2 PUBLIC ${LINK_LIBS} ${LATTISENSE_CXX_STDLIB})
 
 # Set RPATH so installed library can find dependencies
 set_target_properties(cxx_sdk_v2 PROPERTIES

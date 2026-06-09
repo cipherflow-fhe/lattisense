@@ -21,6 +21,7 @@
 #include <mutex>
 #include <atomic>
 #include <condition_variable>
+#include <cstdlib>
 #include <queue>
 #include <set>
 #include <memory>
@@ -49,6 +50,95 @@ extern "C" {
 
 namespace gpu_wrapper {
 using namespace fhe_ops_lib;
+
+class CudaEventPool {
+public:
+    CudaEventPool(int device, size_t initial_size) : device_(device) {
+        CHECK(cudaSetDevice(device_));
+        for (size_t i = 0; i < initial_size; ++i) {
+            free_events_.push_back(create_event());
+        }
+    }
+
+    ~CudaEventPool() {
+        cudaSetDevice(device_);
+        for (cudaEvent_t event : all_events_) {
+            cudaEventDestroy(event);
+        }
+    }
+
+    CudaEventPool(const CudaEventPool&) = delete;
+    CudaEventPool& operator=(const CudaEventPool&) = delete;
+
+    cudaEvent_t acquire() {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (free_events_.empty()) {
+            return create_event();
+        }
+
+        cudaEvent_t event = free_events_.back();
+        free_events_.pop_back();
+        return event;
+    }
+
+    void release(cudaEvent_t event) {
+        if (!event) {
+            return;
+        }
+        std::lock_guard<std::mutex> lock(mutex_);
+        free_events_.push_back(event);
+    }
+
+private:
+    cudaEvent_t create_event() {
+        cudaEvent_t event;
+        CHECK(cudaEventCreateWithFlags(&event, cudaEventDisableTiming));
+        all_events_.push_back(event);
+        return event;
+    }
+
+    int device_;
+    std::mutex mutex_;
+    std::vector<cudaEvent_t> free_events_;
+    std::vector<cudaEvent_t> all_events_;
+};
+
+struct PooledCudaEvent {
+    PooledCudaEvent(CudaEventPool& pool, cudaEvent_t event) : pool(&pool), event(event) {}
+
+    ~PooledCudaEvent() {
+        if (pool && event) {
+            pool->release(event);
+        }
+    }
+
+    cudaEvent_t get() const {
+        return event;
+    }
+
+    CudaEventPool* pool;
+    cudaEvent_t event;
+};
+
+using PooledCudaEventPtr = std::shared_ptr<PooledCudaEvent>;
+
+static PooledCudaEventPtr acquire_pooled_event(CudaEventPool& event_pool) {
+    return std::make_shared<PooledCudaEvent>(event_pool, event_pool.acquire());
+}
+
+template <typename T>
+void purge_unused_data_and_events(const ComputeNode& compute_node,
+                                  std::unordered_map<NodeIndex, std::atomic<int>>& data_ref_counts,
+                                  std::unordered_map<NodeIndex, T>& available_data,
+                                  std::unordered_map<NodeIndex, PooledCudaEventPtr>& data_ready_events) {
+    for (const auto* input_node : compute_node.input_nodes) {
+        int remaining_use = data_ref_counts[input_node->index].fetch_sub(1) - 1;
+        if (remaining_use <= 0 && !input_node->is_output && !input_node->is_input) {
+            available_data.erase(input_node->index);
+            data_ready_events.erase(input_node->index);
+        }
+    }
+}
 
 template <heongpu::Scheme SchemeType>
 void init_gpu_context(const nlohmann::json& param_json,
@@ -155,10 +245,28 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
 
     init_gpu_context<SchemeType>(mega_ag.parameter, context, operators);
 
-    // GPU streams for FHE computations
-    const int num_streams = 2;
+    // GPU streams for FHE computations. Defaults to the historical value, with
+    // an environment override for profiling stream-count sensitivity.
+    int num_streams = 16;
+    if (const char* env_streams = std::getenv("LATTISENSE_GPU_NUM_STREAMS")) {
+        int parsed_streams = std::atoi(env_streams);
+        if (parsed_streams > 0) {
+            num_streams = parsed_streams;
+        }
+    }
+    std::cout << "[GPU] num_streams: " << num_streams << std::endl;
     std::vector<cudaStream_t> streams(num_streams);
     std::vector<heongpu::ExecutionOptions> stream_options(num_streams);
+
+    size_t initial_event_pool_size = static_cast<size_t>(num_streams) * 4;
+    if (const char* env_event_pool_size = std::getenv("LATTISENSE_GPU_EVENT_POOL_SIZE")) {
+        int parsed_event_pool_size = std::atoi(env_event_pool_size);
+        if (parsed_event_pool_size > 0) {
+            initial_event_pool_size = static_cast<size_t>(parsed_event_pool_size);
+        }
+    }
+    CudaEventPool event_pool(device, initial_event_pool_size);
+    std::cout << "[GPU] event_pool_size: " << initial_event_pool_size << std::endl;
 
     // GPU thread pool for GPU FHE operations (priority-enabled to avoid high-priority tasks being starved)
     BS::priority_thread_pool gpu_pool(num_streams);
@@ -169,8 +277,16 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
     }
 
     // CPU thread pool for CPU tasks (custom nodes + ABI bridge nodes)
-    const int num_cpu_threads = std::min(16, static_cast<int>(std::thread::hardware_concurrency())) - num_streams;
-    BS::priority_thread_pool cpu_pool(num_cpu_threads > 0 ? num_cpu_threads : 1);
+    int num_cpu_threads = std::min(16, static_cast<int>(std::thread::hardware_concurrency())) - num_streams;
+    if (const char* env_cpu_threads = std::getenv("LATTISENSE_GPU_NUM_CPU_THREADS")) {
+        int parsed_cpu_threads = std::atoi(env_cpu_threads);
+        if (parsed_cpu_threads > 0) {
+            num_cpu_threads = parsed_cpu_threads;
+        }
+    }
+    num_cpu_threads = num_cpu_threads > 0 ? num_cpu_threads : 1;
+    std::cout << "[GPU] num_cpu_threads: " << num_cpu_threads << std::endl;
+    BS::priority_thread_pool cpu_pool(num_cpu_threads);
 
     // Create CPU contexts for CPU nodes (ABI bridge only, no keys needed)
     constexpr HEScheme cpu_scheme = (SchemeType == heongpu::Scheme::BFV) ? HEScheme::BFV : HEScheme::CKKS;
@@ -185,7 +301,7 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
     std::unordered_map<NodeIndex, void*> output_handle_map = extract_output_handle_map(mega_ag, output_args);
 
     // GPU-specific data structures
-    std::unordered_map<NodeIndex, cudaEvent_t> data_ready_events;
+    std::unordered_map<NodeIndex, PooledCudaEventPtr> data_ready_events;
     std::shared_ptr<heongpu::Galoiskey<SchemeType>> galois_key;
     std::mutex galois_key_mutex;
 
@@ -212,7 +328,7 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
                 [task_index, pool_priority, device, &gpu_pool, &mega_ag, &m_mutex, &task_queue, &queued_computes,
                  &completed_tasks, &total_tasks, &completion_cv, &completion_mutex, &available_data, &operators,
                  &data_ready_events, &stream_options, &streams, &context, &galois_key, &galois_key_mutex,
-                 &data_ref_counts, &all_galois_elts, cancel_flag]() {
+                 &data_ref_counts, &all_galois_elts, &event_pool, cancel_flag]() {
                     CHECK(cudaSetDevice(device));
                     if (cancel_flag && cancel_flag->load()) {
                         return;
@@ -228,7 +344,7 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
                     const std::vector<DatumNode*>& compute_input_nodes = compute_node.input_nodes;
                     const DatumNode* compute_output_node = compute_node.output_nodes[0];
 
-                    std::vector<cudaEvent_t> events_to_wait;
+                    std::vector<PooledCudaEventPtr> events_to_wait;
                     std::unordered_map<uint64_t, std::any> thread_input_cache;
                     {
                         std::lock_guard<std::mutex> lock(m_mutex);
@@ -267,7 +383,7 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
 
                     // Wait for all required events outside of locks
                     for (auto& event : events_to_wait) {
-                        CHECK(cudaStreamWaitEvent(streams[stream_id], event, 0));
+                        CHECK(cudaStreamWaitEvent(streams[stream_id], event->get(), 0));
                     }
 
                     // Execute computation using unified executor
@@ -299,12 +415,10 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
                     compute_node.executor(exec_ctx, thread_input_cache, output, compute_node);
 
                     // Create event for GPU backend outputs (not STORE_FROM_BACKEND which outputs to C struct)
-                    cudaEvent_t output_event;
-                    bool has_output_event = false;
+                    PooledCudaEventPtr output_event;
                     if (op != OperationType::STORE_FROM_BACKEND) {
-                        CHECK(cudaEventCreate(&output_event));
-                        CHECK(cudaEventRecord(output_event, streams[stream_id]));
-                        has_output_event = true;
+                        output_event = acquire_pooled_event(event_pool);
+                        CHECK(cudaEventRecord(output_event->get(), streams[stream_id]));
                     }
 
                     {
@@ -314,7 +428,7 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
                         available_data[compute_output_node->index] = output;
 
                         // Store event if created
-                        if (has_output_event) {
+                        if (output_event) {
                             data_ready_events[compute_output_node->index] = output_event;
                         }
 
@@ -331,17 +445,18 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
                     }
 
                     gpu_pool.detach_task(
-                        [compute_node, output_event, has_output_event, device, &mega_ag, &m_mutex, &available_data,
-                         &data_ref_counts]() {
+                        [compute_node, output_event, device, &m_mutex, &available_data, &data_ref_counts,
+                         &data_ready_events]() {
                             CHECK(cudaSetDevice(device));
                             // Wait for GPU computation to complete if event exists
-                            if (has_output_event) {
-                                CHECK(cudaEventSynchronize(output_event));
+                            if (output_event) {
+                                CHECK(cudaEventSynchronize(output_event->get()));
                             }
 
                             {
                                 std::lock_guard<std::mutex> lock(m_mutex);
-                                mega_ag.purge_unused_data(compute_node, data_ref_counts, available_data);
+                                purge_unused_data_and_events(compute_node, data_ref_counts, available_data,
+                                                             data_ready_events);
                             }
                         },
                         pool_priority);
@@ -382,11 +497,7 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
         for (auto stream : streams) {
             CHECK(cudaStreamSynchronize(stream));
         }
-        for (auto& pair : data_ready_events) {
-            cudaEvent_t event = pair.second;
-            gpu_pool.detach_task([event]() { CHECK(cudaEventDestroy(event)); });
-        }
-        gpu_pool.wait();
+        data_ready_events.clear();
     };
     options.progress_callback = progress_cb;
     options.cancel_flag = cancel_flag;

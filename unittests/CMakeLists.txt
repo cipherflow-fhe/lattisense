@@ -31,6 +31,12 @@ add_executable(test_fhe_task_param test_fhe_task_param.cpp utils.cpp)
 include_directories(test_fhe_task_param ${CMAKE_CURRENT_SOURCE_DIR}/../cxx_sdk_v2 ${CMAKE_CURRENT_SOURCE_DIR}/../fhe_ops_lib ${CMAKE_CURRENT_BINARY_DIR})
 target_link_libraries(test_fhe_task_param cxx_sdk_v2)
 
+add_executable(test_abi_c_structs test_abi_c_structs.c ${CMAKE_CURRENT_SOURCE_DIR}/../abi/c_structs.c)
+target_include_directories(test_abi_c_structs PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../abi
+    ${CMAKE_CURRENT_SOURCE_DIR}/../fhe_ops_lib/lattigo/go_sdk
+)
+
 add_executable(test_task_cancellation test_task_cancellation.cpp utils.cpp)
 include_directories(test_task_cancellation ${CMAKE_CURRENT_SOURCE_DIR}/../cxx_sdk_v2 ${CMAKE_CURRENT_SOURCE_DIR}/../fhe_ops_lib ${CMAKE_CURRENT_BINARY_DIR})
 target_link_libraries(test_task_cancellation cxx_sdk_v2)
@@ -82,4 +88,3 @@ endif()
 
 set(TEST_LAYER_PATH "${CMAKE_SOURCE_DIR}/test_app/test_layer")
 file(GLOB_RECURSE TEST_LAYER_SOURCES ${TEST_LAYER_PATH}/*.cpp)
-
