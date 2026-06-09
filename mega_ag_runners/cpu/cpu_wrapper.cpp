@@ -68,8 +68,8 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
     std::unordered_map<NodeIndex, void*> output_handle_map = extract_output_handle_map(mega_ag, output_args);
 
     // Provide output dest pointers to IMPORT_FROM_ABI nodes via get_other_args
-    auto get_other_args = [&output_handle_map](const ComputeNode& node) -> std::vector<std::any> {
-        if (node.fhe_prop.has_value() && node.fhe_prop->op_type == OperationType::IMPORT_FROM_ABI) {
+    auto get_other_args = [&output_handle_map](const CompoundComputeNode& node) -> std::vector<std::any> {
+        if (compute_contains_operation(node, OperationType::IMPORT_FROM_ABI)) {
             const DatumNode* output_node = node.output_nodes[0];
             auto it = output_handle_map.find(output_node->index);
             if (it != output_handle_map.end()) {
@@ -127,8 +127,7 @@ void _run_mega_ag(gsl::span<CArgument> input_args,
 
 class FheCpuTask {
 public:
-    FheCpuTask(const std::string& project_path)
-        : mega_ag_(MegaAG::load(project_path + "/mega_ag.json", Processor::CPU)) {}
+    FheCpuTask(const std::string& project_path) : mega_ag_(MegaAG::load(project_path, Processor::CPU)) {}
 
     ~FheCpuTask() {}
 

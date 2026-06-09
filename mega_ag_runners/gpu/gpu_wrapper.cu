@@ -310,9 +310,9 @@ bool bulk_load_plaintext_ringt_batch(const std::vector<const ComputeNode*>& comp
 }
 
 template <typename T>
-void purge_unused_data_and_events(const ComputeNode& compute_node,
+void purge_unused_data_and_events(const T& compute_node,
                                   std::unordered_map<NodeIndex, std::atomic<int>>& data_ref_counts,
-                                  std::unordered_map<NodeIndex, T>& available_data,
+                                  std::unordered_map<NodeIndex, std::any>& available_data,
                                   std::unordered_map<NodeIndex, PooledCudaEventPtr>& data_ready_events) {
     for (const auto* input_node : compute_node.input_nodes) {
         int remaining_use = data_ref_counts[input_node->index].fetch_sub(1) - 1;
@@ -321,6 +321,24 @@ void purge_unused_data_and_events(const ComputeNode& compute_node,
             data_ready_events.erase(input_node->index);
         }
     }
+}
+
+static bool collect_bulk_plaintext_ringt_loads(const CompoundComputeNode& node,
+                                               std::vector<const ComputeNode*>& internal_loads) {
+    if (node.ops.size() < 2) {
+        return false;
+    }
+
+    internal_loads.clear();
+    internal_loads.reserve(node.ops.size());
+    for (const ComputeNode& op : node.ops) {
+        if (!is_bulk_plaintext_ringt_load_node(op)) {
+            internal_loads.clear();
+            return false;
+        }
+        internal_loads.push_back(&op);
+    }
+    return true;
 }
 
 template <heongpu::Scheme SchemeType>
@@ -522,24 +540,8 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
                               std::mutex& completion_mutex,
                               std::unordered_map<NodeIndex, std::atomic<int>>& data_ref_counts) {
             const BS::priority_t pool_priority = mega_ag.computes.at(task_index).priority;
-            std::vector<NodeIndex> task_indices{task_index};
-            const bool bulk_pt_ringt_enabled = env_flag_enabled("LATTISENSE_GPU_BULK_PT_RINGT_H2D", true);
-
-            if (bulk_pt_ringt_enabled && bulk_pt_ringt_batch_size > 1 &&
-                is_bulk_plaintext_ringt_load_node(mega_ag.computes.at(task_index))) {
-                std::lock_guard<std::mutex> lock(m_mutex);
-                while (task_indices.size() < bulk_pt_ringt_batch_size && !task_queue.empty()) {
-                    NodeIndex next_task_index = task_queue.top().index;
-                    if (!is_bulk_plaintext_ringt_load_node(mega_ag.computes.at(next_task_index))) {
-                        break;
-                    }
-                    task_queue.pop();
-                    task_indices.push_back(next_task_index);
-                }
-            }
-
             gpu_pool.detach_task(
-                [task_indices, pool_priority, device, &gpu_pool, &mega_ag, &m_mutex, &task_queue, &queued_computes,
+                [task_index, pool_priority, device, &gpu_pool, &mega_ag, &m_mutex, &task_queue, &queued_computes,
                  &completed_tasks, &total_tasks, &completion_cv, &completion_mutex, &available_data, &operators,
                  &data_ready_events, &stream_options, &streams, &context, &galois_key, &galois_key_mutex,
                  &data_ref_counts, &all_galois_elts, &event_pool, &bulk_pt_ringt_staging_buffers,
@@ -548,118 +550,25 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
                     if (cancel_flag && cancel_flag->load()) {
                         return;
                     }
-                    NodeIndex task_index = task_indices[0];
                     auto stream_id = BS::this_thread::get_index().value();
 
-                    if (task_indices.size() > 1) {
-                        std::vector<const ComputeNode*> batch_compute_nodes;
-                        batch_compute_nodes.reserve(task_indices.size());
-                        std::vector<ComputeNode> batch_compute_node_copies;
-                        batch_compute_node_copies.reserve(task_indices.size());
-                        std::unordered_map<uint64_t, std::any> thread_input_cache;
-
-                        {
-                            std::lock_guard<std::mutex> lock(m_mutex);
-                            for (NodeIndex batch_task_index : task_indices) {
-                                const ComputeNode& batch_compute_node = mega_ag.computes.at(batch_task_index);
-                                batch_compute_nodes.push_back(&batch_compute_node);
-                                batch_compute_node_copies.push_back(batch_compute_node);
-                                for (const auto* input_node : batch_compute_node.input_nodes) {
-                                    thread_input_cache[input_node->index] = available_data[input_node->index];
-                                }
-                            }
-                        }
-
-                        ExecutionContext exec_ctx;
-                        exec_ctx.context = operators.get();
-                        exec_ctx.other_args.push_back(&stream_options[stream_id]);
-                        exec_ctx.other_args.push_back(&context);
-                        exec_ctx.other_args.push_back(&galois_key);
-                        exec_ctx.other_args.push_back(&galois_key_mutex);
-                        exec_ctx.other_args.push_back(&all_galois_elts);
-
-                        std::vector<std::any> outputs;
-                        BulkPlaintextRingtStagingBuffer& staging_buffer =
-                            *bulk_pt_ringt_staging_buffers[stream_id];
-                        bool used_bulk_loader = bulk_load_plaintext_ringt_batch<SchemeType>(
-                            batch_compute_nodes, thread_input_cache, outputs, staging_buffer, bulk_pt_ringt_min_bytes,
-                            context, stream_options[stream_id]);
-
-                        if (!used_bulk_loader) {
-                            outputs.clear();
-                            outputs.reserve(batch_compute_nodes.size());
-                            for (const ComputeNode* batch_compute_node : batch_compute_nodes) {
-                                std::any output;
-                                batch_compute_node->executor(exec_ctx, thread_input_cache, output, *batch_compute_node);
-                                outputs.push_back(output);
-                            }
-                        }
-
-                        PooledCudaEventPtr output_event = acquire_pooled_event(event_pool);
-                        CHECK(cudaEventRecord(output_event->get(), streams[stream_id]));
-
-                        {
-                            std::lock_guard<std::mutex> lock(m_mutex);
-
-                            for (size_t i = 0; i < batch_compute_nodes.size(); ++i) {
-                                const DatumNode* compute_output_node = batch_compute_nodes[i]->output_nodes[0];
-                                available_data[compute_output_node->index] = outputs[i];
-                                data_ready_events[compute_output_node->index] = output_event;
-
-                                std::unordered_set<NodeIndex> newly_available_computes =
-                                    mega_ag.step_available_computes(*compute_output_node, available_data);
-
-                                for (const auto& new_task_index : newly_available_computes) {
-                                    if (queued_computes.find(new_task_index) == queued_computes.end()) {
-                                        task_queue.push({mega_ag.computes.at(new_task_index).priority, new_task_index});
-                                        queued_computes.insert(new_task_index);
-                                    }
-                                }
-                            }
-                        }
-
-                        gpu_pool.detach_task(
-                            [batch_compute_node_copies, output_event, device, &m_mutex, &available_data,
-                             &data_ref_counts, &data_ready_events]() {
-                                CHECK(cudaSetDevice(device));
-                                CHECK(cudaEventSynchronize(output_event->get()));
-
-                                {
-                                    std::lock_guard<std::mutex> lock(m_mutex);
-                                    for (const ComputeNode& batch_compute_node : batch_compute_node_copies) {
-                                        purge_unused_data_and_events(batch_compute_node, data_ref_counts, available_data,
-                                                                     data_ready_events);
-                                    }
-                                }
-                            },
-                            pool_priority);
-
-                        size_t prev = completed_tasks.fetch_add(task_indices.size());
-                        if (prev + task_indices.size() >= total_tasks) {
-                            std::lock_guard<std::mutex> lock(completion_mutex);
-                            completion_cv.notify_all();
-                        }
-                        return;
-                    }
-
-                    const ComputeNode& compute_node = mega_ag.computes.at(task_index);
-
-                    // Get operation type outside lock
-                    OperationType op =
-                        compute_node.fhe_prop.has_value() ? compute_node.fhe_prop->op_type : OperationType::UNKNOWN;
+                    const CompoundComputeNode& compute_node = mega_ag.computes.at(task_index);
 
                     const std::vector<DatumNode*>& compute_input_nodes = compute_node.input_nodes;
-                    const DatumNode* compute_output_node = compute_node.output_nodes[0];
+                    const bool has_load_to_backend =
+                        compute_contains_operation(compute_node, OperationType::LOAD_TO_BACKEND);
+                    const bool has_store_from_backend =
+                        compute_contains_operation(compute_node, OperationType::STORE_FROM_BACKEND);
 
                     std::vector<PooledCudaEventPtr> events_to_wait;
-                    std::unordered_map<uint64_t, std::any> thread_input_cache;
+                    std::unordered_map<NodeIndex, std::any> thread_data_cache;
                     {
                         std::lock_guard<std::mutex> lock(m_mutex);
 
-                        // Check if all BACKEND input events are available
-                        // ABI inputs (from CPU via LOAD_TO_BACKEND) don't have events
+                        // Check if all BACKEND input events are available.
+                        // ABI inputs for LOAD_TO_BACKEND don't have events.
                         bool events_ready = true;
-                        if (op != OperationType::LOAD_TO_BACKEND) {
+                        if (!has_load_to_backend) {
                             for (const auto* input_node : compute_input_nodes) {
                                 auto event_it = data_ready_events.find(input_node->index);
                                 if (event_it == data_ready_events.end()) {
@@ -671,19 +580,16 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
 
                         if (!events_ready) {
                             queued_computes.erase(task_index);
-                            task_queue.push({mega_ag.computes.at(task_index).priority, task_index});
+                            task_queue.push({compute_node.priority, task_index});
                             return;
                         }
 
-                        // Collect events to wait for and cache data pointers
+                        // Collect events to wait for and cache data pointers.
                         for (const auto* input_node : compute_input_nodes) {
-                            // Cache input data
-                            thread_input_cache[input_node->index] = available_data[input_node->index];
+                            thread_data_cache[input_node->index] = available_data[input_node->index];
 
-                            // Collect events for GPU backend inputs
-                            // LOAD_TO_BACKEND loads from CPU (no events), other ops use GPU inputs (have events)
-                            if (op != OperationType::LOAD_TO_BACKEND) {
-                                events_to_wait.push_back(data_ready_events[input_node->index]);
+                            if (!has_load_to_backend) {
+                                events_to_wait.push_back(data_ready_events.at(input_node->index));
                             }
                         }
                     }
@@ -697,51 +603,62 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
                     ExecutionContext exec_ctx;
                     exec_ctx.context = operators.get();
                     exec_ctx.other_args.push_back(&stream_options[stream_id]);
+                    exec_ctx.other_args.push_back(&context);
 
-                    // LOAD_TO_BACKEND needs HEContext and galois_key parameters
-                    if (op == OperationType::LOAD_TO_BACKEND) {
-                        exec_ctx.other_args.push_back(&context);
+                    // LOAD_TO_BACKEND needs galois_key parameters after the common stream/context args.
+                    if (has_load_to_backend) {
                         exec_ctx.other_args.push_back(&galois_key);
                         exec_ctx.other_args.push_back(&galois_key_mutex);
                         exec_ctx.other_args.push_back(&all_galois_elts);
                     }
 
-                    std::any output;
+                    const bool bulk_pt_ringt_enabled = env_flag_enabled("LATTISENSE_GPU_BULK_PT_RINGT_H2D", true);
+                    bool used_bulk_loader = false;
+                    if (bulk_pt_ringt_enabled) {
+                        std::vector<const ComputeNode*> internal_loads;
+                        if (collect_bulk_plaintext_ringt_loads(compute_node, internal_loads)) {
+                            std::vector<std::any> bulk_outputs;
+                            BulkPlaintextRingtStagingBuffer& staging_buffer =
+                                *bulk_pt_ringt_staging_buffers[stream_id];
+                            used_bulk_loader = bulk_load_plaintext_ringt_batch<SchemeType>(
+                                internal_loads, thread_data_cache, bulk_outputs, staging_buffer, bulk_pt_ringt_min_bytes,
+                                context, stream_options[stream_id]);
 
-                    // Allocate output based on operation type
-                    // GPU FHE ops: pre-allocate GPU ciphertext (except LOAD and STORE which handle allocation
-                    // internally) LOAD_TO_BACKEND: allocates GPU memory internally STORE_FROM_BACKEND: outputs to C
-                    // struct (not GPU memory)
-                    if (op != OperationType::LOAD_TO_BACKEND && op != OperationType::STORE_FROM_BACKEND) {
-                        int output_level = compute_output_node->fhe_prop->level;
-                        auto output_ptr = std::make_shared<heongpu::Ciphertext<SchemeType>>(context, output_level,
-                                                                                            stream_options[stream_id]);
-                        output = output_ptr;
+                            if (used_bulk_loader) {
+                                for (size_t i = 0; i < internal_loads.size(); ++i) {
+                                    const DatumNode* output_node = internal_loads[i]->output_nodes[0];
+                                    thread_data_cache[output_node->index] = bulk_outputs[i];
+                                }
+                            }
+                        }
                     }
 
-                    compute_node.executor(exec_ctx, thread_input_cache, output, compute_node);
+                    if (!used_bulk_loader) {
+                        compute_node.execute(exec_ctx, thread_data_cache);
+                    }
 
-                    // Create event for GPU backend outputs (not STORE_FROM_BACKEND which outputs to C struct)
-                    PooledCudaEventPtr output_event;
-                    if (op != OperationType::STORE_FROM_BACKEND) {
-                        output_event = acquire_pooled_event(event_pool);
-                        CHECK(cudaEventRecord(output_event->get(), streams[stream_id]));
+                    // Create events for GPU backend outputs (not STORE_FROM_BACKEND which outputs to C struct)
+                    std::vector<PooledCudaEventPtr> output_events;
+                    if (!has_store_from_backend) {
+                        output_events.reserve(compute_node.output_nodes.size());
+                        for (size_t i = 0; i < compute_node.output_nodes.size(); ++i) {
+                            PooledCudaEventPtr output_event = acquire_pooled_event(event_pool);
+                            CHECK(cudaEventRecord(output_event->get(), streams[stream_id]));
+                            output_events.push_back(output_event);
+                        }
                     }
 
                     {
                         std::lock_guard<std::mutex> lock(m_mutex);
 
-                        // Store output in available_data
-                        available_data[compute_output_node->index] = output;
-
-                        // Store event if created
-                        if (output_event) {
-                            data_ready_events[compute_output_node->index] = output_event;
+                        for (const auto* output_node : compute_node.output_nodes) {
+                            available_data[output_node->index] = thread_data_cache.at(output_node->index);
                         }
+                        auto newly_available_computes = mega_ag.step_available_computes(compute_node, available_data);
 
-                        // Update available computes
-                        std::unordered_set<NodeIndex> newly_available_computes =
-                            mega_ag.step_available_computes(*compute_output_node, available_data);
+                        for (size_t i = 0; i < output_events.size(); ++i) {
+                            data_ready_events[compute_node.output_nodes[i]->index] = output_events[i];
+                        }
 
                         for (const auto& new_task_index : newly_available_computes) {
                             if (queued_computes.find(new_task_index) == queued_computes.end()) {
@@ -752,11 +669,10 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
                     }
 
                     gpu_pool.detach_task(
-                        [compute_node, output_event, device, &m_mutex, &available_data, &data_ref_counts,
+                        [compute_node, output_events, device, &m_mutex, &available_data, &data_ref_counts,
                          &data_ready_events]() {
                             CHECK(cudaSetDevice(device));
-                            // Wait for GPU computation to complete if event exists
-                            if (output_event) {
+                            for (auto& output_event : output_events) {
                                 CHECK(cudaEventSynchronize(output_event->get()));
                             }
 
@@ -778,9 +694,9 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
         };
 
     // Define get_other_args for IMPORT_FROM_ABI nodes: pass output Handle* as other_arg
-    auto get_other_args = [&](const ComputeNode& compute_node) -> std::vector<std::any> {
+    auto get_other_args = [&](const CompoundComputeNode& compute_node) -> std::vector<std::any> {
         std::vector<std::any> other_args_vec;
-        if (compute_node.fhe_prop.has_value() && compute_node.fhe_prop->op_type == OperationType::IMPORT_FROM_ABI) {
+        if (compute_contains_operation(compute_node, OperationType::IMPORT_FROM_ABI)) {
             NodeIndex output_node_index = compute_node.output_nodes[0]->index;
             auto it = output_handle_map.find(output_node_index);
             if (it != output_handle_map.end()) {
@@ -849,7 +765,7 @@ void _run_mega_ag(gsl::span<CArgument> input_args,
 class FheGpuTask {
 public:
     FheGpuTask(const std::string& project_path) {
-        mega_ag_ = MegaAG::load(project_path + "/mega_ag.json", Processor::GPU);
+        mega_ag_ = MegaAG::load(project_path, Processor::GPU);
     }
 
     ~FheGpuTask() {}

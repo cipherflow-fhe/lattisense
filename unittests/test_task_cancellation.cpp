@@ -84,32 +84,54 @@ MegaAG make_chain_ag(Barrier* first_barrier, std::atomic<int>* executed) {
     ag.inputs = {1};
     ag.outputs = {3};
 
-    ag.computes.emplace(10, ComputeNode{10, "first"});
-    ag.computes.emplace(11, ComputeNode{11, "second"});
+    CompoundComputeNode first_task;
+    first_task.index = 10;
+    first_task.id = "first";
+    first_task.on_cpu = true;
+    first_task.priority = 10;
+    first_task.input_nodes = {&ag.data.at(1)};
+    first_task.output_nodes = {&ag.data.at(2)};
 
-    auto executor_1 = [first_barrier, executed](ExecutionContext&, const std::unordered_map<NodeIndex, std::any>&,
-                                                std::any& output, const ComputeNode&) {
+    CompoundComputeNode second_task;
+    second_task.index = 11;
+    second_task.id = "second";
+    second_task.on_cpu = true;
+    second_task.priority = 9;
+    second_task.input_nodes = {&ag.data.at(2)};
+    second_task.output_nodes = {&ag.data.at(3)};
+
+    auto executor_1 = [first_barrier, executed](ExecutionContext&,
+                                                std::unordered_map<NodeIndex, std::any>& local_data,
+                                                const ComputeNode& self) {
         executed->fetch_add(1);
         first_barrier->enter_and_wait();
-        output = std::make_shared<int>(1);
+        local_data[self.output_nodes[0]->index] = std::make_shared<int>(1);
     };
-    auto executor_2 = [executed](ExecutionContext&, const std::unordered_map<NodeIndex, std::any>&, std::any& output,
-                                 const ComputeNode&) {
+    auto executor_2 = [executed](ExecutionContext&, std::unordered_map<NodeIndex, std::any>& local_data,
+                                 const ComputeNode& self) {
         executed->fetch_add(1);
-        output = std::make_shared<int>(2);
+        local_data[self.output_nodes[0]->index] = std::make_shared<int>(2);
     };
 
-    ag.computes.at(10).on_cpu = true;
-    ag.computes.at(10).priority = 10;
-    ag.computes.at(10).executor = executor_1;
-    ag.computes.at(11).on_cpu = true;
-    ag.computes.at(11).priority = 9;
-    ag.computes.at(11).executor = executor_2;
+    ComputeNode first_op;
+    first_op.index = 10;
+    first_op.id = "first";
+    first_op.input_nodes = first_task.input_nodes;
+    first_op.output_nodes = first_task.output_nodes;
+    first_op.executor = executor_1;
+    first_task.ops.push_back(first_op);
 
-    ag.computes.at(10).input_nodes = {&ag.data.at(1)};
-    ag.computes.at(10).output_nodes = {&ag.data.at(2)};
-    ag.computes.at(11).input_nodes = {&ag.data.at(2)};
-    ag.computes.at(11).output_nodes = {&ag.data.at(3)};
+    ComputeNode second_op;
+    second_op.index = 11;
+    second_op.id = "second";
+    second_op.input_nodes = second_task.input_nodes;
+    second_op.output_nodes = second_task.output_nodes;
+    second_op.executor = executor_2;
+    second_task.ops.push_back(second_op);
+
+    ag.computes.emplace(10, std::move(first_task));
+    ag.computes.emplace(11, std::move(second_task));
+
     ag.data.at(1).successors = {&ag.computes.at(10)};
     ag.data.at(2).predecessors = {&ag.computes.at(10)};
     ag.data.at(2).successors = {&ag.computes.at(11)};
