@@ -22,6 +22,7 @@
 #include <atomic>
 #include <condition_variable>
 #include <cstdlib>
+#include <cstring>
 #include <queue>
 #include <set>
 #include <memory>
@@ -35,6 +36,7 @@
 #include "../wrapper.h"
 #include "../mega_ag.h"
 #include "gpu_abi_bridge_executors.h"
+#include "gpu_plaintext_bulk_loader.h"
 #include "../cpu_task_utils.h"
 #include "../../fhe_ops_lib/fhe_lib_v2.h"
 
@@ -50,6 +52,67 @@ extern "C" {
 
 namespace gpu_wrapper {
 using namespace fhe_ops_lib;
+
+static bool env_flag_enabled(const char* name, bool default_value) {
+    const char* value = std::getenv(name);
+    if (!value) {
+        return default_value;
+    }
+    if (std::strcmp(value, "0") == 0 || std::strcmp(value, "false") == 0 || std::strcmp(value, "FALSE") == 0 ||
+        std::strcmp(value, "off") == 0 || std::strcmp(value, "OFF") == 0) {
+        return false;
+    }
+    return true;
+}
+
+static size_t env_size_or_default(const char* name, size_t default_value) {
+    const char* value = std::getenv(name);
+    if (!value) {
+        return default_value;
+    }
+    char* end = nullptr;
+    unsigned long parsed = std::strtoul(value, &end, 10);
+    if (end == value || parsed == 0) {
+        return default_value;
+    }
+    return static_cast<size_t>(parsed);
+}
+
+struct CudaHostDeleter {
+    void operator()(void* ptr) const {
+        if (ptr) {
+            cudaFreeHost(ptr);
+        }
+    }
+};
+
+struct CudaDeviceDeleter {
+    void operator()(void* ptr) const {
+        if (ptr) {
+            cudaFree(ptr);
+        }
+    }
+};
+
+struct BulkPlaintextRingtTransferResources {
+    std::unique_ptr<void, CudaHostDeleter> host_staging;
+    std::unique_ptr<void, CudaDeviceDeleter> device_staging;
+    std::unique_ptr<void, CudaDeviceDeleter> device_destinations;
+    std::vector<uint64_t*> host_destinations;
+};
+
+__global__ void scatter_plaintext_ringt_batch_kernel(uint64_t** destinations,
+                                                     const uint64_t* packed_src,
+                                                     size_t words_per_plaintext,
+                                                     size_t count) {
+    size_t total_words = words_per_plaintext * count;
+    for (size_t linear = blockIdx.x * blockDim.x + threadIdx.x; linear < total_words;
+         linear += blockDim.x * gridDim.x) {
+        size_t item = linear / words_per_plaintext;
+        size_t word = linear - item * words_per_plaintext;
+        destinations[item][word] = packed_src[linear];
+    }
+}
 
 class CudaEventPool {
 public:
@@ -124,6 +187,80 @@ using PooledCudaEventPtr = std::shared_ptr<PooledCudaEvent>;
 
 static PooledCudaEventPtr acquire_pooled_event(CudaEventPool& event_pool) {
     return std::make_shared<PooledCudaEvent>(event_pool, event_pool.acquire());
+}
+
+template <heongpu::Scheme SchemeType>
+bool bulk_load_plaintext_ringt_batch(const std::vector<const ComputeNode*>& compute_nodes,
+                                     const std::unordered_map<NodeIndex, std::any>& inputs,
+                                     std::vector<std::any>& outputs,
+                                     std::shared_ptr<BulkPlaintextRingtTransferResources>& transfer_resources,
+                                     heongpu::HEContext<SchemeType>& context,
+                                     heongpu::ExecutionOptions& stream_option) {
+    if (compute_nodes.size() < 2) {
+        return false;
+    }
+
+    std::vector<std::shared_ptr<CPlaintext>> c_plaintexts;
+    c_plaintexts.reserve(compute_nodes.size());
+    for (const ComputeNode* compute_node : compute_nodes) {
+        if (!is_bulk_plaintext_ringt_load_node(*compute_node)) {
+            return false;
+        }
+        const DatumNode* input_node = compute_node->input_nodes[0];
+        auto c_pt_ptr = std::any_cast<std::shared_ptr<CPlaintext>>(inputs.at(input_node->index));
+        if (!is_bulk_plaintext_ringt_payload(*c_pt_ptr)) {
+            return false;
+        }
+        c_plaintexts.push_back(c_pt_ptr);
+    }
+
+    const size_t payload_bytes = plaintext_payload_bytes(*c_plaintexts[0]);
+    const size_t words_per_plaintext = payload_bytes / sizeof(uint64_t);
+    const size_t total_bytes = payload_bytes * c_plaintexts.size();
+
+    void* host_staging_raw = nullptr;
+    CHECK(cudaHostAlloc(&host_staging_raw, total_bytes, cudaHostAllocDefault));
+    auto resources = std::make_shared<BulkPlaintextRingtTransferResources>();
+    resources->host_staging.reset(host_staging_raw);
+
+    auto* host_bytes = static_cast<uint8_t*>(resources->host_staging.get());
+    for (size_t i = 0; i < c_plaintexts.size(); ++i) {
+        std::memcpy(host_bytes + i * payload_bytes, c_plaintexts[i]->poly.contiguous_data, payload_bytes);
+    }
+
+    void* device_staging_raw = nullptr;
+    CHECK(cudaMalloc(&device_staging_raw, total_bytes));
+    resources->device_staging.reset(device_staging_raw);
+
+    void* device_destinations_raw = nullptr;
+    CHECK(cudaMalloc(&device_destinations_raw, c_plaintexts.size() * sizeof(uint64_t*)));
+    resources->device_destinations.reset(device_destinations_raw);
+
+    outputs.clear();
+    outputs.reserve(c_plaintexts.size());
+    resources->host_destinations.reserve(c_plaintexts.size());
+    for (const auto& c_pt : c_plaintexts) {
+        auto output_ptr = std::make_shared<heongpu::Plaintext<SchemeType>>(context, c_pt->level, stream_option);
+        resources->host_destinations.push_back(output_ptr->data());
+        outputs.push_back(output_ptr);
+    }
+
+    cudaStream_t stream = std::any_cast<std::shared_ptr<heongpu::Plaintext<SchemeType>>>(outputs[0])->stream();
+    CHECK(cudaMemcpyAsync(resources->device_destinations.get(), resources->host_destinations.data(),
+                          c_plaintexts.size() * sizeof(uint64_t*), cudaMemcpyHostToDevice, stream));
+    CHECK(cudaMemcpyAsync(resources->device_staging.get(), resources->host_staging.get(), total_bytes,
+                          cudaMemcpyHostToDevice, stream));
+
+    constexpr int threads = 256;
+    size_t blocks = (words_per_plaintext * c_plaintexts.size() + threads - 1) / threads;
+    blocks = std::min<size_t>(blocks, 65535);
+    scatter_plaintext_ringt_batch_kernel<<<static_cast<unsigned int>(blocks), threads, 0, stream>>>(
+        static_cast<uint64_t**>(resources->device_destinations.get()),
+        static_cast<const uint64_t*>(resources->device_staging.get()), words_per_plaintext, c_plaintexts.size());
+    CHECK(cudaGetLastError());
+
+    transfer_resources = resources;
+    return true;
 }
 
 template <typename T>
@@ -324,8 +461,26 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
                               std::mutex& completion_mutex,
                               std::unordered_map<NodeIndex, std::atomic<int>>& data_ref_counts) {
             const BS::priority_t pool_priority = mega_ag.computes.at(task_index).priority;
+            std::vector<NodeIndex> task_indices{task_index};
+            const bool bulk_pt_ringt_enabled = env_flag_enabled("LATTISENSE_GPU_BULK_PT_RINGT_H2D", true);
+            const size_t bulk_pt_ringt_batch_size =
+                env_size_or_default("LATTISENSE_GPU_BULK_PT_RINGT_BATCH_SIZE", 64);
+
+            if (bulk_pt_ringt_enabled && bulk_pt_ringt_batch_size > 1 &&
+                is_bulk_plaintext_ringt_load_node(mega_ag.computes.at(task_index))) {
+                std::lock_guard<std::mutex> lock(m_mutex);
+                while (task_indices.size() < bulk_pt_ringt_batch_size && !task_queue.empty()) {
+                    NodeIndex next_task_index = task_queue.top().index;
+                    if (!is_bulk_plaintext_ringt_load_node(mega_ag.computes.at(next_task_index))) {
+                        break;
+                    }
+                    task_queue.pop();
+                    task_indices.push_back(next_task_index);
+                }
+            }
+
             gpu_pool.detach_task(
-                [task_index, pool_priority, device, &gpu_pool, &mega_ag, &m_mutex, &task_queue, &queued_computes,
+                [task_indices, pool_priority, device, &gpu_pool, &mega_ag, &m_mutex, &task_queue, &queued_computes,
                  &completed_tasks, &total_tasks, &completion_cv, &completion_mutex, &available_data, &operators,
                  &data_ready_events, &stream_options, &streams, &context, &galois_key, &galois_key_mutex,
                  &data_ref_counts, &all_galois_elts, &event_pool, cancel_flag]() {
@@ -333,7 +488,99 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
                     if (cancel_flag && cancel_flag->load()) {
                         return;
                     }
+                    NodeIndex task_index = task_indices[0];
                     auto stream_id = BS::this_thread::get_index().value();
+
+                    if (task_indices.size() > 1) {
+                        std::vector<const ComputeNode*> batch_compute_nodes;
+                        batch_compute_nodes.reserve(task_indices.size());
+                        std::vector<ComputeNode> batch_compute_node_copies;
+                        batch_compute_node_copies.reserve(task_indices.size());
+                        std::unordered_map<uint64_t, std::any> thread_input_cache;
+
+                        {
+                            std::lock_guard<std::mutex> lock(m_mutex);
+                            for (NodeIndex batch_task_index : task_indices) {
+                                const ComputeNode& batch_compute_node = mega_ag.computes.at(batch_task_index);
+                                batch_compute_nodes.push_back(&batch_compute_node);
+                                batch_compute_node_copies.push_back(batch_compute_node);
+                                for (const auto* input_node : batch_compute_node.input_nodes) {
+                                    thread_input_cache[input_node->index] = available_data[input_node->index];
+                                }
+                            }
+                        }
+
+                        ExecutionContext exec_ctx;
+                        exec_ctx.context = operators.get();
+                        exec_ctx.other_args.push_back(&stream_options[stream_id]);
+                        exec_ctx.other_args.push_back(&context);
+                        exec_ctx.other_args.push_back(&galois_key);
+                        exec_ctx.other_args.push_back(&galois_key_mutex);
+                        exec_ctx.other_args.push_back(&all_galois_elts);
+
+                        std::vector<std::any> outputs;
+                        std::shared_ptr<BulkPlaintextRingtTransferResources> transfer_resources;
+                        bool used_bulk_loader = bulk_load_plaintext_ringt_batch<SchemeType>(
+                            batch_compute_nodes, thread_input_cache, outputs, transfer_resources, context,
+                            stream_options[stream_id]);
+
+                        if (!used_bulk_loader) {
+                            outputs.clear();
+                            outputs.reserve(batch_compute_nodes.size());
+                            for (const ComputeNode* batch_compute_node : batch_compute_nodes) {
+                                std::any output;
+                                batch_compute_node->executor(exec_ctx, thread_input_cache, output, *batch_compute_node);
+                                outputs.push_back(output);
+                            }
+                        }
+
+                        PooledCudaEventPtr output_event = acquire_pooled_event(event_pool);
+                        CHECK(cudaEventRecord(output_event->get(), streams[stream_id]));
+
+                        {
+                            std::lock_guard<std::mutex> lock(m_mutex);
+
+                            for (size_t i = 0; i < batch_compute_nodes.size(); ++i) {
+                                const DatumNode* compute_output_node = batch_compute_nodes[i]->output_nodes[0];
+                                available_data[compute_output_node->index] = outputs[i];
+                                data_ready_events[compute_output_node->index] = output_event;
+
+                                std::unordered_set<NodeIndex> newly_available_computes =
+                                    mega_ag.step_available_computes(*compute_output_node, available_data);
+
+                                for (const auto& new_task_index : newly_available_computes) {
+                                    if (queued_computes.find(new_task_index) == queued_computes.end()) {
+                                        task_queue.push({mega_ag.computes.at(new_task_index).priority, new_task_index});
+                                        queued_computes.insert(new_task_index);
+                                    }
+                                }
+                            }
+                        }
+
+                        gpu_pool.detach_task(
+                            [batch_compute_node_copies, output_event, transfer_resources, device, &m_mutex,
+                             &available_data, &data_ref_counts, &data_ready_events]() {
+                                CHECK(cudaSetDevice(device));
+                                CHECK(cudaEventSynchronize(output_event->get()));
+                                (void)transfer_resources;
+
+                                {
+                                    std::lock_guard<std::mutex> lock(m_mutex);
+                                    for (const ComputeNode& batch_compute_node : batch_compute_node_copies) {
+                                        purge_unused_data_and_events(batch_compute_node, data_ref_counts, available_data,
+                                                                     data_ready_events);
+                                    }
+                                }
+                            },
+                            pool_priority);
+
+                        size_t prev = completed_tasks.fetch_add(task_indices.size());
+                        if (prev + task_indices.size() >= total_tasks) {
+                            std::lock_guard<std::mutex> lock(completion_mutex);
+                            completion_cv.notify_all();
+                        }
+                        return;
+                    }
 
                     const ComputeNode& compute_node = mega_ag.computes.at(task_index);
 

@@ -37,6 +37,15 @@ target_include_directories(test_abi_c_structs PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../fhe_ops_lib/lattigo/go_sdk
 )
 
+add_executable(test_gpu_plaintext_bulk_loader test_gpu_plaintext_bulk_loader.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../abi/c_structs.c
+)
+target_include_directories(test_gpu_plaintext_bulk_loader PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../abi
+    ${CMAKE_CURRENT_SOURCE_DIR}/../fhe_ops_lib/lattigo/go_sdk
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+
 add_executable(test_task_cancellation test_task_cancellation.cpp utils.cpp)
 include_directories(test_task_cancellation ${CMAKE_CURRENT_SOURCE_DIR}/../cxx_sdk_v2 ${CMAKE_CURRENT_SOURCE_DIR}/../fhe_ops_lib ${CMAKE_CURRENT_BINARY_DIR})
 target_link_libraries(test_task_cancellation cxx_sdk_v2)
