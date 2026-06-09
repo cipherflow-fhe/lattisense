@@ -777,6 +777,12 @@ class SwitchKeyNode(FheDataNode):
 
 
 def _current_param():
+    import sys
+
+    for module_name in ('inference.lattisense.frontend.custom_task', 'frontend.custom_task'):
+        custom_task = sys.modules.get(module_name)
+        if custom_task is not None and getattr(custom_task, 'g_param', None) is not None:
+            return custom_task.g_param
     try:
         from . import custom_task
     except ImportError:
