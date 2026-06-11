@@ -332,17 +332,12 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
                 pool_priority);
         };
 
-    // Define get_other_args for IMPORT_FROM_ABI nodes: pass output Handle* as other_arg
+    // Define get_other_args for IMPORT_FROM_ABI nodes: pass all output Handle* entries.
     auto get_other_args = [&](const CompoundComputeNode& compute_node) -> std::vector<std::any> {
-        std::vector<std::any> other_args_vec;
         if (compute_contains_operation(compute_node, OperationType::IMPORT_FROM_ABI)) {
-            NodeIndex output_node_index = compute_node.output_nodes[0]->index;
-            auto it = output_handle_map.find(output_node_index);
-            if (it != output_handle_map.end()) {
-                other_args_vec.push_back(it->second);
-            }
+            return {&output_handle_map};
         }
-        return other_args_vec;
+        return {};
     };
 
     // Run tasks using common run_tasks function

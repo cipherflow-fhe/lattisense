@@ -411,9 +411,22 @@ create_abi_export_executor(Algo algorithm, bool heterogeneous_mode = true, int m
  * @note Output: if pre-allocated (shared_ptr<void>), write-back to dest; otherwise store new shared_ptr<Handle>
  */
 inline ExecutorFunc create_abi_import_executor(Algo algorithm, bool heterogeneous_mode = true) {
+    auto get_import_dest_handle = [](ExecutionContext& ctx, const ComputeNode& self) -> void* {
+        if (ctx.other_args.empty()) {
+            return nullptr;
+        }
+        auto* output_handle_map = ctx.get_other_arg<std::unordered_map<NodeIndex, void*>>(0);
+        if (!output_handle_map) {
+            return nullptr;
+        }
+        auto it = output_handle_map->find(self.output_nodes[0]->index);
+        return it == output_handle_map->end() ? nullptr : it->second;
+    };
+
     if (algorithm == Algo::ALGO_BFV) {
-        return [heterogeneous_mode](ExecutionContext& ctx, std::unordered_map<NodeIndex, std::any>& local_data,
-                                    const ComputeNode& self) -> void {
+        return [heterogeneous_mode, get_import_dest_handle](ExecutionContext& ctx,
+                                                            std::unordered_map<NodeIndex, std::any>& local_data,
+                                                            const ComputeNode& self) -> void {
             const DatumNode* input_node = self.input_nodes[0];
             DataType data_type = input_node->datum_type;
 
@@ -427,9 +440,9 @@ inline ExecutorFunc create_abi_import_executor(Algo algorithm, bool heterogeneou
                         const std::any& input_any = local_data.at(input_node->index);
                         if (input_any.type() == typeid(std::shared_ptr<CCiphertext>)) {
                             auto c_ct_ptr = std::any_cast<std::shared_ptr<CCiphertext>>(input_any);
-                            if (!ctx.other_args.empty()) {
+                            void* dest_raw = get_import_dest_handle(ctx, self);
+                            if (dest_raw) {
                                 // output node: import (copy) into pre-allocated dest handle
-                                void* dest_raw = ctx.get_other_arg<void>(0);
                                 import_bfv_ciphertext(static_cast<BfvCiphertext*>(dest_raw)->get(), c_ct_ptr.get());
                                 local_data[self.output_nodes[0]->index] = std::shared_ptr<void>(dest_raw, [](void*) {});
                             } else {
@@ -442,10 +455,10 @@ inline ExecutorFunc create_abi_import_executor(Algo algorithm, bool heterogeneou
                             }
                         } else {
                             // native handle (BfvCiphertext from custom node): copy to pre-allocated dest
-                            if (ctx.other_args.empty())
+                            void* dest_raw = get_import_dest_handle(ctx, self);
+                            if (!dest_raw)
                                 throw std::runtime_error(
                                     "Handle IMPORT_FROM_ABI requires pre-allocated dest via other_args");
-                            void* dest_raw = ctx.get_other_arg<void>(0);
                             if (input_node->fhe_prop->degree == 2) {
                                 auto sp = std::any_cast<std::shared_ptr<BfvCiphertext3>>(input_any);
                                 sp->copy_to(*static_cast<BfvCiphertext3*>(dest_raw));
@@ -457,9 +470,9 @@ inline ExecutorFunc create_abi_import_executor(Algo algorithm, bool heterogeneou
                         }
                     } else {
                         // CPU mode: other_args must supply pre-allocated dest
-                        if (ctx.other_args.empty())
+                        void* dest_raw = get_import_dest_handle(ctx, self);
+                        if (!dest_raw)
                             throw std::runtime_error("CPU IMPORT_FROM_ABI requires pre-allocated dest via other_args");
-                        void* dest_raw = ctx.get_other_arg<void>(0);
                         Handle* dest = static_cast<Handle*>(dest_raw);
                         if (input_node->fhe_prop->degree == 2) {
                             auto sp = std::any_cast<std::shared_ptr<BfvCiphertext3>>(local_data.at(input_node->index));
@@ -477,8 +490,9 @@ inline ExecutorFunc create_abi_import_executor(Algo algorithm, bool heterogeneou
             }
         };
     } else if (algorithm == Algo::ALGO_CKKS) {
-        return [heterogeneous_mode](ExecutionContext& ctx, std::unordered_map<NodeIndex, std::any>& local_data,
-                                    const ComputeNode& self) -> void {
+        return [heterogeneous_mode, get_import_dest_handle](ExecutionContext& ctx,
+                                                            std::unordered_map<NodeIndex, std::any>& local_data,
+                                                            const ComputeNode& self) -> void {
             const DatumNode* input_node = self.input_nodes[0];
             DataType data_type = input_node->datum_type;
 
@@ -497,9 +511,9 @@ inline ExecutorFunc create_abi_import_executor(Algo algorithm, bool heterogeneou
                         const std::any& input_any = local_data.at(input_node->index);
                         if (input_any.type() == typeid(std::shared_ptr<CCiphertext>)) {
                             auto c_ct_ptr = std::any_cast<std::shared_ptr<CCiphertext>>(input_any);
-                            if (!ctx.other_args.empty()) {
+                            void* dest_raw = get_import_dest_handle(ctx, self);
+                            if (dest_raw) {
                                 // output node: import (copy) into pre-allocated dest handle
-                                void* dest_raw = ctx.get_other_arg<void>(0);
                                 import_ckks_ciphertext(static_cast<CkksCiphertext*>(dest_raw)->get(), c_ct_ptr.get());
                                 local_data[self.output_nodes[0]->index] = std::shared_ptr<void>(dest_raw, [](void*) {});
                             } else {
@@ -513,10 +527,10 @@ inline ExecutorFunc create_abi_import_executor(Algo algorithm, bool heterogeneou
                             }
                         } else {
                             // native handle (CkksCiphertext from custom node): copy to pre-allocated dest
-                            if (ctx.other_args.empty())
+                            void* dest_raw = get_import_dest_handle(ctx, self);
+                            if (!dest_raw)
                                 throw std::runtime_error(
                                     "Handle IMPORT_FROM_ABI requires pre-allocated dest via other_args");
-                            void* dest_raw = ctx.get_other_arg<void>(0);
                             if (input_node->fhe_prop->degree == 2) {
                                 auto sp = std::any_cast<std::shared_ptr<CkksCiphertext3>>(input_any);
                                 sp->copy_to(*static_cast<CkksCiphertext3*>(dest_raw));
@@ -528,9 +542,9 @@ inline ExecutorFunc create_abi_import_executor(Algo algorithm, bool heterogeneou
                         }
                     } else {
                         // CPU mode: other_args must supply pre-allocated dest
-                        if (ctx.other_args.empty())
+                        void* dest_raw = get_import_dest_handle(ctx, self);
+                        if (!dest_raw)
                             throw std::runtime_error("CPU IMPORT_FROM_ABI requires pre-allocated dest via other_args");
-                        void* dest_raw = ctx.get_other_arg<void>(0);
                         Handle* dest = static_cast<Handle*>(dest_raw);
                         if (input_node->fhe_prop->degree == 2) {
                             auto sp = std::any_cast<std::shared_ptr<CkksCiphertext3>>(local_data.at(input_node->index));

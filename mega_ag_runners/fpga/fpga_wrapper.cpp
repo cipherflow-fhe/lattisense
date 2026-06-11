@@ -213,11 +213,7 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
             other_args_vec.push_back(proj->pvi);
             other_args_vec.push_back(offset);
         } else if (compute_contains_operation(compute_node, OperationType::IMPORT_FROM_ABI)) {
-            NodeIndex output_node_index = compute_node.output_nodes[0]->index;
-            auto it = output_handle_map.find(output_node_index);
-            if (it != output_handle_map.end()) {
-                other_args_vec.push_back(it->second);
-            }
+            other_args_vec.push_back(&output_handle_map);
         }
         return other_args_vec;
     };
