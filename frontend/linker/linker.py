@@ -17,7 +17,8 @@
 import networkx as nx
 
 from frontend.types import Processor
-from .chain_former import compute_properties, form_chains, form_gpu_load_batches, form_single_op_tasks
+from .greedy_compound_former import GreedyCompoundFormer
+from .priority import compute_properties
 from .processor_layout import apply_processor_layout
 from .task_context import _TaskContext
 
@@ -29,9 +30,6 @@ def compile_mega_ag(
 ) -> nx.DiGraph:
     """Apply processor layout, form top-level tasks, and compute priorities."""
     dag = apply_processor_layout(dag, processor, ctx.inputs, ctx.outputs)
-    dag = form_chains(dag, processor, ctx.outputs)
-    if processor == Processor.GPU:
-        dag = form_gpu_load_batches(dag, processor)
-    dag = form_single_op_tasks(dag, processor)
+    dag = GreedyCompoundFormer(dag, processor, ctx.inputs, ctx.outputs).form()
     dag = compute_properties(dag)
     return dag

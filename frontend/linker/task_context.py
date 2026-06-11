@@ -23,7 +23,7 @@ _TaskContext.build() which is the sole constructor entry point.
 
 Consumed by:
   - serialize_signature()  in serializer.py
-  - compile_mega_ag()      in chain_former.py
+  - compile_mega_ag()      in linker.py
   - run_gpu_linker()       in gpu_backend.py
   - run_cpu_linker()       in cpu_backend.py
 """

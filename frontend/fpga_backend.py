@@ -19,7 +19,8 @@ import sys
 
 import networkx as nx
 
-from .linker import apply_processor_layout, compute_properties, compute_runs_on_cpu, form_single_op_tasks, serialize_dag
+from .linker import apply_processor_layout, compute_properties, compute_runs_on_cpu, serialize_dag
+from .linker.utils import internal_op_json
 from .types import (
     BridgeComputeNode,
     BridgeDataNode,
@@ -29,6 +30,9 @@ from .types import (
     FheDataNode,
     FpgaKernelNode,
     Processor,
+    _CompoundComputeNode,
+    is_compute_node,
+    is_data_node,
 )
 
 
@@ -206,6 +210,38 @@ def _build_fpga_kernels(
         result.append((kernel, sub_mag, sub_sig))
 
     return result
+
+
+def form_single_op_tasks(dag: nx.DiGraph, processor: Processor) -> nx.DiGraph:
+    """Wrap remaining single ops as one-op top-level compound tasks for FPGA output."""
+    compute_topo = [n for n in nx.topological_sort(dag) if is_compute_node(n)]
+    new_dag = nx.DiGraph()
+
+    for node in dag.nodes():
+        if is_data_node(node):
+            new_dag.add_node(node)
+
+    for node in compute_topo:
+        task = node if isinstance(node, _CompoundComputeNode) else _make_single_op_task(dag, node, processor)
+        new_dag.add_node(task)
+        for data in dag.predecessors(node):
+            new_dag.add_edge(data, task)
+        for data in dag.successors(node):
+            new_dag.add_edge(task, data)
+
+    return new_dag
+
+
+def _make_single_op_task(dag: nx.DiGraph, op, processor: Processor) -> _CompoundComputeNode:
+    task = _CompoundComputeNode(
+        on_cpu=compute_runs_on_cpu(op, processor),
+        ops=[internal_op_json(dag, op)],
+        ext_inputs=dag.predecessors(op),
+        ext_outputs=dag.successors(op),
+    )
+    task.index = op.index
+    task.id = op.id
+    return task
 
 
 def compile_fpga_mega_ag(dag: nx.DiGraph, param, ctx) -> tuple[nx.DiGraph, list[tuple[FpgaKernelNode, dict, dict]]]:

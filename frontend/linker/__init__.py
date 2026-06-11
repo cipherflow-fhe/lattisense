@@ -19,7 +19,7 @@ linker — Compile-time graph transformation for GPU/CPU backends.
 
 Pipeline (run once at compile time, result cached as compiled_mega_ag.json):
     1. apply_processor_layout  — insert ABI bridge nodes
-    2. form_chains             — merge serial FHE ops into COMPOUND nodes
+    2. GreedyCompoundFormer    — form score-driven COMPOUND task nodes
     3. compute_properties      — assign scheduling priority per node
 
 Usage:
@@ -29,17 +29,18 @@ Usage:
     compiled = compile_mega_ag(dag, processor=Processor.GPU, ctx=ctx)
 """
 
-from .chain_former import compute_bottom_levels, compute_properties, form_single_op_tasks
+from .greedy_compound_former import GreedyCompoundFormer
 from .linker import compile_mega_ag
+from .priority import compute_bottom_levels, compute_properties
 from .processor_layout import apply_processor_layout, compute_runs_on_cpu
 from .serializer import serialize_dag, serialize_signature
 from .task_context import _TaskContext
 
 __all__ = [
     'compile_mega_ag',
+    'GreedyCompoundFormer',
     'compute_bottom_levels',
     'compute_properties',
-    'form_single_op_tasks',
     'apply_processor_layout',
     'compute_runs_on_cpu',
     'serialize_dag',
