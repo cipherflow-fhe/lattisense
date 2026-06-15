@@ -216,6 +216,7 @@ class TestTask:
                 offline_input_args=[],
                 output_args=[Argument('out_z_list', [z])],
                 output_instruction_path=task_dir,
+                processor=Processor.FPGA,
             )
 
     @pytest.mark.min_level(1)

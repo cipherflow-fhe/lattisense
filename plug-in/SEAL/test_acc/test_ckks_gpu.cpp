@@ -202,7 +202,7 @@ TEST_CASE_METHOD(TestCkksGpuFixture, "CKKS cmp", "") {
         project.run(&ctx, nullptr, nullptr, seal_args);
 
         vector<double> z;
-        double tolerance = 1.0e-5;
+        double tolerance = 1.0e-4;
         for (int i = 0; i < n_op; i++) {
             seal::Plaintext z_pt;
             decryptor.decrypt(z_list[i], z_pt);

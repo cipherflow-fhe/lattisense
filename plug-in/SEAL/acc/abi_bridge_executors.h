@@ -146,8 +146,20 @@ inline ExecutorFunc create_seal_abi_export_executor(int mf_nbits) {
  * extract_output_handle_map (same pattern as cxx_abi_bridge_executors.h).
  */
 inline ExecutorFunc create_seal_abi_import_executor() {
-    return [](ExecutionContext& ctx, std::unordered_map<NodeIndex, std::any>& local_data,
-              const ComputeNode& self) -> void {
+    auto get_import_dest = [](ExecutionContext& ctx, const ComputeNode& self) -> void* {
+        if (ctx.other_args.empty()) {
+            return nullptr;
+        }
+        auto* output_handle_map = ctx.get_other_arg<std::unordered_map<NodeIndex, void*>>(0);
+        if (!output_handle_map) {
+            return nullptr;
+        }
+        auto it = output_handle_map->find(self.output_nodes[0]->index);
+        return it == output_handle_map->end() ? nullptr : it->second;
+    };
+
+    return [get_import_dest](ExecutionContext& ctx, std::unordered_map<NodeIndex, std::any>& local_data,
+                             const ComputeNode& self) -> void {
         seal::SEALContext* context = g_seal_context;
         uint64_t param_id = g_seal_param_id;
         auto& key_ctx = *context->key_context_data();
@@ -158,16 +170,15 @@ inline ExecutorFunc create_seal_abi_import_executor() {
             throw std::runtime_error("Input node missing FHE properties");
         }
 
-        if (ctx.other_args.empty()) {
-            throw std::runtime_error("SEAL IMPORT_FROM_ABI requires pre-allocated dest via other_args");
-        }
-
         DataType data_type = input_node->datum_type;
 
         switch (data_type) {
             case TYPE_CIPHERTEXT: {
                 auto c_ct_ptr = std::any_cast<std::shared_ptr<CCiphertext>>(local_data.at(input_node->index));
-                void* dest_raw = ctx.get_other_arg<void>(0);
+                void* dest_raw = get_import_dest(ctx, self);
+                if (!dest_raw) {
+                    throw std::runtime_error("SEAL IMPORT_FROM_ABI requires pre-allocated dest via other_args");
+                }
                 auto* dest = static_cast<seal::Ciphertext*>(dest_raw);
                 _import_ciphertext(param_id, ntt_tables, c_ct_ptr.get(), dest);
                 local_data[self.output_nodes[0]->index] = std::shared_ptr<void>(dest_raw, [](void*) {});

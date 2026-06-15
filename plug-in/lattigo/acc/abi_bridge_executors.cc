@@ -153,15 +153,25 @@ extern "C" void* create_lattigo_abi_export_executor(int algo, int mf_nbits, int 
 }
 
 extern "C" void* create_lattigo_abi_import_executor(int algo) {
-    auto* fn = new ExecutorFunc([algo](ExecutionContext& ctx, std::unordered_map<NodeIndex, std::any>& local_data,
-                                       const ComputeNode& self) -> void {
+    auto get_import_dest = [](ExecutionContext& ctx, const ComputeNode& self) -> void* {
+        if (ctx.other_args.empty()) {
+            return nullptr;
+        }
+        auto* output_handle_map = ctx.get_other_arg<std::unordered_map<NodeIndex, void*>>(0);
+        if (!output_handle_map) {
+            return nullptr;
+        }
+        auto it = output_handle_map->find(self.output_nodes[0]->index);
+        return it == output_handle_map->end() ? nullptr : it->second;
+    };
+
+    auto* fn = new ExecutorFunc([algo, get_import_dest](ExecutionContext& ctx,
+                                                        std::unordered_map<NodeIndex, std::any>& local_data,
+                                                        const ComputeNode& self) -> void {
         const DatumNode* input_node = self.input_nodes[0];
         if (!input_node->fhe_prop.has_value()) {
             throw std::runtime_error("Input node missing FHE properties for IMPORT_FROM_ABI");
         }
-
-        if (ctx.other_args.empty())
-            throw std::runtime_error("Lattigo IMPORT_FROM_ABI requires pre-allocated dest via other_args");
 
         DataType data_type = input_node->datum_type;
 
@@ -169,12 +179,16 @@ extern "C" void* create_lattigo_abi_import_executor(int algo) {
             case TYPE_CIPHERTEXT: {
                 auto c_ct_ptr = std::any_cast<std::shared_ptr<CCiphertext>>(local_data.at(input_node->index));
 
-                uintptr_t dest_handle = (uintptr_t)ctx.get_other_arg<void>(0);
+                void* dest_raw = get_import_dest(ctx, self);
+                if (!dest_raw) {
+                    throw std::runtime_error("Lattigo IMPORT_FROM_ABI requires pre-allocated dest via other_args");
+                }
+                uintptr_t dest_handle = (uintptr_t)dest_raw;
                 if (algo == ALGO_BFV)
                     ImportLattigoBfvCiphertext(dest_handle, c_ct_ptr.get());
                 else
                     ImportLattigoCkksCiphertext(dest_handle, c_ct_ptr.get());
-                local_data[self.output_nodes[0]->index] = std::shared_ptr<void>((void*)dest_handle, [](void*) {});
+                local_data[self.output_nodes[0]->index] = std::shared_ptr<void>(dest_raw, [](void*) {});
                 break;
             }
             default: throw std::runtime_error("Unsupported data type in Lattigo IMPORT_FROM_ABI");
