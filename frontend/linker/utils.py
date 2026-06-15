@@ -19,57 +19,42 @@ import networkx as nx
 from frontend.types import is_compute_node, is_data_node
 
 
-def compute_dependency_graph(dag: nx.DiGraph) -> nx.DiGraph:
-    cg = nx.DiGraph()
-    cg.add_nodes_from(n for n in dag if is_compute_node(n))
-    for data in (n for n in dag if is_data_node(n)):
-        producers = [p for p in dag.predecessors(data) if is_compute_node(p)]
-        consumers = [c for c in dag.successors(data) if is_compute_node(c)]
-        for producer in producers:
-            for consumer in consumers:
-                if not cg.has_edge(producer, consumer):
-                    cg.add_edge(producer, consumer)
-    return cg
-
-
 def internal_op_json(dag: nx.DiGraph, op) -> dict:
     return {'index': op.index, **op.to_json_dict(dag)}
 
 
-def chain_external_inputs(dag: nx.DiGraph, chain: list) -> list:
-    chain_set = set(chain)
+def compound_external_inputs(dag: nx.DiGraph, ops: list) -> list:
+    op_set = set(ops)
     seen: set = set()
     result = []
-    for op in chain:
+    for op in ops:
         for data in dag.predecessors(op):
             producers = [p for p in dag.predecessors(data) if is_compute_node(p)]
-            if (not producers or any(p not in chain_set for p in producers)) and data not in seen:
+            if (not producers or any(p not in op_set for p in producers)) and data not in seen:
                 result.append(data)
                 seen.add(data)
     return result
 
 
-def chain_external_outputs(dag: nx.DiGraph, chain: list, graph_outputs: set) -> list:
-    chain_set = set(chain)
+def compound_external_outputs(dag: nx.DiGraph, ops: list, graph_outputs: set) -> list:
+    op_set = set(ops)
     seen: set = set()
     result = []
-    for op in chain:
+    for op in ops:
         for data in dag.successors(op):
             consumers = [c for c in dag.successors(data) if is_compute_node(c)]
-            if (
-                data in graph_outputs or not consumers or any(c not in chain_set for c in consumers)
-            ) and data not in seen:
+            if (data in graph_outputs or not consumers or any(c not in op_set for c in consumers)) and data not in seen:
                 result.append(data)
                 seen.add(data)
     return result
 
 
-def chain_internal_data(dag: nx.DiGraph, chain: list, graph_outputs: set) -> list:
-    chain_set = set(chain)
+def compound_internal_data(dag: nx.DiGraph, ops: list, graph_outputs: set) -> list:
+    op_set = set(ops)
     result = []
-    for op in chain:
+    for op in ops:
         for data in dag.successors(op):
             consumers = [c for c in dag.successors(data) if is_compute_node(c)]
-            if data not in graph_outputs and consumers and all(c in chain_set for c in consumers):
+            if data not in graph_outputs and consumers and all(c in op_set for c in consumers):
                 result.append(data)
     return result

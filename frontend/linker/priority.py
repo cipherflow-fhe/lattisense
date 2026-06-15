@@ -16,19 +16,27 @@
 
 import networkx as nx
 
-from frontend.types import _CompoundComputeNode
-from .utils import compute_dependency_graph
+from frontend.types import _CompoundComputeNode, is_compute_node
 
 
-def compute_bottom_levels(dag: nx.DiGraph) -> dict:
-    """Compute bottom-level priority values without mutating nodes."""
-    cg = compute_dependency_graph(dag)
-    bottom_level: dict = {n: 0 for n in cg}
-    for node in reversed(list(nx.topological_sort(cg))):
-        for succ in cg.successors(node):
-            candidate = bottom_level[succ] + 1
-            if bottom_level[node] < candidate:
-                bottom_level[node] = candidate
+def compute_bottom_levels(dag: nx.DiGraph, compute_topo: list | None = None, op_outputs: dict | None = None) -> dict:
+    """Compute bottom-level priority values without building a separate compute graph."""
+    if compute_topo is None:
+        compute_topo = [n for n in nx.topological_sort(dag) if is_compute_node(n)]
+    if op_outputs is None:
+        op_outputs = {node: list(dag.successors(node)) for node in compute_topo}
+
+    bottom_level: dict = {node: 0 for node in compute_topo}
+    for node in reversed(compute_topo):
+        level = 0
+        for data in op_outputs[node]:
+            for succ in dag.successors(data):
+                if succ not in bottom_level:
+                    continue
+                candidate = bottom_level[succ] + 1
+                if level < candidate:
+                    level = candidate
+        bottom_level[node] = level
     return bottom_level
 
 

@@ -14,6 +14,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+import heapq
 from collections import defaultdict
 
 import networkx as nx
@@ -34,9 +35,9 @@ from frontend.types import (
 from .priority import compute_bottom_levels
 from .processor_layout import compute_runs_on_cpu
 from .utils import (
-    chain_external_inputs as compound_external_inputs,
-    chain_external_outputs as compound_external_outputs,
-    chain_internal_data as compound_internal_data,
+    compound_external_inputs,
+    compound_external_outputs,
+    compound_internal_data,
     internal_op_json,
 )
 
@@ -55,7 +56,7 @@ class GreedyCompoundParams:
             OperationType.RotateRow,
             OperationType.CmpSum,
             OperationType.CmpacSum,
-            OperationType.Bootstrap,
+            # OperationType.Bootstrap,
         }
     )
 
@@ -63,9 +64,11 @@ class GreedyCompoundParams:
     internal_data_credit = 4
     critical_path_credit = 1
     external_io_penalty = 1
+    compute_external_input_penalty = 1
+    compute_external_output_penalty = 8
     op_cost_penalty = 1
 
-    max_candidate_cost = 40
+    max_candidate_cost = 17
     op_costs = {
         OperationType.Add: 1,
         OperationType.Sub: 1,
@@ -88,7 +91,6 @@ class GreedyCompoundParams:
     bridge_max_candidate_cost = 16
     bridge_batch_overhead_credit = 10
     bridge_bottom_level_spread_penalty = 2
-    bridge_bottom_level_window = 1
 
 
 class GreedyCompoundFormer:
@@ -100,36 +102,50 @@ class GreedyCompoundFormer:
         self.params = GreedyCompoundParams
         self.compute_topo = [n for n in nx.topological_sort(dag) if is_compute_node(n)]
         self.topo_index = {node: index for index, node in enumerate(self.compute_topo)}
-        self.bottom_levels = compute_bottom_levels(dag)
         self.op_inputs = {node: list(dag.predecessors(node)) for node in self.compute_topo}
         self.op_outputs = {node: list(dag.successors(node)) for node in self.compute_topo}
+        self.bottom_levels = compute_bottom_levels(dag, self.compute_topo, self.op_outputs)
         self.runs_on_cpu = {node: compute_runs_on_cpu(node, processor) for node in self.compute_topo}
         self.compute_neighbors = {node: self._collect_compute_neighbors(node) for node in self.compute_topo}
-        self.ops_by_bottom_level: defaultdict[int, list] = defaultdict(list)
-        for node in self.compute_topo:
-            self.ops_by_bottom_level[self.bottom_levels[node]].append(node)
+        self.remaining_inputs = {
+            node: sum(data not in self.graph_input_set for data in self.op_inputs[node]) for node in self.compute_topo
+        }
 
     def form(self) -> nx.DiGraph:
         processed_ops: set = set()
         compound_groups: list[list] = []
-        progress_ops = self._progress_ops()
+        progress_total = sum(1 for node in self.compute_topo if self._is_mergeable_op(node))
         available_data = set(self.graph_input_set)
-        available_computes = self._initial_available_computes(available_data)
-        pbar = tqdm(total=len(progress_ops), desc='Greedy compound forming', unit='ops', colour='green')
+        available_computes = self._initial_available_computes()
+        available_heap = [(self.topo_index[node], node) for node in available_computes]
+        heapq.heapify(available_heap)
+
+        available_bridge_heaps: defaultdict[tuple, list] = defaultdict(list)
+        for node in available_computes:
+            if isinstance(node, BridgeComputeNode) and self._is_mergeable_op(node):
+                heapq.heappush(available_bridge_heaps[self._bridge_key(node)], (self.topo_index[node], node))
+
+        pbar = tqdm(total=progress_total, desc='Greedy compound forming', unit='ops', colour='green')
 
         try:
-            while available_computes:
-                available_computes.difference_update(processed_ops)
-                if not available_computes:
+            while available_heap:
+                node = None
+                while available_heap:
+                    _, candidate = heapq.heappop(available_heap)
+                    if candidate in available_computes and candidate not in processed_ops:
+                        node = candidate
+                        break
+                if node is None:
                     break
 
-                node = min(available_computes, key=lambda item: self.topo_index[item])
                 if not self._is_mergeable_op(node):
                     completed = [node]
+                    compound_groups.append(completed)
                 elif isinstance(node, BridgeComputeNode):
                     completed, _ = self._best_bridge_batch_candidate(
                         node,
                         available_computes,
+                        available_bridge_heaps,
                     )
                     compound_groups.append(completed)
                 else:
@@ -139,8 +155,17 @@ class GreedyCompoundFormer:
                 available_computes.difference_update(completed)
                 processed_ops.update(completed)
                 new_data = self._mark_outputs_available(completed, available_data)
-                available_computes.update(self._step_available_computes(new_data, available_data, processed_ops))
-                pbar.update(sum(op in progress_ops for op in completed))
+                for new_compute in self._step_available_computes(new_data, processed_ops):
+                    if new_compute in available_computes:
+                        continue
+                    available_computes.add(new_compute)
+                    heapq.heappush(available_heap, (self.topo_index[new_compute], new_compute))
+                    if isinstance(new_compute, BridgeComputeNode) and self._is_mergeable_op(new_compute):
+                        heapq.heappush(
+                            available_bridge_heaps[self._bridge_key(new_compute)],
+                            (self.topo_index[new_compute], new_compute),
+                        )
+                pbar.update(sum(self._is_mergeable_op(op) for op in completed))
         finally:
             pbar.close()
 
@@ -160,41 +185,50 @@ class GreedyCompoundFormer:
 
         return neighbors
 
-    def _initial_available_computes(self, available_data: set) -> set:
-        return {node for node in self.compute_topo if self._compute_inputs_available(node, available_data)}
+    def _initial_available_computes(self) -> set:
+        return {node for node, remaining in self.remaining_inputs.items() if remaining == 0}
 
-    def _step_available_computes(self, new_data: list, available_data: set, processed_ops: set) -> set:
+    def _step_available_computes(self, new_data: list, processed_ops: set) -> set:
         newly_available = set()
         for data in new_data:
             for consumer in self.dag.successors(data):
                 if consumer in processed_ops:
                     continue
-                if self._compute_inputs_available(consumer, available_data):
+                self.remaining_inputs[consumer] -= 1
+                if self.remaining_inputs[consumer] == 0:
                     newly_available.add(consumer)
         return newly_available
 
     def _mark_outputs_available(self, completed_ops: list, available_data: set) -> list:
         new_data = []
-        seen = set()
         for op in completed_ops:
             for data in self.op_outputs[op]:
-                if data in seen:
-                    continue
-                seen.add(data)
                 if data not in available_data:
                     available_data.add(data)
                     new_data.append(data)
         return new_data
 
-    def _compute_inputs_available(self, op, available_data: set) -> bool:
-        return all(data in available_data for data in self.op_inputs[op])
-
     def _candidate_inputs_available(self, ops: list, available_data: set) -> bool:
         produced_by_candidate = {data for op in ops for data in self.op_outputs[op]}
         return all(data in available_data or data in produced_by_candidate for op in ops for data in self.op_inputs[op])
 
-    def _progress_ops(self) -> set:
-        return {node for node in self.compute_topo if self._is_mergeable_op(node)}
+    def _bridge_topology_key(self, node: BridgeComputeNode) -> tuple:
+        consumers = []
+        for data in self.op_outputs[node]:
+            consumers.extend(succ.index for succ in self.dag.successors(data) if isinstance(succ, ComputeNode))
+        if consumers:
+            return ('consumers', tuple(sorted(consumers)))
+
+        producers = []
+        for data in self.op_inputs[node]:
+            producers.extend(pred.index for pred in self.dag.predecessors(data) if isinstance(pred, ComputeNode))
+        if producers:
+            return ('producers', tuple(sorted(producers)))
+
+        return ('self', node.index)
+
+    def _bridge_key(self, node: BridgeComputeNode) -> tuple:
+        return (node.type, self.runs_on_cpu[node], self._bridge_topology_key(node))
 
     def _best_compute_candidate(
         self,
@@ -234,6 +268,7 @@ class GreedyCompoundFormer:
         self,
         start: BridgeComputeNode,
         available_computes: set,
+        available_bridge_heaps: defaultdict[tuple, list],
     ) -> tuple[list, int]:
         candidate = [start]
         best_score = self._bridge_batch_score(candidate)
@@ -241,9 +276,9 @@ class GreedyCompoundFormer:
         while True:
             additions = []
             for op in self._bridge_batch_frontier_ops(
-                start,
                 candidate,
                 available_computes,
+                available_bridge_heaps,
             ):
                 ops = self._ordered_ops([*candidate, op])
                 if self._candidate_cost(ops) > self.params.bridge_max_candidate_cost:
@@ -264,33 +299,29 @@ class GreedyCompoundFormer:
 
     def _bridge_batch_frontier_ops(
         self,
-        start,
         candidate: list,
         available_computes: set,
+        available_bridge_heaps: defaultdict[tuple, list],
     ) -> list:
         candidate_set = set(candidate)
-        start_bottom_level = self.bottom_levels[start]
-        start_on_cpu = self.runs_on_cpu[start]
-        frontier = set()
+        heap = available_bridge_heaps[self._bridge_key(candidate[0])]
+        buffered = []
+        while heap:
+            item = heapq.heappop(heap)
+            op = item[1]
+            if op not in available_computes:
+                continue
+            if op in candidate_set:
+                continue
+            if self._candidate_cost([*candidate, op]) > self.params.bridge_max_candidate_cost:
+                heapq.heappush(heap, item)
+                break
+            buffered.append(item)
 
-        for bottom_level in range(
-            start_bottom_level - self.params.bridge_bottom_level_window,
-            start_bottom_level + self.params.bridge_bottom_level_window + 1,
-        ):
-            for op in self.ops_by_bottom_level[bottom_level]:
-                if op not in available_computes:
-                    continue
-                if op in candidate_set:
-                    continue
-                if not isinstance(op, BridgeComputeNode) or not self._is_mergeable_op(op):
-                    continue
-                if op.type != start.type:
-                    continue
-                if self.runs_on_cpu[op] != start_on_cpu:
-                    continue
-                frontier.add(op)
+        for item in buffered:
+            heapq.heappush(heap, item)
 
-        return sorted(frontier, key=lambda node: self.topo_index[node])
+        return [op for _, op in buffered]
 
     def _compute_frontier_ops(self, candidate: list, processed_ops: set) -> list:
         candidate_set = set(candidate)
@@ -314,14 +345,14 @@ class GreedyCompoundFormer:
 
     def _compute_score(self, ops: list) -> int:
         num_internal_data = len(compound_internal_data(self.dag, ops, self.graph_output_set))
-        num_external_io = len(compound_external_inputs(self.dag, ops)) + len(
-            compound_external_outputs(self.dag, ops, self.graph_output_set)
-        )
+        num_external_inputs = len(compound_external_inputs(self.dag, ops))
+        num_external_outputs = len(compound_external_outputs(self.dag, ops, self.graph_output_set))
         return (
             self.params.launch_overhead_credit * (len(ops) - 1)
             + self.params.internal_data_credit * num_internal_data
             + self.params.critical_path_credit * max(self.bottom_levels.get(op, 0) for op in ops)
-            - self.params.external_io_penalty * num_external_io
+            - self.params.compute_external_input_penalty * num_external_inputs
+            - self.params.compute_external_output_penalty * num_external_outputs
             - self.params.op_cost_penalty * self._candidate_cost(ops)
         )
 
