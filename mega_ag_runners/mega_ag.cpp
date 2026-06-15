@@ -113,9 +113,7 @@ static ComputeNode parse_internal_compute_node(const nlohmann::json& value, Mega
 
     auto input_indices = value["inputs"].get<std::vector<NodeIndex>>();
     auto output_indices = value["outputs"].get<std::vector<NodeIndex>>();
-    if (output_indices.size() != 1) {
-        throw std::runtime_error("Compute op must have exactly one output");
-    }
+
     attach_io_nodes(internal, mega_ag, input_indices, output_indices, processor);
 
     if (internal.fhe_prop.has_value() && !is_abi_bridge_operation(op_type) && processor != Processor::FPGA) {
