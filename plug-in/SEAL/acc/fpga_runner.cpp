@@ -118,6 +118,9 @@ uint64_t FheTaskFpga::run(seal::SEALContext* context,
     n_in_args = ::check_signatures(context, *rlk, *glk, args, _task_signature);
     n_out_args = args.size() - n_in_args;
 
+    // Check parameter
+    check_parameter(context, _param_json);
+
     nlohmann::json key_signature = _task_signature["key"];
 
     auto& params = context->key_context_data()->parms();

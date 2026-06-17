@@ -87,7 +87,7 @@ inline std::pair<const DatumNode*, const DatumNode*> fpga_output_bridge(const Da
     return {c_struct, handle};
 }
 
-inline std::unordered_map<NodeIndex, int> precompute_kernel_offsets(const ComputeNode& kernel_node) {
+inline std::unordered_map<NodeIndex, int> precompute_kernel_offsets(const CompoundComputeNode& kernel_node) {
     std::unordered_map<NodeIndex, int> offset_map;
 
     // Gather handle nodes for this kernel's inputs:
@@ -192,7 +192,7 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
     // Pre-compute per-kernel offset maps: kernel NodeIndex -> {c_struct NodeIndex -> polyvec offset}
     std::unordered_map<NodeIndex, std::unordered_map<NodeIndex, int>> kernel_offset_maps;
     for (const auto& [index, compute] : mega_ag.computes) {
-        if (compute.fhe_prop.has_value() && compute.fhe_prop->op_type == OperationType::FPGA_KERNEL) {
+        if (compute_contains_operation(compute, OperationType::FPGA_KERNEL)) {
             kernel_offset_maps[index] = precompute_kernel_offsets(compute);
         }
     }
@@ -200,26 +200,20 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
     // Define callback to get other_args for LOAD_TO_BACKEND and IMPORT_FROM_ABI operations.
     // For LOAD_TO_BACKEND: traverse back through EXPORT_TO_ABI to find the parent FPGA_KERNEL,
     // then use that kernel's project->pvi and offset map.
-    auto get_other_args = [&](const ComputeNode& compute_node) -> std::vector<std::any> {
+    auto get_other_args = [&](const CompoundComputeNode& compute_node) -> std::vector<std::any> {
         std::vector<std::any> other_args_vec;
-        if (compute_node.fhe_prop.has_value()) {
-            if (compute_node.fhe_prop->op_type == OperationType::LOAD_TO_BACKEND) {
-                // c_struct -> LOAD_TO_BACKEND -> fpga_data -> FPGA_KERNEL
-                const DatumNode* fpga_data = compute_node.output_nodes[0];
-                const ComputeNode* kernel = fpga_data->successors[0];
-                NodeIndex kernel_idx = kernel->index;
-                NodeIndex c_struct_index = compute_node.input_nodes[0]->index;
-                int offset = kernel_offset_maps.at(kernel_idx).at(c_struct_index);
-                acc_project_st_v2* proj = kernel_projects.at(kernel_idx).proj;
-                other_args_vec.push_back(proj->pvi);
-                other_args_vec.push_back(offset);
-            } else if (compute_node.fhe_prop->op_type == OperationType::IMPORT_FROM_ABI) {
-                NodeIndex output_node_index = compute_node.output_nodes[0]->index;
-                auto it = output_handle_map.find(output_node_index);
-                if (it != output_handle_map.end()) {
-                    other_args_vec.push_back(it->second);
-                }
-            }
+        if (compute_contains_operation(compute_node, OperationType::LOAD_TO_BACKEND)) {
+            // c_struct -> LOAD_TO_BACKEND -> fpga_data -> FPGA_KERNEL
+            const DatumNode* fpga_data = compute_node.output_nodes[0];
+            const CompoundComputeNode* kernel = fpga_data->successors[0];
+            NodeIndex kernel_idx = kernel->index;
+            NodeIndex c_struct_index = compute_node.input_nodes[0]->index;
+            int offset = kernel_offset_maps.at(kernel_idx).at(c_struct_index);
+            acc_project_st_v2* proj = kernel_projects.at(kernel_idx).proj;
+            other_args_vec.push_back(proj->pvi);
+            other_args_vec.push_back(offset);
+        } else if (compute_contains_operation(compute_node, OperationType::IMPORT_FROM_ABI)) {
+            other_args_vec.push_back(&output_handle_map);
         }
         return other_args_vec;
     };
@@ -246,7 +240,7 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
                 // so the FPGA can write results there directly.
                 {
                     std::lock_guard<std::mutex> lock(m_mutex);
-                    const ComputeNode& kernel = mega_ag.computes.at(task_index);
+                    const CompoundComputeNode& kernel = mega_ag.computes.at(task_index);
                     int n = mega_ag.parameter["n"].get<int>();
 
                     for (const DatumNode* fpga_out : kernel.output_nodes) {
@@ -286,15 +280,15 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
                 {
                     std::lock_guard<std::mutex> lock(m_mutex);
 
-                    const ComputeNode& kernel = mega_ag.computes.at(task_index);
+                    const CompoundComputeNode& kernel = mega_ag.computes.at(task_index);
                     for (const DatumNode* fpga_out : kernel.output_nodes) {
                         available_data[fpga_out->index] = std::any{};
 
-                        // c_struct was pre-allocated; schedule IMPORT via step_available_computes
-                        auto [c_struct_node, _] = fpga_output_bridge(fpga_out);
+                        // c_struct was pre-allocated; STORE is skipped but its outputs are ready.
+                        const CompoundComputeNode* store_node = fpga_out->successors[0];
 
                         std::unordered_set<NodeIndex> new_computes =
-                            mega_ag.step_available_computes(*c_struct_node, available_data);
+                            mega_ag.step_available_computes(*store_node, available_data);
                         for (NodeIndex nc : new_computes) {
                             if (queued_computes.find(nc) == queued_computes.end()) {
                                 task_queue.push({mega_ag.computes.at(nc).priority, nc});
@@ -336,12 +330,11 @@ void _run_mega_ag(gsl::span<CArgument> input_args,
 
 class FheFpgaTask {
 public:
-    FheFpgaTask(const std::string& project_path)
-        : mega_ag_(MegaAG::load(project_path + "/mega_ag.json", Processor::FPGA)) {
+    FheFpgaTask(const std::string& project_path) : mega_ag_(MegaAG::load(project_path, Processor::FPGA)) {
         // Load one sub-project per FPGA_KERNEL node; the kernel's NodeIndex is the sub-dir name.
         // online_phase is determined by whether the sub-project's mega_ag.json has offline_inputs.
         for (const auto& [index, compute] : mega_ag_.computes) {
-            if (compute.fhe_prop.has_value() && compute.fhe_prop->op_type == OperationType::FPGA_KERNEL) {
+            if (compute_contains_operation(compute, OperationType::FPGA_KERNEL)) {
                 std::string sub_path = project_path + "/" + std::to_string(index);
                 std::string sub_mag_path = sub_path + "/mega_ag.json";
 

@@ -2,16 +2,21 @@
 
 FheTask::FheTask(const std::string& project_path) : _project_path{project_path} {
     std::ifstream sig_file;
-    sig_file.open(_project_path + "/task_signature.json");
+    std::string sig_file_path = _project_path + "/task_signature.json";
+    sig_file.open(sig_file_path);
+    if (!sig_file.is_open()) {
+        throw std::runtime_error("Cannot open task signature file " + sig_file_path);
+    }
     _task_signature = nlohmann::json::parse(sig_file);
     sig_file.close();
 
-    // Load mega_ag.json for parameter checking
-    std::ifstream mega_ag_file;
-    mega_ag_file.open(_project_path + "/mega_ag.json");
-    nlohmann::json mega_ag_json = nlohmann::json::parse(mega_ag_file);
-    mega_ag_file.close();
-    _param_json = mega_ag_json["parameter"];
+    std::ifstream param_file;
+    std::string param_file_path = _project_path + "/fhe_parameter.json";
+    param_file.open(param_file_path);
+    if (!param_file.is_open()) {
+        throw std::runtime_error("Cannot open fhe_parameter file " + param_file_path);
+    }
+    _param_json = nlohmann::json::parse(param_file);
 }
 
 FheTask::~FheTask() {

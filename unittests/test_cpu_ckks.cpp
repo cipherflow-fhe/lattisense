@@ -811,7 +811,7 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS custom encode and cap", "", CkksTes
 
             std::unordered_map<std::string, ExecutorFunc> custom_executors;
             custom_executors["encode"] = [this](ExecutionContext& exec_ctx,
-                                                const std::unordered_map<NodeIndex, std::any>& inputs, std::any& output,
+                                                std::unordered_map<NodeIndex, std::any>& local_data,
                                                 const ComputeNode& self) -> void {
                 auto* ckks_ctx = exec_ctx.get_arithmetic_context<CkksContext>();
                 if (!self.custom_prop.has_value())
@@ -819,9 +819,10 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS custom encode and cap", "", CkksTes
                 int encode_level = self.custom_prop->attributes["level"].get<int>();
                 double encode_scale = self.custom_prop->attributes["scale"].get<double>();
                 auto input_node_idx = self.input_nodes[0]->index;
-                auto input_handle_ptr = std::any_cast<std::shared_ptr<CustomData>>(inputs.at(input_node_idx));
+                auto input_handle_ptr = std::any_cast<std::shared_ptr<CustomData>>(local_data.at(input_node_idx));
                 auto* msg_vec = input_handle_ptr->get_typed_data<std::vector<double>>();
-                output = std::make_shared<CkksPlaintext>(ckks_ctx->encode(*msg_vec, encode_level, encode_scale));
+                local_data[self.output_nodes[0]->index] =
+                    std::make_shared<CkksPlaintext>(ckks_ctx->encode(*msg_vec, encode_level, encode_scale));
             };
             proj.bind_custom_executors(custom_executors);
 

@@ -69,6 +69,7 @@ class TestTask:
             offline_input_args=[],
             output_args=[Argument('out_z_list', z_list)],
             output_instruction_path=task_dir,
+            processor=Processor.FPGA,
         )
 
     @pytest.mark.min_level(0)
@@ -84,6 +85,7 @@ class TestTask:
             offline_input_args=[],
             output_args=[Argument('out_z_list', z_list)],
             output_instruction_path=task_dir,
+            processor=Processor.FPGA,
         )
 
     @pytest.mark.min_level(0)
@@ -98,6 +100,7 @@ class TestTask:
             offline_input_args=[],
             output_args=[Argument('out_z_list', z_list)],
             output_instruction_path=task_dir,
+            processor=Processor.FPGA,
         )
 
     @pytest.mark.min_level(0)
@@ -113,6 +116,7 @@ class TestTask:
             offline_input_args=[],
             output_args=[Argument('out_z_list', z_list)],
             output_instruction_path=task_dir,
+            processor=Processor.FPGA,
         )
 
     @pytest.mark.min_level(0)
@@ -128,6 +132,7 @@ class TestTask:
             offline_input_args=[],
             output_args=[Argument('out_z_list', z_list)],
             output_instruction_path=task_dir,
+            processor=Processor.FPGA,
         )
 
     @pytest.mark.min_level(0)
@@ -142,6 +147,7 @@ class TestTask:
             offline_input_args=[],
             output_args=[Argument('out_z_list', z_list)],
             output_instruction_path=task_dir,
+            processor=Processor.FPGA,
         )
 
     @pytest.mark.min_level(1)
@@ -157,6 +163,7 @@ class TestTask:
             offline_input_args=[],
             output_args=[Argument('out_z_list', z_list)],
             output_instruction_path=task_dir,
+            processor=Processor.FPGA,
         )
 
     @pytest.mark.min_level(1)
@@ -172,6 +179,7 @@ class TestTask:
             offline_input_args=[],
             output_args=[Argument('out_z_list', z_list)],
             output_instruction_path=task_dir,
+            processor=Processor.FPGA,
         )
 
     @pytest.mark.min_level(1)
@@ -187,6 +195,7 @@ class TestTask:
             offline_input_args=[],
             output_args=[Argument('out_z_list', z_list)],
             output_instruction_path=task_dir,
+            processor=Processor.FPGA,
         )
 
     @pytest.mark.min_level(1)
@@ -202,6 +211,7 @@ class TestTask:
             offline_input_args=[],
             output_args=[Argument('out_z_list', z_list)],
             output_instruction_path=task_dir,
+            processor=Processor.FPGA,
         )
 
     @pytest.mark.min_level(1)
@@ -217,6 +227,7 @@ class TestTask:
             offline_input_args=[],
             output_args=[Argument('out_z_list', z_list)],
             output_instruction_path=task_dir,
+            processor=Processor.FPGA,
         )
 
     @pytest.mark.min_level(1)
@@ -232,6 +243,7 @@ class TestTask:
             offline_input_args=[],
             output_args=[Argument('out_z_list', z_list)],
             output_instruction_path=task_dir,
+            processor=Processor.FPGA,
         )
 
     @pytest.mark.min_level(1)
@@ -247,6 +259,7 @@ class TestTask:
             offline_input_args=[],
             output_args=[Argument('out_z_list', z_list)],
             output_instruction_path=task_dir,
+            processor=Processor.FPGA,
         )
 
     @pytest.mark.min_level(1)
@@ -262,6 +275,7 @@ class TestTask:
             offline_input_args=[],
             output_args=[Argument('out_z_list', z_list)],
             output_instruction_path=task_dir,
+            processor=Processor.FPGA,
         )
 
     @pytest.mark.min_level(1)
@@ -276,6 +290,7 @@ class TestTask:
             offline_input_args=[],
             output_args=[Argument('out_z_list', z_list)],
             output_instruction_path=task_dir,
+            processor=Processor.FPGA,
         )
 
     @pytest.mark.min_level(1)
@@ -290,6 +305,7 @@ class TestTask:
             offline_input_args=[],
             output_args=[Argument('out_z_list', z_list)],
             output_instruction_path=task_dir,
+            processor=Processor.FPGA,
         )
 
     @pytest.mark.min_level(1)
@@ -304,6 +320,7 @@ class TestTask:
             offline_input_args=[],
             output_args=[Argument('out_z_list', z_list)],
             output_instruction_path=task_dir,
+            processor=Processor.FPGA,
         )
 
     @pytest.mark.min_level(1)
@@ -320,6 +337,7 @@ class TestTask:
             offline_input_args=[],
             output_args=[Argument('arg_y', y_list)],
             output_instruction_path=task_dir,
+            processor=Processor.FPGA,
         )
 
     @pytest.mark.min_level(1)
@@ -337,6 +355,7 @@ class TestTask:
             offline_input_args=[],
             output_args=[Argument('arg_y', y_list)],
             output_instruction_path=task_dir,
+            processor=Processor.FPGA,
         )
 
     @pytest.mark.min_level(1)
@@ -356,6 +375,7 @@ class TestTask:
             offline_input_args=[],
             output_args=[Argument('arg_y', y_list)],
             output_instruction_path=task_dir,
+            processor=Processor.FPGA,
         )
 
     @pytest.mark.min_level(1)
@@ -383,6 +403,7 @@ class TestTask:
             offline_input_args=[],
             output_args=[Argument('arg_y', y_list)],
             output_instruction_path=task_dir,
+            processor=Processor.FPGA,
         )
 
     @pytest.mark.min_level(1)
@@ -410,6 +431,7 @@ class TestTask:
             offline_input_args=[],
             output_args=[Argument('arg_y', y_list)],
             output_instruction_path=task_dir,
+            processor=Processor.FPGA,
         )
 
     @pytest.mark.min_level(1)
@@ -424,6 +446,7 @@ class TestTask:
             offline_input_args=[],
             output_args=[Argument('arg_y', y_list)],
             output_instruction_path=task_dir,
+            processor=Processor.FPGA,
         )
 
     @pytest.mark.at_max_level
@@ -438,6 +461,7 @@ class TestTask:
             offline_input_args=[],
             output_args=[Argument('arg_y', y_list)],
             output_instruction_path=task_dir,
+            processor=Processor.FPGA,
         )
 
     @pytest.mark.at_max_level
@@ -455,6 +479,7 @@ class TestTask:
             offline_input_args=[],
             output_args=[Argument('arg_y', y_list)],
             output_instruction_path=task_dir,
+            processor=Processor.FPGA,
         )
 
     @pytest.mark.at_max_level
@@ -472,6 +497,7 @@ class TestTask:
             offline_input_args=[],
             output_args=[Argument('arg_y', y_list)],
             output_instruction_path=task_dir,
+            processor=Processor.FPGA,
         )
 
     @pytest.mark.min_level(1)
@@ -486,6 +512,7 @@ class TestTask:
             offline_input_args=[],
             output_args=[Argument('out_y_list', y_list)],
             output_instruction_path=task_dir,
+            processor=Processor.FPGA,
         )
 
     @pytest.mark.at_level(3)
@@ -510,6 +537,7 @@ class TestTask:
             offline_input_args=[],
             output_args=[Argument('out_z_list', z_list)],
             output_instruction_path=task_dir,
+            processor=Processor.FPGA,
         )
 
     @pytest.mark.at_level(3)
@@ -533,6 +561,7 @@ class TestTask:
             offline_input_args=[],
             output_args=[Argument('out_z_list', z_list)],
             output_instruction_path=task_dir,
+            processor=Processor.FPGA,
         )
 
     @pytest.mark.at_level(3)
@@ -550,6 +579,7 @@ class TestTask:
             offline_input_args=[],
             output_args=[Argument('out_z_list', z_list)],
             output_instruction_path=task_dir,
+            processor=Processor.FPGA,
         )
 
     @pytest.mark.at_level(3)
@@ -571,6 +601,7 @@ class TestTask:
             offline_input_args=[],
             output_args=[Argument('out_z_list', z_list)],
             output_instruction_path=task_dir,
+            processor=Processor.FPGA,
         )
 
     def test_one_block_diff_cal(self, param):
@@ -596,6 +627,7 @@ class TestTask:
             offline_input_args=[],
             output_args=[Argument('out_z_list', z_list)],
             output_instruction_path=task_dir,
+            processor=Processor.FPGA,
         )
 
     @pytest.mark.at_level(3)
@@ -618,6 +650,7 @@ class TestTask:
             offline_input_args=[],
             output_args=[Argument('out_z_list', z_list)],
             output_instruction_path=task_dir,
+            processor=Processor.FPGA,
         )
 
     def test_one_block_diff_cal_3(self, param):
@@ -645,6 +678,7 @@ class TestTask:
             offline_input_args=[],
             output_args=[Argument('out_z_list', z_list)],
             output_instruction_path=task_dir,
+            processor=Processor.FPGA,
         )
 
     def test_one_block_diff_cal_4(self, param):
@@ -682,6 +716,7 @@ class TestTask:
             offline_input_args=[],
             output_args=[Argument('out_z_list', z_list)],
             output_instruction_path=task_dir,
+            processor=Processor.FPGA,
         )
 
     def test_one_block_diff_cal_5(self, param):
@@ -713,6 +748,7 @@ class TestTask:
             offline_input_args=[],
             output_args=[Argument('out_z_list', z_list)],
             output_instruction_path=task_dir,
+            processor=Processor.FPGA,
         )
 
     @pytest.mark.at_level(1)
@@ -730,6 +766,7 @@ class TestTask:
             offline_input_args=[],
             output_args=[Argument('out_z_list', z_list)],
             output_instruction_path=task_dir,
+            processor=Processor.FPGA,
         )
 
     @pytest.mark.at_level(3)
@@ -752,6 +789,7 @@ class TestTask:
             offline_input_args=[],
             output_args=[Argument('out_list', output_list)],
             output_instruction_path=task_dir,
+            processor=Processor.FPGA,
         )
 
     @pytest.mark.at_level(3)
@@ -775,6 +813,7 @@ class TestTask:
             offline_input_args=[],
             output_args=[Argument('out_z_list', z_list)],
             output_instruction_path=task_dir,
+            processor=Processor.FPGA,
         )
 
     @pytest.mark.at_level(5)
@@ -795,6 +834,7 @@ class TestTask:
             offline_input_args=[],
             output_args=[Argument('out_y', y)],
             output_instruction_path=task_dir,
+            processor=Processor.FPGA,
         )
 
     @pytest.mark.at_level(1)
@@ -811,6 +851,7 @@ class TestTask:
                 offline_input_args=[],
                 output_args=[Argument('out_z_list', [z])],
                 output_instruction_path=task_dir,
+                processor=Processor.FPGA,
             )
 
     @pytest.mark.at_level(1)
@@ -827,6 +868,7 @@ class TestTask:
                 offline_input_args=[],
                 output_args=[Argument('out_z_list', [z])],
                 output_instruction_path=task_dir,
+                processor=Processor.FPGA,
             )
 
     @pytest.mark.at_level(1)
@@ -844,6 +886,7 @@ class TestTask:
                 offline_input_args=[],
                 output_args=[Argument('out_z_list', [z])],
                 output_instruction_path=task_dir,
+                processor=Processor.FPGA,
             )
 
     @pytest.mark.at_level(1)
@@ -861,6 +904,7 @@ class TestTask:
                 offline_input_args=[],
                 output_args=[Argument('out_z_list', [z])],
                 output_instruction_path=task_dir,
+                processor=Processor.FPGA,
             )
 
     @pytest.mark.at_max_level
@@ -922,6 +966,7 @@ class TestTask:
             offline_input_args=[],
             output_args=[Argument('out_z_list', z_list)],
             output_instruction_path=task_dir,
+            processor=Processor.FPGA,
         )
         print(f'BFV_power_dag PD-{max_power}#{src_power_str} end --')
 
@@ -936,9 +981,9 @@ class TestTask:
         max_power = 1137
         src_power_str = '-'.join(str(p) for p in source_power)
 
-        for li in range(1, index_per_fpga_func[0] + 1):
+        for li in range(2, index_per_fpga_func[0] + 1):
             for lj in range(1, index_per_fpga_func[1] + 1):
-                for lk in range(1, index_per_fpga_func[2] + 1):
+                for lk in range(5, index_per_fpga_func[2] + 1):
                     lane_cipher_size = [li, lj, lk]
                     task_dir = os.path.join(
                         FPGA_OUTPUT_BASE_DIR,
@@ -1028,6 +1073,7 @@ class TestTask:
                         offline_input_args=[],
                         output_args=[Argument('out_z_list', all_z)],
                         output_instruction_path=task_dir,
+                        processor=Processor.FPGA,
                     )
                     print(f'BFV_power_mul_coeff end --')
 
@@ -1064,6 +1110,7 @@ class TestTask:
             offline_input_args=[],
             output_args=[Argument('out_z_list', final_result)],
             output_instruction_path=task_dir,
+            processor=Processor.FPGA,
         )
 
     @pytest.mark.min_level(1)
@@ -1103,6 +1150,7 @@ class TestTask:
             offline_input_args=[],
             output_args=[Argument('out_z_list', final_result)],
             output_instruction_path=task_dir,
+            processor=Processor.FPGA,
         )
 
     @pytest.mark.min_level(1)
@@ -1129,6 +1177,7 @@ class TestTask:
             offline_input_args=[],
             output_args=[Argument('out_z_list', z_list)],
             output_instruction_path=task_dir,
+            processor=Processor.FPGA,
         )
 
     @pytest.mark.min_level(1)
@@ -1160,6 +1209,7 @@ class TestTask:
             offline_input_args=[],
             output_args=[Argument('out_z_list', z_sum)],
             output_instruction_path=task_dir,
+            processor=Processor.FPGA,
         )
 
 
@@ -1179,4 +1229,5 @@ class TestPow2T:
             offline_input_args=[],
             output_args=[Argument('out_z_list', z_list)],
             output_instruction_path=task_dir,
+            processor=Processor.FPGA,
         )

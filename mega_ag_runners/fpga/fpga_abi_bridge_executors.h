@@ -159,7 +159,7 @@ inline void free_polyvec_64_terms(polyvec_64* pv) {
  * @note Requires current offset (int) in ExecutionContext other_args[1]
  */
 inline ExecutorFunc create_load_to_fpga_executor() {
-    return [](ExecutionContext& ctx, const std::unordered_map<NodeIndex, std::any>& inputs, std::any& output,
+    return [](ExecutionContext& ctx, std::unordered_map<NodeIndex, std::any>& local_data,
               const ComputeNode& self) -> void {
         // Check if FHE properties exist
         if (!self.fhe_prop.has_value()) {
@@ -184,7 +184,7 @@ inline ExecutorFunc create_load_to_fpga_executor() {
         DataType data_type = input_node->datum_type;
         int new_offset = offset;
 
-        std::any c_struct = inputs.at(input_node->index);
+        std::any c_struct = local_data.at(input_node->index);
 
         // Export pointers based on data type
         switch (data_type) {
@@ -212,7 +212,7 @@ inline ExecutorFunc create_load_to_fpga_executor() {
         }
 
         // Output is the new offset (for verification/debugging)
-        output = new_offset;
+        local_data[self.output_nodes[0]->index] = new_offset;
     };
 }
 
