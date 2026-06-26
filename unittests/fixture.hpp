@@ -109,11 +109,11 @@ struct CkksTestCustomParams {
 struct CkksTestSparseDefaultParams {
     static CkksParameter create() {
         auto param = CkksParameter::create_parameter(16384);
-        param.set_log_slots(11);  // 2048 slots
+        param.set_log_slots(4);  // 2048 slots
         return param;
     }
     static string get_tag() {
-        return "ckks_param_default_n16384_slots2048";
+        return "ckks_param_default_n16384_slots16";
     }
 };
 
@@ -140,24 +140,24 @@ struct CkksBtpParams {
 struct CkksToySparseBtpParams {
     static CkksBtpParameter create() {
         auto param = CkksBtpParameter::create_toy_parameter();
-        param.set_log_slots(11);  // 2048 slots
+        param.set_log_slots(4);  // 2048 slots
         return param;
     }
     static string get_tag() {
         int n = create().get_ckks_parameter().get_n();
-        return "ckks_param_btp_n" + to_string(n) + "_slots2048";
+        return "ckks_param_btp_n" + to_string(n) + "_slots16";
     }
 };
 
 struct CkksSparseBtpParams {
     static CkksBtpParameter create() {
         auto param = CkksBtpParameter::create_parameter();
-        param.set_log_slots(11);  // 2048 slots
+        param.set_log_slots(4);  // 2048 slots
         return param;
     }
     static string get_tag() {
         int n = create().get_ckks_parameter().get_n();
-        return "ckks_param_btp_n" + to_string(n) + "_slots2048";
+        return "ckks_param_btp_n" + to_string(n) + "_slots16";
     }
 };
 

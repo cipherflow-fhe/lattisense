@@ -45,13 +45,13 @@ _p2 = CkksParam.create_custom_param(
 )
 _p3 = CkksParam.create_default_param(n=8192)
 _p4 = CkksParam.create_default_param(n=16384)
-_p4.set_slots(2048)
+_p4.set_slots(1 << 4)
 _p_toy_btp = CkksBtpParam.create_toy_param()
 _p_btp = CkksBtpParam.create_default_param()
 _p_toy_sparse_btp = CkksBtpParam.create_toy_param()
-_p_toy_sparse_btp.set_slots(2048)
+_p_toy_sparse_btp.set_slots(1 << 4)
 _p_sparse_btp = CkksBtpParam.create_default_param()
-_p_sparse_btp.set_slots(2048)
+_p_sparse_btp.set_slots(1 << 4)
 
 N_OP = 4  # Number of parallel operators per test
 
