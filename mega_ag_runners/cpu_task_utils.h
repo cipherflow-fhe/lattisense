@@ -353,7 +353,7 @@ struct TaskInfo {
     }
 };
 
-using OtherArgsCallback = std::function<std::vector<std::any>(const ComputeNode&)>;
+using OtherArgsCallback = std::function<std::vector<std::any>(const CompoundComputeNode&)>;
 using BackendTaskSubmitter = std::function<void(NodeIndex,
                                                 std::mutex&,
                                                 std::priority_queue<TaskInfo>&,
