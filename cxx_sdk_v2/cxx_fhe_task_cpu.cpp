@@ -59,6 +59,10 @@ void FheTaskCpu::bind_custom_executors(const std::unordered_map<std::string, Exe
     bind_cpu_task_custom_executors(task_handle, custom_types.data(), executor_ptrs.data(), custom_types.size());
 }
 
+void FheTaskCpu::request_cancel() noexcept {
+    cancel_fhe_cpu_task(task_handle);
+}
+
 uint64_t
 FheTaskCpu::run(FheContext* context, const std::vector<CxxVectorArgument>& cxx_args, ProgressCallback progress_cb) {
     auto start = std::chrono::high_resolution_clock::now();
@@ -91,7 +95,10 @@ FheTaskCpu::run(FheContext* context, const std::vector<CxxVectorArgument>& cxx_a
     int ret = run_fhe_cpu_task(task_handle, input_args.data(), input_args.size(), output_args.data(),
                                output_args.size(), c_cb, c_ud);
 
-    if (ret != 0) {
+    if (ret == FHE_TASK_CANCELLED) {
+        throw TaskCancelledException();
+    }
+    if (ret != FHE_TASK_OK) {
         throw std::runtime_error("Failed to run CPU project");
     }
 

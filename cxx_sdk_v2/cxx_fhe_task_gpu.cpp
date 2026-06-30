@@ -66,6 +66,10 @@ void FheTaskGpu::bind_custom_executors(const std::unordered_map<std::string, Exe
     bind_gpu_task_custom_executors(task_handle, custom_types.data(), executor_ptrs.data(), custom_types.size());
 }
 
+void FheTaskGpu::request_cancel() noexcept {
+    cancel_fhe_gpu_task(task_handle);
+}
+
 uint64_t FheTaskGpu::run(FheContext* context,
                          const std::vector<CxxVectorArgument>& cxx_args,
                          ProgressCallback progress_cb,
@@ -103,7 +107,10 @@ uint64_t FheTaskGpu::run(FheContext* context,
     int ret = run_fhe_gpu_task(task_handle, input_args.data(), input_args.size(), output_args.data(),
                                output_args.size(), c_cb, c_ud, gpu_device);
 
-    if (ret != 0) {
+    if (ret == FHE_TASK_CANCELLED) {
+        throw TaskCancelledException();
+    }
+    if (ret != FHE_TASK_OK) {
         throw std::runtime_error("Failed to run GPU project");
     }
 
