@@ -18,6 +18,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <complex>
 #include <random>
 #define CATCH_CONFIG_MAIN
 #include "catch.hpp"
@@ -40,6 +41,15 @@ static void verify_ckks_precision(CkksContext& ctx,
                                   double minPrec = 10.0) {
     auto stats = PrecisionAnalyzer::GetPrecisionStats(ctx, expected, ct);
     REQUIRE(stats.MeanPrecision.Real >= minPrec);
+}
+
+static void verify_ckks_precision(CkksContext& ctx,
+                                  const vector<complex<double>>& expected,
+                                  const CkksCiphertext& ct,
+                                  double minPrec = 10.0) {
+    auto stats = PrecisionAnalyzer::GetPrecisionStats(ctx, expected, ct);
+    REQUIRE(stats.MeanPrecision.Real >= minPrec);
+    REQUIRE(stats.MeanPrecision.Imag >= minPrec);
 }
 
 // ---------------------------------------------------------------------------
@@ -582,6 +592,70 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture,
             proj.run(&this->ctx, args);
             for (int i = 0; i < this->n_op; i++)
                 verify_ckks_precision(this->ctx, xv.values[i], z_list[i]);
+        }
+    }
+}
+
+TEMPLATE_TEST_CASE_METHOD(CkksFixture,
+                          "CKKS mult_by_i",
+                          "",
+                          CkksTestDefaultParams,
+                          CkksTestCustomParams,
+                          CkksTestSparseDefaultParams) {
+    for (int level = 1; level <= this->max_level; level++) {
+        SECTION("lv=" + to_string(level)) {
+            auto xv = new_ckks_test_complex_ct(this->n_op, this->ctx, level, this->default_scale);
+            vector<CkksCiphertext> z_list;
+            z_list.reserve(this->n_op);
+            for (int _i = 0; _i < this->n_op; _i++)
+                z_list.push_back(this->ctx.new_ciphertext(level, this->default_scale));
+            string path = cpu_base_path + "/" + this->tag + "/CKKS_" + to_string(this->n_op) + "_mult_by_i/level_" +
+                          to_string(level);
+            FheTaskCpu proj(path);
+            vector<CxxVectorArgument> args = {
+                {"in_x_list", &xv.ciphertexts},
+                {"out_y_list", &z_list},
+            };
+            proj.run(&this->ctx, args);
+            for (int i = 0; i < this->n_op; i++) {
+                vector<complex<double>> expected;
+                expected.reserve(xv.values[i].size());
+                for (complex<double> value : xv.values[i])
+                    expected.push_back(value * complex<double>(0.0, 1.0));
+                verify_ckks_precision(this->ctx, expected, z_list[i]);
+            }
+        }
+    }
+}
+
+TEMPLATE_TEST_CASE_METHOD(CkksFixture,
+                          "CKKS div_by_i",
+                          "",
+                          CkksTestDefaultParams,
+                          CkksTestCustomParams,
+                          CkksTestSparseDefaultParams) {
+    for (int level = 1; level <= this->max_level; level++) {
+        SECTION("lv=" + to_string(level)) {
+            auto xv = new_ckks_test_complex_ct(this->n_op, this->ctx, level, this->default_scale);
+            vector<CkksCiphertext> z_list;
+            z_list.reserve(this->n_op);
+            for (int _i = 0; _i < this->n_op; _i++)
+                z_list.push_back(this->ctx.new_ciphertext(level, this->default_scale));
+            string path = cpu_base_path + "/" + this->tag + "/CKKS_" + to_string(this->n_op) + "_div_by_i/level_" +
+                          to_string(level);
+            FheTaskCpu proj(path);
+            vector<CxxVectorArgument> args = {
+                {"in_x_list", &xv.ciphertexts},
+                {"out_y_list", &z_list},
+            };
+            proj.run(&this->ctx, args);
+            for (int i = 0; i < this->n_op; i++) {
+                vector<complex<double>> expected;
+                expected.reserve(xv.values[i].size());
+                for (complex<double> value : xv.values[i])
+                    expected.push_back(value / complex<double>(0.0, 1.0));
+                verify_ckks_precision(this->ctx, expected, z_list[i]);
+            }
         }
     }
 }

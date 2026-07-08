@@ -409,6 +409,36 @@ class TestTask:
         )
 
     @pytest.mark.min_level(1)
+    def test_mult_by_i(self, param, lv):
+        set_fhe_param(param)
+        param_tag = _param_tag(param)
+        task_dir = os.path.join(CPU_OUTPUT_BASE_DIR, param_tag, f'CKKS_{N_OP}_mult_by_i', f'level_{lv}')
+        x_list = [CkksCiphertextNode(f'x_{i}', level=lv) for i in range(N_OP)]
+        y_list = [mult_by_i(x_list[i], f'y_{i}') for i in range(N_OP)]
+        process_custom_task(
+            input_args=[Argument('in_x_list', x_list)],
+            offline_input_args=[],
+            output_args=[Argument('out_y_list', y_list)],
+            output_instruction_path=task_dir,
+            processor=Processor.CPU,
+        )
+
+    @pytest.mark.min_level(1)
+    def test_div_by_i(self, param, lv):
+        set_fhe_param(param)
+        param_tag = _param_tag(param)
+        task_dir = os.path.join(CPU_OUTPUT_BASE_DIR, param_tag, f'CKKS_{N_OP}_div_by_i', f'level_{lv}')
+        x_list = [CkksCiphertextNode(f'x_{i}', level=lv) for i in range(N_OP)]
+        y_list = [div_by_i(x_list[i], f'y_{i}') for i in range(N_OP)]
+        process_custom_task(
+            input_args=[Argument('in_x_list', x_list)],
+            offline_input_args=[],
+            output_args=[Argument('out_y_list', y_list)],
+            output_instruction_path=task_dir,
+            processor=Processor.CPU,
+        )
+
+    @pytest.mark.min_level(1)
     def test_rotate_col(self, param, lv, steps=[i + 1 for i in range(8)]):
         set_fhe_param(param)
         param_tag = _param_tag(param)

@@ -169,6 +169,23 @@ CkksTestCt new_ckks_test_ct(int n_data, CkksContext& ctx, int level, double scal
     return tv;
 }
 
+CkksTestComplexCt new_ckks_test_complex_ct(int n_data, CkksContext& ctx, int level, double scale) {
+    CkksTestComplexCt tv;
+    int n_slot = 1 << ctx.get_parameter().get_log_slots();
+    for (int i = 0; i < n_data; i++) {
+        auto real_values = rand_double_values(n_slot);
+        auto imag_values = rand_double_values(n_slot);
+        std::vector<std::complex<double>> values;
+        values.reserve(n_slot);
+        for (int j = 0; j < n_slot; j++)
+            values.emplace_back(real_values[j], imag_values[j]);
+        tv.values.push_back(values);
+        auto pt = ctx.encode(tv.values[i], level, scale);
+        tv.ciphertexts.push_back(ctx.encrypt_asymmetric(pt));
+    }
+    return tv;
+}
+
 CkksTestPt new_ckks_test_pt(int n_data, CkksContext& ctx, int level, double scale) {
     CkksTestPt tv;
     int n_slot = 1 << ctx.get_parameter().get_log_slots();

@@ -22,6 +22,7 @@
 #include <vector>
 #include <string>
 #include <cmath>
+#include <complex>
 #include "fhe_lib_v2.h"
 
 namespace fhe_ops_lib {
@@ -108,6 +109,14 @@ public:
                                             const CkksCiphertext& element,
                                             bool in_coeffs_domain = false);
 
+    static PrecisionStats GetPrecisionStats(CkksContext& context,
+                                            const std::vector<std::complex<double>>& vWant,
+                                            const CkksPlaintext& element);
+
+    static PrecisionStats GetPrecisionStats(CkksContext& context,
+                                            const std::vector<std::complex<double>>& vWant,
+                                            const CkksCiphertext& element);
+
     /**
      * @brief Analyze precision statistics between two vectors
      * @param vWant Vector of expected values
@@ -115,12 +124,16 @@ public:
      * @return Precision statistics
      */
     static PrecisionStats GetPrecisionStats(const std::vector<double>& vWant, const std::vector<double>& vTest);
+    static PrecisionStats GetPrecisionStats(const std::vector<std::complex<double>>& vWant,
+                                            const std::vector<std::complex<double>>& vTest);
 
 private:
     /**
      * @brief Core implementation of precision statistics computation
      */
     static PrecisionStats GetPrecisionStatsImpl(const std::vector<double>& vWant, const std::vector<double>& vTest);
+    static PrecisionStats GetPrecisionStatsImpl(const std::vector<std::complex<double>>& vWant,
+                                                const std::vector<std::complex<double>>& vTest);
 
     /**
      * @brief Convert delta values to precision values (log2(1/delta))

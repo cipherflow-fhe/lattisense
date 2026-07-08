@@ -78,6 +78,8 @@ enum class OperationType {
     RELINEARIZE,
     RESCALE,
     DROP_LEVEL,
+    MULT_BY_I,
+    DIV_BY_I,
     ROTATE_COL,
     ROTATE_ROW,
     MAC_WO_PARTIAL_SUM,

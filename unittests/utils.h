@@ -18,6 +18,7 @@
 
 #pragma once
 
+#include <complex>
 #include <cstdint>
 #include <random>
 #include <string>
@@ -90,6 +91,11 @@ struct CkksTestCt {
     std::vector<CkksCiphertext> ciphertexts;
 };
 
+struct CkksTestComplexCt {
+    std::vector<std::vector<std::complex<double>>> values;
+    std::vector<CkksCiphertext> ciphertexts;
+};
+
 struct CkksTestPt {
     std::vector<std::vector<double>> values;
     std::vector<CkksPlaintext> plaintexts;
@@ -106,6 +112,7 @@ struct CkksTestPtMul {
 };
 
 CkksTestCt new_ckks_test_ct(int n_data, CkksContext& ctx, int level, double scale);
+CkksTestComplexCt new_ckks_test_complex_ct(int n_data, CkksContext& ctx, int level, double scale);
 CkksTestPt new_ckks_test_pt(int n_data, CkksContext& ctx, int level, double scale);
 CkksTestPtRingt new_ckks_test_pt_ringt(int n_data, CkksContext& ctx, double scale);
 CkksTestPtMul new_ckks_test_pt_mul(int n_data, CkksContext& ctx, int level, double scale);

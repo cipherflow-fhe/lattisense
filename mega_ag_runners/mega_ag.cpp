@@ -39,6 +39,8 @@ const std::unordered_map<std::string, OperationType> str_to_operation_type = {
     {"relin", OperationType::RELINEARIZE},
     {"rescale", OperationType::RESCALE},
     {"drop_level", OperationType::DROP_LEVEL},
+    {"mult_by_i", OperationType::MULT_BY_I},
+    {"div_by_i", OperationType::DIV_BY_I},
     {"rotate_row", OperationType::ROTATE_ROW},
     {"rotate_col", OperationType::ROTATE_COL},
     {"cmp_sum", OperationType::MAC_WO_PARTIAL_SUM},

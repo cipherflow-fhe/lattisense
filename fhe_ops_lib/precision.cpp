@@ -95,13 +95,46 @@ PrecisionStats PrecisionAnalyzer::GetPrecisionStats(CkksContext& context,
     return GetPrecisionStatsImpl(vWant, valuesTest);
 }
 
+PrecisionStats PrecisionAnalyzer::GetPrecisionStats(CkksContext& context,
+                                                    const std::vector<std::complex<double>>& vWant,
+                                                    const CkksPlaintext& element) {
+    std::vector<std::complex<double>> valuesTest = context.decode_complex(element);
+    return GetPrecisionStatsImpl(vWant, valuesTest);
+}
+
+PrecisionStats PrecisionAnalyzer::GetPrecisionStats(CkksContext& context,
+                                                    const std::vector<std::complex<double>>& vWant,
+                                                    const CkksCiphertext& element) {
+    CkksPlaintext decryptedPlain = context.decrypt(element);
+    std::vector<std::complex<double>> valuesTest = context.decode_complex(decryptedPlain);
+    return GetPrecisionStatsImpl(vWant, valuesTest);
+}
+
 PrecisionStats PrecisionAnalyzer::GetPrecisionStats(const std::vector<double>& vWant,
                                                     const std::vector<double>& vTest) {
     return GetPrecisionStatsImpl(vWant, vTest);
 }
 
+PrecisionStats PrecisionAnalyzer::GetPrecisionStats(const std::vector<std::complex<double>>& vWant,
+                                                    const std::vector<std::complex<double>>& vTest) {
+    return GetPrecisionStatsImpl(vWant, vTest);
+}
+
 PrecisionStats PrecisionAnalyzer::GetPrecisionStatsImpl(const std::vector<double>& vWant,
                                                         const std::vector<double>& vTest) {
+    std::vector<std::complex<double>> complexWant;
+    std::vector<std::complex<double>> complexTest;
+    complexWant.reserve(vWant.size());
+    complexTest.reserve(vTest.size());
+    for (double value : vWant)
+        complexWant.emplace_back(value, 0.0);
+    for (double value : vTest)
+        complexTest.emplace_back(value, 0.0);
+    return GetPrecisionStatsImpl(complexWant, complexTest);
+}
+
+PrecisionStats PrecisionAnalyzer::GetPrecisionStatsImpl(const std::vector<std::complex<double>>& vWant,
+                                                        const std::vector<std::complex<double>>& vTest) {
     PrecisionStats prec;
 
     if (vWant.size() != vTest.size()) {
@@ -120,14 +153,17 @@ PrecisionStats PrecisionAnalyzer::GetPrecisionStatsImpl(const std::vector<double
     std::vector<double> precReal(slots);
     std::vector<double> precImag(slots);
     std::vector<double> precL2(slots);
+    std::vector<double> realWant(slots);
+    std::vector<double> realTest(slots);
 
     for (size_t i = 0; i < slots; i++) {
-        // For real values, imaginary part is 0
-        double deltaReal = std::abs(vTest[i] - vWant[i]);
-        double deltaImag = 0.0;      // Assuming we're processing real values
-        double deltaL2 = deltaReal;  // For real numbers, L2 norm equals absolute value
+        realWant[i] = vWant[i].real();
+        realTest[i] = vTest[i].real();
 
-        // Avoid log(0)
+        double deltaReal = std::abs(vTest[i].real() - vWant[i].real());
+        double deltaImag = std::abs(vTest[i].imag() - vWant[i].imag());
+        double deltaL2 = std::sqrt(deltaReal * deltaReal + deltaImag * deltaImag);
+
         deltaReal = std::max(deltaReal, 1e-16);
         deltaImag = std::max(deltaImag, 1e-16);
         deltaL2 = std::max(deltaL2, 1e-16);
@@ -174,10 +210,9 @@ PrecisionStats PrecisionAnalyzer::GetPrecisionStatsImpl(const std::vector<double
     prec.MedianDelta = calcMedian(diff);
     prec.MedianPrecision = deltaToPrecision(prec.MedianDelta);
 
-    // Calculate standard deviation
-    double defaultScale = std::pow(2.0, 40);  // Default scale
-    prec.STDFreq = calculateErrorSTD(vWant, vTest, defaultScale);
-    prec.STDTime = prec.STDFreq;  // For simplicity, use the same calculation
+    double defaultScale = std::pow(2.0, 40);
+    prec.STDFreq = calculateErrorSTD(realWant, realTest, defaultScale);
+    prec.STDTime = prec.STDFreq;
 
     return prec;
 }

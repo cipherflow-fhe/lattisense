@@ -973,6 +973,14 @@ CkksCiphertext CkksContext::negate(const CkksCiphertext& x0_ct) {
     return CkksCiphertext(CkksNegate(this->get(), x0_ct.get()));
 }
 
+CkksCiphertext CkksContext::mult_by_i(const CkksCiphertext& x_ct) {
+    return CkksCiphertext(CkksMultByi(this->get(), x_ct.get()));
+}
+
+CkksCiphertext CkksContext::div_by_i(const CkksCiphertext& x_ct) {
+    return CkksCiphertext(CkksDivByi(this->get(), x_ct.get()));
+}
+
 CkksCiphertext3 CkksContext::mult(const CkksCiphertext& x0_ct, const CkksCiphertext& x1_ct) {
     return CkksCiphertext3(CkksMult(this->get(), x0_ct.get(), x1_ct.get()));
 }

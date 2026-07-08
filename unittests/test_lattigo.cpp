@@ -1561,6 +1561,52 @@ TEST_CASE_METHOD(LattigoCkksFixture, "CKKS ct multiply pt_coeffs_ringt") {
     REQUIRE(compare_double_vectors(z_mg, z_true, z_true.size(), 0.01) == false);
 }
 
+TEST_CASE_METHOD(LattigoCkksFixture, "CKKS ct mult_by_i") {
+    vector<complex<double>> x_mg;
+    vector<complex<double>> z_true;
+    for (int i = 0; i < 10; i++) {
+        x_mg.push_back(complex<double>(double(i * 2), double(i * 2 + 1)));
+        z_true.push_back(x_mg[i] * complex<double>(0, 1));
+    }
+
+    CkksPlaintext x_pt = context.encode(x_mg, level, default_scale);
+    CkksCiphertext x_ct = context.encrypt_asymmetric(x_pt);
+
+    CkksCiphertext z_ct = context.mult_by_i(x_ct);
+    REQUIRE(z_ct.get_level() == x_ct.get_level());
+    REQUIRE(fabs(z_ct.get_scale() / x_ct.get_scale() - 1.0) < 0.01);
+
+    CkksPlaintext z_pt = context.decrypt(z_ct);
+    vector<complex<double>> z_mg = context.decode_complex(z_pt);
+    for (int i = 0; i < 10; i++) {
+        REQUIRE(abs(z_mg[i].real() - z_true[i].real()) < 0.01);
+        REQUIRE(abs(z_mg[i].imag() - z_true[i].imag()) < 0.01);
+    }
+}
+
+TEST_CASE_METHOD(LattigoCkksFixture, "CKKS ct div_by_i") {
+    vector<complex<double>> x_mg;
+    vector<complex<double>> z_true;
+    for (int i = 0; i < 10; i++) {
+        x_mg.push_back(complex<double>(double(i * 2), double(i * 2 + 1)));
+        z_true.push_back(x_mg[i] / complex<double>(0, 1));
+    }
+
+    CkksPlaintext x_pt = context.encode(x_mg, level, default_scale);
+    CkksCiphertext x_ct = context.encrypt_asymmetric(x_pt);
+
+    CkksCiphertext z_ct = context.div_by_i(x_ct);
+    REQUIRE(z_ct.get_level() == x_ct.get_level());
+    REQUIRE(fabs(z_ct.get_scale() / x_ct.get_scale() - 1.0) < 0.01);
+
+    CkksPlaintext z_pt = context.decrypt(z_ct);
+    vector<complex<double>> z_mg = context.decode_complex(z_pt);
+    for (int i = 0; i < 10; i++) {
+        REQUIRE(abs(z_mg[i].real() - z_true[i].real()) < 0.01);
+        REQUIRE(abs(z_mg[i].imag() - z_true[i].imag()) < 0.01);
+    }
+}
+
 TEST_CASE_METHOD(LattigoCkksFixture, "CKKS ct multiply ct") {
     vector<double> x_mg;
     vector<double> y_mg;

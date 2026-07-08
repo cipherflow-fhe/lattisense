@@ -74,6 +74,8 @@ class OperationType(Enum):
     Relin = 'relin'
     Rescale = 'rescale'
     DropLevel = 'drop_level'
+    MultByi = 'mult_by_i'
+    DivByi = 'div_by_i'
     RnsSpDecomp = 'rns_sp_decomp'
     RotateCol = 'rotate_col'
     RotateRow = 'rotate_row'

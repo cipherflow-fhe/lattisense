@@ -279,6 +279,32 @@ template <HEScheme SchemeType> void bind_cpu_drop_level(ComputeNode& node) {
     }
 }
 
+template <HEScheme SchemeType> void bind_cpu_mult_by_i(ComputeNode& node) {
+    if constexpr (SchemeType == HEScheme::CKKS) {
+        node.executor = [](ExecutionContext& ctx, std::unordered_map<NodeIndex, std::any>& local_data,
+                           const ComputeNode& self) -> void {
+            CPU_EXECUTOR_SETUP(SchemeType);
+            local_data[self.output_nodes[0]->index] =
+                std::make_shared<CiphertextType>(context->mult_by_i(*ciphertexts[0]));
+        };
+    } else {
+        throw std::runtime_error("MULT_BY_I only supported for CKKS scheme");
+    }
+}
+
+template <HEScheme SchemeType> void bind_cpu_div_by_i(ComputeNode& node) {
+    if constexpr (SchemeType == HEScheme::CKKS) {
+        node.executor = [](ExecutionContext& ctx, std::unordered_map<NodeIndex, std::any>& local_data,
+                           const ComputeNode& self) -> void {
+            CPU_EXECUTOR_SETUP(SchemeType);
+            local_data[self.output_nodes[0]->index] =
+                std::make_shared<CiphertextType>(context->div_by_i(*ciphertexts[0]));
+        };
+    } else {
+        throw std::runtime_error("DIV_BY_I only supported for CKKS scheme");
+    }
+}
+
 template <HEScheme SchemeType> void bind_cpu_rotate_col(ComputeNode& node) {
     if (!node.fhe_prop->p.has_value()) {
         throw std::runtime_error("ROTATE_COL requires rotation_step property");
@@ -510,6 +536,9 @@ template void bind_cpu_rescale<HEScheme::CKKS>(ComputeNode& node);
 
 template void bind_cpu_drop_level<HEScheme::CKKS>(ComputeNode& node);
 
+template void bind_cpu_mult_by_i<HEScheme::CKKS>(ComputeNode& node);
+template void bind_cpu_div_by_i<HEScheme::CKKS>(ComputeNode& node);
+
 template void bind_cpu_rotate_col<HEScheme::BFV>(ComputeNode& node);
 template void bind_cpu_rotate_col<HEScheme::CKKS>(ComputeNode& node);
 
@@ -555,6 +584,8 @@ void bind_cpu_executor(ComputeNode& node, Algo algorithm) {
                 case OperationType::RELINEARIZE: bind_cpu_relin<HEScheme::CKKS>(node); break;
                 case OperationType::RESCALE: bind_cpu_rescale<HEScheme::CKKS>(node); break;
                 case OperationType::DROP_LEVEL: bind_cpu_drop_level<HEScheme::CKKS>(node); break;
+                case OperationType::MULT_BY_I: bind_cpu_mult_by_i<HEScheme::CKKS>(node); break;
+                case OperationType::DIV_BY_I: bind_cpu_div_by_i<HEScheme::CKKS>(node); break;
                 case OperationType::ROTATE_COL: bind_cpu_rotate_col<HEScheme::CKKS>(node); break;
                 case OperationType::ROTATE_ROW: bind_cpu_rotate_row<HEScheme::CKKS>(node); break;
                 case OperationType::MAC_W_PARTIAL_SUM: bind_cpu_cmpac_sum<HEScheme::CKKS>(node); break;

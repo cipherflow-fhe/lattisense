@@ -276,6 +276,34 @@ template <heongpu::Scheme S> void bind_gpu_drop_level(ComputeNode& node) {
     }
 }
 
+template <heongpu::Scheme S> void bind_gpu_mult_by_i(ComputeNode& node) {
+    if constexpr (S == heongpu::Scheme::CKKS) {
+        node.executor = [](ExecutionContext& ctx, std::unordered_map<NodeIndex, std::any>& local_data,
+                           const ComputeNode& self) -> void {
+            auto [operators, stream_option] = _get_operator_and_stream_option<S>(ctx);
+            auto& input0 = _get_input_data<Ct<S>>(local_data, *self.input_nodes[0]);
+            auto& output0 = _create_output_data<S>(ctx, local_data, *self.output_nodes[0]);
+            operators.mult_i(input0, output0, stream_option);
+        };
+    } else {
+        throw std::runtime_error("MULT_BY_I only supported for CKKS scheme");
+    }
+}
+
+template <heongpu::Scheme S> void bind_gpu_div_by_i(ComputeNode& node) {
+    if constexpr (S == heongpu::Scheme::CKKS) {
+        node.executor = [](ExecutionContext& ctx, std::unordered_map<NodeIndex, std::any>& local_data,
+                           const ComputeNode& self) -> void {
+            auto [operators, stream_option] = _get_operator_and_stream_option<S>(ctx);
+            auto& input0 = _get_input_data<Ct<S>>(local_data, *self.input_nodes[0]);
+            auto& output0 = _create_output_data<S>(ctx, local_data, *self.output_nodes[0]);
+            operators.div_i(input0, output0, stream_option);
+        };
+    } else {
+        throw std::runtime_error("DIV_BY_I only supported for CKKS scheme");
+    }
+}
+
 template <heongpu::Scheme S> void bind_gpu_rotate_col(ComputeNode& node) {
     if (!node.fhe_prop->p.has_value()) {
         throw std::runtime_error("Rotation step not found in FHE property");
@@ -460,6 +488,9 @@ template void bind_gpu_rescale<heongpu::Scheme::CKKS>(ComputeNode& node);
 
 template void bind_gpu_drop_level<heongpu::Scheme::CKKS>(ComputeNode& node);
 
+template void bind_gpu_mult_by_i<heongpu::Scheme::CKKS>(ComputeNode& node);
+template void bind_gpu_div_by_i<heongpu::Scheme::CKKS>(ComputeNode& node);
+
 template void bind_gpu_rotate_col<heongpu::Scheme::BFV>(ComputeNode& node);
 template void bind_gpu_rotate_col<heongpu::Scheme::CKKS>(ComputeNode& node);
 
@@ -505,6 +536,8 @@ void bind_gpu_executor(ComputeNode& node, Algo algorithm) {
                 case OperationType::RELINEARIZE: bind_gpu_relin<heongpu::Scheme::CKKS>(node); break;
                 case OperationType::RESCALE: bind_gpu_rescale<heongpu::Scheme::CKKS>(node); break;
                 case OperationType::DROP_LEVEL: bind_gpu_drop_level<heongpu::Scheme::CKKS>(node); break;
+                case OperationType::MULT_BY_I: bind_gpu_mult_by_i<heongpu::Scheme::CKKS>(node); break;
+                case OperationType::DIV_BY_I: bind_gpu_div_by_i<heongpu::Scheme::CKKS>(node); break;
                 case OperationType::ROTATE_COL: bind_gpu_rotate_col<heongpu::Scheme::CKKS>(node); break;
                 case OperationType::ROTATE_ROW: bind_gpu_rotate_row<heongpu::Scheme::CKKS>(node); break;
                 case OperationType::MAC_W_PARTIAL_SUM: bind_gpu_cmpac_sum<heongpu::Scheme::CKKS>(node); break;

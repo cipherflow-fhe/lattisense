@@ -1074,6 +1074,11 @@ public:
     CkksPlaintext ringt_to_pt(const CkksPlaintextRingt& pt_ringt, int level);
 
     CkksCiphertext negate(const CkksCiphertext& x0_ct);
+
+    CkksCiphertext mult_by_i(const CkksCiphertext& x_ct);
+
+    CkksCiphertext div_by_i(const CkksCiphertext& x_ct);
+
     /**
      * Compute ciphertext-ciphertext multiplication, resulting in a ciphertext with 3 polynomials.
      * @param x0_ct The input ciphertext.

@@ -524,6 +524,32 @@ def drop_level(x: CkksCiphertextNode, drop_level: int = 1, output_id: Optional[s
     return z
 
 
+def mult_by_i(x: CkksCiphertextNode, output_id: Optional[str] = None) -> CkksCiphertextNode:
+    global g_dag
+    if not isinstance(x, CkksCiphertextNode):
+        raise ValueError(f'Unsupported input type "{x.type.value}" for mult_by_i.')
+    op = FheComputeNode(OperationType.MultByi)
+    g_dag.add_edges_from([(x, op)])
+
+    z = CkksCiphertextNode(id=random_id() if output_id is None else output_id, level=x.level)
+    z.is_ntt = x.is_ntt
+    g_dag.add_edge(op, z)
+    return z
+
+
+def div_by_i(x: CkksCiphertextNode, output_id: Optional[str] = None) -> CkksCiphertextNode:
+    global g_dag
+    if not isinstance(x, CkksCiphertextNode):
+        raise ValueError(f'Unsupported input type "{x.type.value}" for div_by_i.')
+    op = FheComputeNode(OperationType.DivByi)
+    g_dag.add_edges_from([(x, op)])
+
+    z = CkksCiphertextNode(id=random_id() if output_id is None else output_id, level=x.level)
+    z.is_ntt = x.is_ntt
+    g_dag.add_edge(op, z)
+    return z
+
+
 def rns_sp_decomp(x: CiphertextNode, output_id: Optional[str] = None) -> CiphertextNode:
     global g_dag
     op = FheComputeNode(OperationType.RnsSpDecomp)

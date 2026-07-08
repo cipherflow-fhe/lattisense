@@ -45,13 +45,13 @@ _p2 = CkksParam.create_custom_param(
 )
 _p3 = CkksParam.create_default_param(n=8192)
 _p4 = CkksParam.create_default_param(n=16384)
-_p4.set_slots(1 << 4)
+_p4.set_slots(2048)
 _p_toy_btp = CkksBtpParam.create_toy_param()
 _p_btp = CkksBtpParam.create_default_param()
 _p_toy_sparse_btp = CkksBtpParam.create_toy_param()
-_p_toy_sparse_btp.set_slots(1 << 4)
+_p_toy_sparse_btp.set_slots(2048)
 _p_sparse_btp = CkksBtpParam.create_default_param()
-_p_sparse_btp.set_slots(1 << 4)
+_p_sparse_btp.set_slots(2048)
 
 N_OP = 4  # Number of parallel operators per test
 
@@ -384,6 +384,36 @@ class TestTask:
         )
         x_list = [CkksCiphertextNode(f'x_{i}', level=lv) for i in range(N_OP)]
         y_list = [drop_level(x_list[i], drop_lv, f'y_{i}') for i in range(N_OP)]
+        process_custom_task(
+            input_args=[Argument('in_x_list', x_list)],
+            offline_input_args=[],
+            output_args=[Argument('out_y_list', y_list)],
+            output_instruction_path=task_dir,
+            processor=Processor.GPU,
+        )
+
+    @pytest.mark.min_level(1)
+    def test_mult_by_i(self, param, lv):
+        set_fhe_param(param)
+        param_tag = _param_tag(param)
+        task_dir = os.path.join(GPU_OUTPUT_BASE_DIR, param_tag, f'CKKS_{N_OP}_mult_by_i', f'level_{lv}')
+        x_list = [CkksCiphertextNode(f'x_{i}', level=lv) for i in range(N_OP)]
+        y_list = [mult_by_i(x_list[i], f'y_{i}') for i in range(N_OP)]
+        process_custom_task(
+            input_args=[Argument('in_x_list', x_list)],
+            offline_input_args=[],
+            output_args=[Argument('out_y_list', y_list)],
+            output_instruction_path=task_dir,
+            processor=Processor.GPU,
+        )
+
+    @pytest.mark.min_level(1)
+    def test_div_by_i(self, param, lv):
+        set_fhe_param(param)
+        param_tag = _param_tag(param)
+        task_dir = os.path.join(GPU_OUTPUT_BASE_DIR, param_tag, f'CKKS_{N_OP}_div_by_i', f'level_{lv}')
+        x_list = [CkksCiphertextNode(f'x_{i}', level=lv) for i in range(N_OP)]
+        y_list = [div_by_i(x_list[i], f'y_{i}') for i in range(N_OP)]
         process_custom_task(
             input_args=[Argument('in_x_list', x_list)],
             offline_input_args=[],
