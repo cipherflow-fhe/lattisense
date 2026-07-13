@@ -44,16 +44,16 @@ extern "C" {
 }
 
 /**
- * @brief Set polyvec_64 term from component data (pointer assign or copy).
+ * @brief Set polyvec_64 term from one RNS limb (pointer assign or copy).
  * @param need_copy  true = malloc + memcpy (caller must free term later);
  *                   false = pointer assign (zero-copy, data must outlive polyvec usage).
  */
-inline void set_pv_term(polyvec_64* pv, int offset, CComponent* comp, bool need_copy) {
+inline void set_pv_term(polyvec_64* pv, int offset, uint64_t* rns_limb, int ring_degree, bool need_copy) {
     if (need_copy) {
-        pv->p[offset].term = (uint64_t*)malloc(comp->n * sizeof(uint64_t));
-        memcpy(pv->p[offset].term, comp->data, comp->n * sizeof(uint64_t));
+        pv->p[offset].term = (uint64_t*)malloc((size_t)ring_degree * sizeof(uint64_t));
+        memcpy(pv->p[offset].term, rns_limb, (size_t)ring_degree * sizeof(uint64_t));
     } else {
-        pv->p[offset].term = comp->data;
+        pv->p[offset].term = rns_limb;
     }
 }
 
@@ -62,10 +62,10 @@ inline void set_pv_term(polyvec_64* pv, int offset, CComponent* comp, bool need_
  * @param need_copy  true for input polyvec (data may be freed before run_project)
  */
 inline int export_ct_pointers(CCiphertext* ct, polyvec_64* pv, int offset, bool need_copy = true) {
-    for (int i = 0; i < ct->degree + 1; i++) {
-        for (int j = 0; j < ct->polys->n_component; j++) {
+    for (int poly_idx = 0; poly_idx < ct->cipher_size; poly_idx++) {
+        for (int rns_idx = 0; rns_idx < c_ciphertext_rns_size(ct); rns_idx++) {
             if (offset < pv->len) {
-                set_pv_term(pv, offset, &ct->polys[i].components[j], need_copy);
+                set_pv_term(pv, offset, c_ciphertext_rns_limb(ct, poly_idx, rns_idx), ct->ring_degree, need_copy);
                 offset++;
             } else {
                 log_error("Error: Index %d out of range %d", offset, pv->len);
@@ -79,9 +79,9 @@ inline int export_ct_pointers(CCiphertext* ct, polyvec_64* pv, int offset, bool 
  * @brief Export CPlaintext to FPGA polyvec_64 structure
  */
 inline int export_pt_pointers(CPlaintext* pt, polyvec_64* pv, int offset, bool need_copy = true) {
-    for (int j = 0; j < pt->poly.n_component; j++) {
+    for (int rns_idx = 0; rns_idx < c_plaintext_rns_size(pt); rns_idx++) {
         if (offset < pv->len) {
-            set_pv_term(pv, offset, &pt->poly.components[j], need_copy);
+            set_pv_term(pv, offset, c_plaintext_rns_limb(pt, rns_idx), pt->ring_degree, need_copy);
             offset++;
         } else {
             log_error("Error: Index %d out of range %d", offset, pv->len);
@@ -94,11 +94,12 @@ inline int export_pt_pointers(CPlaintext* pt, polyvec_64* pv, int offset, bool n
  * @brief Export CRelinKey to FPGA polyvec_64 structure
  */
 inline int export_rlk_pointers(CRelinKey* rlk, polyvec_64* pv, int offset, bool need_copy = true) {
-    for (int m = 0; m < rlk->n_public_key; m++) {
-        for (int i = 0; i < 2; i++) {
-            for (int j = 0; j < rlk->public_keys->polys->n_component; j++) {
+    for (int decomp_idx = 0; decomp_idx < c_relin_key_decomp_rns(rlk); decomp_idx++) {
+        for (int poly_idx = 0; poly_idx < 2; poly_idx++) {
+            for (int rns_idx = 0; rns_idx < c_relin_key_rns_size(rlk); rns_idx++) {
                 if (offset < pv->len) {
-                    set_pv_term(pv, offset, &rlk->public_keys[m].polys[i].components[j], need_copy);
+                    set_pv_term(pv, offset, c_relin_key_rns_limb(rlk, decomp_idx, poly_idx, rns_idx), rlk->ring_degree,
+                                need_copy);
                     offset++;
                 } else {
                     log_error("Error: Index %d out of range %d", offset, pv->len);
@@ -113,13 +114,14 @@ inline int export_rlk_pointers(CRelinKey* rlk, polyvec_64* pv, int offset, bool 
  * @brief Export CGaloisKey to FPGA polyvec_64 structure
  */
 inline int export_glk_pointers(CGaloisKey* glk, polyvec_64* pv, int offset, bool need_copy = true) {
-    for (int gal_idx = 0; gal_idx < glk->n_key_switch_key; gal_idx++) {
-        for (int m = 0; m < glk->key_switch_keys->n_public_key; m++) {
-            for (int i = 0; i < 2; i++) {
-                for (int j = 0; j < glk->key_switch_keys->public_keys->polys->n_component; j++) {
+    for (int switching_key_idx = 0; switching_key_idx < glk->n_switching_key; switching_key_idx++) {
+        CSwitchingKey* switching_key = &glk->switching_keys[switching_key_idx];
+        for (int decomp_idx = 0; decomp_idx < c_switching_key_decomp_rns(switching_key); decomp_idx++) {
+            for (int poly_idx = 0; poly_idx < 2; poly_idx++) {
+                for (int rns_idx = 0; rns_idx < c_switching_key_rns_size(switching_key); rns_idx++) {
                     if (offset < pv->len) {
-                        set_pv_term(pv, offset, &glk->key_switch_keys[gal_idx].public_keys[m].polys[i].components[j],
-                                    need_copy);
+                        set_pv_term(pv, offset, c_switching_key_rns_limb(switching_key, decomp_idx, poly_idx, rns_idx),
+                                    switching_key->ring_degree, need_copy);
                         offset++;
                     } else {
                         log_error("Error: Index %d out of range %d", offset, pv->len);

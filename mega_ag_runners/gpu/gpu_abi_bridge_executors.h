@@ -59,11 +59,8 @@ inline void CHECK(cudaError_t err) {
  */
 template <heongpu::Scheme SchemeType>
 void export_plaintext(const CPlaintext& src, heongpu::Plaintext<SchemeType>& dest) {
-    int N = src.poly.components->n;
-    for (int i = 0; i < src.poly.n_component; i++) {
-        CHECK(cudaMemcpyAsync(&(dest.data()[i * N]), src.poly.components[i].data, N * sizeof(uint64_t),
-                              cudaMemcpyHostToDevice, dest.stream()));
-    }
+    CHECK(cudaMemcpyAsync(dest.data(), src.data, c_plaintext_rns_size(&src) * src.ring_degree * sizeof(uint64_t),
+                          cudaMemcpyHostToDevice, dest.stream()));
 }
 
 /**
@@ -71,123 +68,66 @@ void export_plaintext(const CPlaintext& src, heongpu::Plaintext<SchemeType>& des
  */
 template <heongpu::Scheme SchemeType>
 void export_ciphertext(const CCiphertext& src, heongpu::Ciphertext<SchemeType>& dest) {
-    int N = src.polys->components->n;
-    int n_component = src.polys->n_component;
-    for (int i = 0; i < src.degree + 1; i++) {
-        for (int j = 0; j < n_component; j++) {
-            CHECK(cudaMemcpyAsync(&(dest.data()[i * n_component * N + j * N]), src.polys[i].components[j].data,
-                                  N * sizeof(uint64_t), cudaMemcpyHostToDevice, dest.stream()));
-        }
-    }
+    CHECK(cudaMemcpyAsync(dest.data(), src.data,
+                          src.cipher_size * c_ciphertext_rns_size(&src) * src.ring_degree * sizeof(uint64_t),
+                          cudaMemcpyHostToDevice, dest.stream()));
 }
 
 /**
  * @brief Export relinearization key from C struct to GPU device memory
  */
-template <heongpu::Scheme SchemeType>
-void export_relin_key(const CRelinKey& src,
-                      heongpu::Relinkey<SchemeType>& dest,
-                      int first_Q_size,
-                      int first_Qprime_size) {
-    int N = src.public_keys->polys->components->n;
-    int n_public_key = src.n_public_key;
-    int level = src.public_keys->level;
-    int n_component = src.public_keys->polys->n_component;
-
-    for (int i = 0; i < n_public_key; i++) {
-        for (int j = 0; j < 2; j++) {
-            for (int k = 0; k < n_component; k++) {
-                int k_ = (k < level + 1) ? k : k - (level + 1) + first_Q_size;
-                CHECK(
-                    cudaMemcpyAsync(&(dest.data()[i * 2 * first_Qprime_size * N + j * first_Qprime_size * N + k_ * N]),
-                                    src.public_keys[i].polys[j].components[k].data, N * sizeof(uint64_t),
-                                    cudaMemcpyHostToDevice, dest.stream()));
-            }
-        }
-    }
+template <heongpu::Scheme SchemeType> void export_relin_key(const CRelinKey& src, heongpu::Relinkey<SchemeType>& dest) {
+    size_t element_count = (size_t)c_relin_key_decomp_rns(&src) * 2 * c_relin_key_rns_size(&src) * src.ring_degree;
+    CHECK(cudaMemcpyAsync(dest.data(), src.data, element_count * sizeof(uint64_t), cudaMemcpyHostToDevice,
+                          dest.stream()));
 }
 
 /**
  * @brief Export Galois key from C struct to GPU device memory (specific galois element)
  */
-template <heongpu::Scheme SchemeType>
-void export_galois_key(const CGaloisKey& src,
-                       heongpu::Galoiskey<SchemeType>& dest,
-                       uint32_t galois_element,
-                       int first_Q_size,
-                       int first_Qprime_size) {
-    int N = src.key_switch_keys->public_keys->polys->components->n;
-    int n_public_key = src.key_switch_keys->n_public_key;
-    int level = src.key_switch_keys->public_keys->level;
-    int n_component = src.key_switch_keys->public_keys->polys->n_component;
-    int n_key_switch_key = src.n_key_switch_key;
-
-    for (int i = 0; i < n_key_switch_key; i++) {
-        if (src.galois_elements[i] != galois_element) {
-            continue;
-        }
-
-        for (int j = 0; j < n_public_key; j++) {
-            for (int k = 0; k < 2; k++) {
-                for (int l = 0; l < n_component; l++) {
-                    int l_ = (l < level + 1) ? l : l - (level + 1) + first_Q_size;
-                    if (galois_element != 2 * N - 1) {
-                        CHECK(cudaMemcpyAsync(
-                            &(dest.data(
-                                galois_element)[j * 2 * first_Qprime_size * N + k * first_Qprime_size * N + l_ * N]),
-                            src.key_switch_keys[i].public_keys[j].polys[k].components[l].data, N * sizeof(uint64_t),
-                            cudaMemcpyHostToDevice, dest.stream()));
-                    } else {
-                        CHECK(cudaMemcpyAsync(
-                            &(dest.c_data()[j * 2 * first_Qprime_size * N + k * first_Qprime_size * N + l_ * N]),
-                            src.key_switch_keys[i].public_keys[j].polys[k].components[l].data, N * sizeof(uint64_t),
-                            cudaMemcpyHostToDevice, dest.stream()));
-                    }
-                }
-            }
+inline const CSwitchingKey* find_galois_switching_key(const CGaloisKey& src, uint32_t galois_element) {
+    for (int i = 0; i < src.n_switching_key; i++) {
+        if (src.galois_elements[i] == galois_element) {
+            return &src.switching_keys[i];
         }
     }
+    return nullptr;
+}
+
+template <heongpu::Scheme SchemeType>
+void export_galois_key(const CGaloisKey& src, heongpu::Galoiskey<SchemeType>& dest, uint32_t galois_element) {
+    const CSwitchingKey* switching_key = find_galois_switching_key(src, galois_element);
+    if (!switching_key) {
+        throw std::runtime_error("Galois key missing requested galois element");
+    }
+
+    size_t element_count = (size_t)c_switching_key_decomp_rns(switching_key) * 2 *
+                           c_switching_key_rns_size(switching_key) * switching_key->ring_degree;
+    auto* dest_data = galois_element != static_cast<uint32_t>(2 * switching_key->ring_degree - 1) ?
+                          dest.data(galois_element) :
+                          dest.c_data();
+    CHECK(cudaMemcpyAsync(dest_data, switching_key->data, element_count * sizeof(uint64_t), cudaMemcpyHostToDevice,
+                          dest.stream()));
 }
 
 /**
  * @brief Export switching key from C struct to GPU device memory
  */
 template <heongpu::Scheme SchemeType>
-void export_switching_key(const ::CKeySwitchKey& src,
-                          heongpu::Switchkey<SchemeType>& dest,
-                          int first_Q_size,
-                          int first_Qprime_size) {
-    int N = src.public_keys->polys->components->n;
-    int n_public_key = src.n_public_key;
-    int level = src.public_keys->level;
-    int n_component = src.public_keys->polys->n_component;
-
-    for (int i = 0; i < n_public_key; i++) {
-        for (int j = 0; j < 2; j++) {
-            for (int k = 0; k < n_component; k++) {
-                int k_ = (k < level + 1) ? k : k - (level + 1) + first_Q_size;
-                CHECK(
-                    cudaMemcpyAsync(&(dest.data()[i * 2 * first_Qprime_size * N + j * first_Qprime_size * N + k_ * N]),
-                                    src.public_keys[i].polys[j].components[k].data, N * sizeof(uint64_t),
-                                    cudaMemcpyHostToDevice, dest.stream()));
-            }
-        }
-    }
+void export_switching_key(const ::CSwitchingKey& src, heongpu::Switchkey<SchemeType>& dest) {
+    size_t element_count =
+        (size_t)c_switching_key_decomp_rns(&src) * 2 * c_switching_key_rns_size(&src) * src.ring_degree;
+    CHECK(cudaMemcpyAsync(dest.data(), src.data, element_count * sizeof(uint64_t), cudaMemcpyHostToDevice,
+                          dest.stream()));
 }
 
 /**
  * @brief Import ciphertext from GPU device memory to C struct
  */
 template <heongpu::Scheme SchemeType> void import_ciphertext(heongpu::Ciphertext<SchemeType>& src, CCiphertext* dest) {
-    int N = src.ring_size();
-    int n_component = src.level() + 1;
-
-    for (int i = 0; i < src.size(); i++) {
-        for (int j = 0; j < n_component; j++) {
-            CHECK(cudaMemcpyAsync(dest->polys[i].components[j].data, &src.data()[i * n_component * N + j * N],
-                                  N * sizeof(uint64_t), cudaMemcpyDeviceToHost, src.stream()));
-        }
-    }
+    CHECK(cudaMemcpyAsync(dest->data, src.data(),
+                          dest->cipher_size * c_ciphertext_rns_size(dest) * dest->ring_degree * sizeof(uint64_t),
+                          cudaMemcpyDeviceToHost, src.stream()));
 }
 
 /**
@@ -198,7 +138,7 @@ template <heongpu::Scheme SchemeType> void import_ciphertext(heongpu::Ciphertext
  * - CPlaintext → heongpu::Plaintext
  * - CRelinKey → heongpu::Relinkey
  * - CGaloisKey → heongpu::Galoiskey
- * - CKeySwitchKey → heongpu::Switchkey
+ * - CSwitchingKey → heongpu::Switchkey
  *
  * @tparam SchemeType GPU scheme type (heongpu::Scheme::BFV or heongpu::Scheme::CKKS)
  * @return ExecutorFunc that performs H2D transfer
@@ -265,9 +205,9 @@ template <heongpu::Scheme SchemeType> ExecutorFunc create_load_to_gpu_executor()
             case TYPE_RELIN_KEY: {
                 auto c_rlk_ptr = std::any_cast<std::shared_ptr<CRelinKey>>(c_struct);
                 const CRelinKey* c_rlk = c_rlk_ptr.get();
-                auto gpu_relin_key = std::make_shared<heongpu::Relinkey<SchemeType>>(*context, *stream_option);
-                export_relin_key(*c_rlk, *gpu_relin_key, (*context)->get_ciphertext_modulus_count(),
-                                 (*context)->get_key_modulus_count());
+                auto gpu_relin_key =
+                    std::make_shared<heongpu::Relinkey<SchemeType>>(*context, c_rlk->level_q, *stream_option);
+                export_relin_key(*c_rlk, *gpu_relin_key);
                 local_data[output_index] = gpu_relin_key;
                 break;
             }
@@ -278,23 +218,26 @@ template <heongpu::Scheme SchemeType> ExecutorFunc create_load_to_gpu_executor()
                 {
                     std::lock_guard<std::mutex> lock(*galois_key_mutex);
                     if (!(*galois_key_ptr)) {
-                        *galois_key_ptr = std::make_shared<heongpu::Galoiskey<SchemeType>>(*context, *all_galois_elts,
-                                                                                           *stream_option);
+                        *galois_key_ptr = std::make_shared<heongpu::Galoiskey<SchemeType>>(
+                            *context, *all_galois_elts, c_glk->switching_keys[0].level_q, *stream_option);
                     }
-                }
 
-                export_galois_key(*c_glk, **galois_key_ptr, galois_element, (*context)->get_ciphertext_modulus_count(),
-                                  (*context)->get_key_modulus_count());
+                    export_galois_key(*c_glk, **galois_key_ptr, galois_element);
+                }
                 local_data[output_index] = *galois_key_ptr;
                 break;
             }
             case TYPE_SWITCH_KEY: {
-                auto c_swk_ptr = std::any_cast<std::shared_ptr<CKeySwitchKey>>(c_struct);
-                const CKeySwitchKey* c_swk = c_swk_ptr.get();
-                auto gpu_switch_key = std::make_shared<heongpu::Switchkey<SchemeType>>(*context, *stream_option);
-                export_switching_key(*c_swk, *gpu_switch_key, (*context)->get_ciphertext_modulus_count(),
-                                     (*context)->get_key_modulus_count());
-                local_data[output_index] = gpu_switch_key;
+                if constexpr (SchemeType == heongpu::Scheme::CKKS) {
+                    auto c_swk_ptr = std::any_cast<std::shared_ptr<CSwitchingKey>>(c_struct);
+                    const CSwitchingKey* c_swk = c_swk_ptr.get();
+                    auto gpu_switch_key =
+                        std::make_shared<heongpu::Switchkey<SchemeType>>(*context, c_swk->level_q, *stream_option);
+                    export_switching_key(*c_swk, *gpu_switch_key);
+                    local_data[output_index] = gpu_switch_key;
+                } else {
+                    throw std::runtime_error("Switch keys are only supported for CKKS GPU ABI transfers");
+                }
                 break;
             }
             default: throw std::runtime_error("Unsupported data type in H2D transfer");
@@ -338,7 +281,7 @@ template <heongpu::Scheme SchemeType> ExecutorFunc create_store_from_gpu_executo
                 auto gpu_ct = std::any_cast<std::shared_ptr<heongpu::Ciphertext<SchemeType>>>(gpu_data);
 
                 auto* c_ct = (CCiphertext*)malloc(sizeof(CCiphertext));
-                alloc_ciphertext(c_ct, gpu_ct->size() - 1, gpu_ct->level(), gpu_ct->ring_size());
+                alloc_ciphertext(c_ct, gpu_ct->size(), gpu_ct->level(), gpu_ct->ring_size());
                 c_struct = std::shared_ptr<CCiphertext>(c_ct, [](CCiphertext* ptr) {
                     free_ciphertext(ptr);
                     free(ptr);

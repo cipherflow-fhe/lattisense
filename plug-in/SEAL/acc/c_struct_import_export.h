@@ -6,12 +6,11 @@ extern "C" {
 #include "c_argument.h"
 #include "c_structs.h"
 }
-#include <algorithm>
+#include <cstdlib>
 #include <cstring>
 #include <stdexcept>
 #include <vector>
 #include <seal/seal.h>
-#include "nlohmann/json.hpp"
 
 using namespace seal::util;
 
@@ -21,48 +20,45 @@ using namespace seal::util;
 
 inline void
 _export_ciphertext(uint64_t param_id, const ConstNTTTablesIter& ntt_tables, seal::Ciphertext* src, CCiphertext* dest) {
-    dest->level = src->coeff_modulus_size() - 1;
     int N = src->poly_modulus_degree();
-    dest->degree = src->size() - 1;
-    dest->polys = (CPolynomial*)malloc(sizeof(CPolynomial) * src->size());
+    int rns_size = src->coeff_modulus_size();
 
-    for (int i = 0; i < (int)src->size(); i++) {
-        dest->polys[i].n_component = dest->level + 1;
-        dest->polys[i].components = (CComponent*)malloc(sizeof(CComponent) * (dest->level + 1));
+    dest->level = rns_size - 1;
+    dest->cipher_size = static_cast<int>(src->size());
+    dest->ring_degree = N;
+    dest->data = (uint64_t*)malloc((size_t)dest->cipher_size * rns_size * N * sizeof(uint64_t));
 
-        for (int j = 0; j < dest->level + 1; j++) {
-            // Copy component data first, then do in-place transforms on the copy.
-            // dest->data points directly into the copy (no extra malloc needed).
-            uint64_t* copy = (uint64_t*)malloc(sizeof(uint64_t) * N);
-            memcpy(copy, &src->data(i)[j * N], N * sizeof(uint64_t));
+    for (int poly_idx = 0; poly_idx < dest->cipher_size; poly_idx++) {
+        memcpy(c_ciphertext_rns_limb(dest, poly_idx, 0), src->data(poly_idx), (size_t)rns_size * N * sizeof(uint64_t));
+    }
 
-            if (src->is_ntt_form()) {
-                CoeffIter copy_coeff(copy);
-                inverse_ntt_negacyclic_harvey(copy_coeff, ntt_tables[j]);
-                ckks_component_ntt(param_id, copy, j);
-            }
-
-            dest->polys[i].components[j].n = N;
-            dest->polys[i].components[j].data = copy;
+    if (src->is_ntt_form()) {
+        PolyIter dest_iter(dest->data, N, rns_size);
+        inverse_ntt_negacyclic_harvey(dest_iter, dest->cipher_size, ntt_tables);
+        for (int poly_idx = 0; poly_idx < dest->cipher_size; poly_idx++) {
+            ckks_poly_ntt(param_id, c_ciphertext_rns_limb(dest, poly_idx, 0), dest->level, -1);
         }
     }
 }
 
 inline void
 _import_ciphertext(uint64_t param_id, const ConstNTTTablesIter& ntt_tables, CCiphertext* src, seal::Ciphertext* dest) {
-    int N = src->polys->components->n;
-    for (int i = 0; i < src->degree + 1; i++) {
-        for (int j = 0; j < src->polys[i].n_component; j++) {
-            if (dest->is_ntt_form()) {
-                ckks_component_inv_ntt(param_id, src->polys[i].components[j].data, j);
-            }
-            memcpy(&dest->data(i)[j * N], src->polys[i].components[j].data, N * sizeof(uint64_t));
+    int rns_size = c_ciphertext_rns_size(src);
+    int N = src->ring_degree;
 
-            if (dest->is_ntt_form()) {
-                CoeffIter dest_coeff(&dest->data(i)[j * N]);
-                ntt_negacyclic_harvey(dest_coeff, ntt_tables[j]);
-            }
+    if (dest->is_ntt_form()) {
+        for (int poly_idx = 0; poly_idx < src->cipher_size; poly_idx++) {
+            ckks_poly_inv_ntt(param_id, c_ciphertext_rns_limb(src, poly_idx, 0), src->level, -1);
         }
+    }
+
+    for (int poly_idx = 0; poly_idx < src->cipher_size; poly_idx++) {
+        memcpy(dest->data(poly_idx), c_ciphertext_rns_limb(src, poly_idx, 0), (size_t)rns_size * N * sizeof(uint64_t));
+    }
+
+    if (dest->is_ntt_form()) {
+        PolyIter dest_iter(dest->data(), N, rns_size);
+        ntt_negacyclic_harvey(dest_iter, src->cipher_size, ntt_tables);
     }
 }
 
@@ -71,22 +67,17 @@ inline void _export_plaintext(uint64_t param_id,
                               const ConstNTTTablesIter& ntt_tables,
                               seal::Plaintext* src,
                               CPlaintext* dest) {
-    dest->level = src->coeff_count() / N - 1;
-    dest->poly.n_component = dest->level + 1;
-    dest->poly.components = (CComponent*)malloc(sizeof(CComponent) * (dest->level + 1));
+    int rns_size = src->coeff_count() / N;
 
-    for (int j = 0; j < dest->level + 1; j++) {
-        uint64_t* copy = (uint64_t*)malloc(sizeof(uint64_t) * N);
-        memcpy(copy, &src->data()[j * N], N * sizeof(uint64_t));
+    dest->level = rns_size - 1;
+    dest->ring_degree = N;
+    dest->data = (uint64_t*)malloc((size_t)rns_size * N * sizeof(uint64_t));
+    memcpy(dest->data, src->data(), (size_t)rns_size * N * sizeof(uint64_t));
 
-        if (src->is_ntt_form()) {
-            CoeffIter copy_coeff(copy);
-            inverse_ntt_negacyclic_harvey(copy_coeff, ntt_tables[j]);
-            ckks_component_ntt(param_id, copy, j);
-        }
-
-        dest->poly.components[j].n = N;
-        dest->poly.components[j].data = copy;
+    if (src->is_ntt_form()) {
+        RNSIter dest_iter(dest->data, N);
+        inverse_ntt_negacyclic_harvey(dest_iter, rns_size, ntt_tables);
+        ckks_poly_ntt(param_id, dest->data, dest->level, -1);
     }
 }
 
@@ -94,48 +85,42 @@ inline void _export_key_switch_key(uint64_t param_id,
                                    seal::scheme_type scheme,
                                    const ConstNTTTablesIter& ntt_tables,
                                    const std::vector<seal::PublicKey>& src,
-                                   CKeySwitchKey* dest,
+                                   CSwitchingKey* dest,
                                    int level,
                                    int mf_nbits) {
-    int n_public_key = level + 1;
-    int N = src[0].data().poly_modulus_degree();
-    int n_component = src[0].data().coeff_modulus_size();
+    if (src.empty()) {
+        throw std::runtime_error("empty SEAL key-switch key");
+    }
 
-    dest->n_public_key = n_public_key;
-    dest->public_keys = (CPublicKey*)malloc(sizeof(CPublicKey) * n_public_key);
+    int ring_degree = src[0].data().poly_modulus_degree();
+    int decomp_rns = static_cast<int>(src.size());
+    int rns_size = src[0].data().coeff_modulus_size();
+    int p_size = rns_size - (level + 1);
 
-    for (int k = 0; k < n_public_key; k++) {
-        dest->public_keys[k].level = level;
-        dest->public_keys[k].degree = 1;
-        dest->public_keys[k].polys = (CPolynomial*)malloc(sizeof(CPolynomial) * 2);
+    dest->level_q = level;
+    dest->level_p = p_size - 1;
+    dest->ring_degree = ring_degree;
 
-        for (int i = 0; i < 2; i++) {
-            dest->public_keys[k].polys[i].n_component = n_component;
-            dest->public_keys[k].polys[i].components = (CComponent*)malloc(sizeof(CComponent) * n_component);
+    dest->data = (uint64_t*)malloc((size_t)decomp_rns * 2 * rns_size * ring_degree * sizeof(uint64_t));
 
-            for (int j = 0; j < n_component; j++) {
-                dest->public_keys[k].polys[i].components[j].n = N;
+    for (int decomp_idx = 0; decomp_idx < decomp_rns; decomp_idx++) {
+        const seal::Ciphertext& public_key = src[decomp_idx].data();
+        for (int poly_idx = 0; poly_idx < 2; poly_idx++) {
+            uint64_t* dest_poly = c_switching_key_rns_limb(dest, decomp_idx, poly_idx, 0);
+            memcpy(dest_poly, public_key.data(poly_idx), (size_t)rns_size * ring_degree * sizeof(uint64_t));
+            RNSIter dest_poly_iter(dest_poly, ring_degree);
+            inverse_ntt_negacyclic_harvey(dest_poly_iter, rns_size, ntt_tables);
 
-                // Copy first, then do in-place transforms on the copy.
-                uint64_t* copy = (uint64_t*)malloc(sizeof(uint64_t) * N);
-                memcpy(copy, &src[k].data().data(i)[j * N], N * sizeof(uint64_t));
-
-                CoeffIter copy_coeff(copy);
-                inverse_ntt_negacyclic_harvey(copy_coeff, ntt_tables[j]);
-
-                if (scheme == seal::scheme_type::bfv) {
-                    bfv_component_ntt(param_id, copy, j);
-                    if (mf_nbits != 0) {
-                        bfv_component_mul_by_pow2(param_id, copy, j, mf_nbits);
-                    }
-                } else {
-                    ckks_component_ntt(param_id, copy, j);
-                    if (mf_nbits != 0) {
-                        ckks_component_mul_by_pow2(param_id, copy, j, mf_nbits);
-                    }
+            if (scheme == seal::scheme_type::bfv) {
+                bfv_poly_ntt(param_id, dest_poly, dest->level_q, dest->level_p);
+                if (mf_nbits != 0) {
+                    bfv_poly_mul_by_pow2(param_id, dest_poly, dest->level_q, dest->level_p, mf_nbits);
                 }
-
-                dest->public_keys[k].polys[i].components[j].data = copy;
+            } else {
+                ckks_poly_ntt(param_id, dest_poly, dest->level_q, dest->level_p);
+                if (mf_nbits != 0) {
+                    ckks_poly_mul_by_pow2(param_id, dest_poly, dest->level_q, dest->level_p, mf_nbits);
+                }
             }
         }
     }
@@ -158,11 +143,11 @@ inline void _export_galois_key(uint64_t param_id,
                                CGaloisKey* dest,
                                int level,
                                int mf_nbits) {
-    int n_key_switch_key = dest->n_key_switch_key;
-    dest->key_switch_keys = (CKeySwitchKey*)malloc(sizeof(CKeySwitchKey) * n_key_switch_key);
+    int n_switching_key = dest->n_switching_key;
+    dest->switching_keys = (CSwitchingKey*)malloc(sizeof(CSwitchingKey) * n_switching_key);
 
-    for (int i = 0; i < n_key_switch_key; i++) {
+    for (int i = 0; i < n_switching_key; i++) {
         _export_key_switch_key(param_id, scheme, ntt_tables, src->key(dest->galois_elements[i]),
-                               &dest->key_switch_keys[i], level, mf_nbits);
+                               &dest->switching_keys[i], level, mf_nbits);
     }
 }

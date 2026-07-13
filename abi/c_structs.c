@@ -20,81 +20,78 @@
 #include "c_structs.h"
 #include "liblattigo.h"
 
-void alloc_component(CComponent* component, int n) {
-    component->n = n;
-    component->data = (uint64_t*)malloc(n * sizeof(uint64_t));
-}
-
-void alloc_polynomial(CPolynomial* polynomial, int level, int n) {
-    int n_component = level + 1;
-    polynomial->n_component = n_component;
-    polynomial->components = (CComponent*)malloc(n_component * sizeof(CComponent));
-    for (int i = 0; i < n_component; i++) {
-        alloc_component(&polynomial->components[i], n);
-    }
-}
-
-void alloc_plaintext(CPlaintext* pt, int level, int n) {
+void alloc_plaintext(CPlaintext* pt, int level, int ring_degree) {
     pt->level = level;
-    alloc_polynomial(&pt->poly, level, n);
+    pt->ring_degree = ring_degree;
+    pt->data = (uint64_t*)malloc((size_t)(level + 1) * ring_degree * sizeof(uint64_t));
 }
 
-void alloc_ciphertext(CCiphertext* ct, int degree, int level, int n) {
-    ct->degree = degree;
+void alloc_ciphertext(CCiphertext* ct, int cipher_size, int level, int ring_degree) {
     ct->level = level;
-    ct->polys = (CPolynomial*)malloc((degree + 1) * sizeof(CPolynomial));
-    for (int i = 0; i < degree + 1; i++) {
-        alloc_polynomial(&ct->polys[i], level, n);
+    ct->cipher_size = cipher_size;
+    ct->ring_degree = ring_degree;
+    ct->data = (uint64_t*)malloc((size_t)cipher_size * (level + 1) * ring_degree * sizeof(uint64_t));
+}
+
+void alloc_switching_key(CSwitchingKey* swk, int level_q, int level_p, int ring_degree) {
+    swk->level_q = level_q;
+    swk->level_p = level_p;
+    swk->ring_degree = ring_degree;
+    swk->data = (uint64_t*)malloc((size_t)c_switching_key_decomp_rns(swk) * 2 * c_switching_key_rns_size(swk) *
+                                  ring_degree * sizeof(uint64_t));
+}
+
+void alloc_relin_key(CRelinKey* rlk, int level_q, int level_p, int ring_degree) {
+    alloc_switching_key(rlk, level_q, level_p, ring_degree);
+}
+
+void alloc_galois_key(CGaloisKey* glk, int n_switching_key, int level_q, int level_p, int ring_degree) {
+    glk->n_switching_key = n_switching_key;
+    glk->galois_elements = (uint64_t*)malloc(sizeof(uint64_t) * n_switching_key);
+    glk->switching_keys = (CSwitchingKey*)malloc(sizeof(CSwitchingKey) * n_switching_key);
+    for (int i = 0; i < n_switching_key; i++) {
+        alloc_switching_key(&glk->switching_keys[i], level_q, level_p, ring_degree);
     }
 }
 
-void alloc_relin_key(CRelinKey* rlk, int n_public_key, int level, int n) {
-    rlk->n_public_key = n_public_key;
-    rlk->public_keys = (CCiphertext*)malloc(n_public_key * sizeof(CCiphertext));
-    for (int i = 0; i < n_public_key; i++) {
-        alloc_ciphertext(&rlk->public_keys[i], 2, level, n);
-    }
-}
-
-void set_galois_key_steps(CGaloisKey* glk, uint64_t* galois_elements, int n_galois_elements) {
-    glk->n_key_switch_key = n_galois_elements;
-    glk->galois_elements = (uint64_t*)malloc(sizeof(uint64_t) * n_galois_elements);
-    for (int i = 0; i < n_galois_elements; i++) {
+void set_galois_key_steps(CGaloisKey* glk, const uint64_t* galois_elements, int n_switching_key) {
+    glk->n_switching_key = n_switching_key;
+    glk->galois_elements = (uint64_t*)malloc(sizeof(uint64_t) * n_switching_key);
+    glk->switching_keys = NULL;
+    for (int i = 0; i < n_switching_key; i++) {
         glk->galois_elements[i] = galois_elements[i];
     }
 }
 
-void free_polynomial(CPolynomial* polynomial) {
-    for (int i = 0; i < polynomial->n_component; i++) {
-        free(polynomial->components[i].data);
-    }
-    free(polynomial->components);
-}
-
 void free_plaintext(CPlaintext* pt) {
-    free_polynomial(&pt->poly);
+    free(pt->data);
+    pt->data = NULL;
 }
 
 void free_ciphertext(CCiphertext* ct) {
-    for (int i = 0; i < ct->degree + 1; i++) {
-        free_polynomial(&ct->polys[i]);
-    }
-    free(ct->polys);
+    free(ct->data);
+    ct->data = NULL;
+}
+
+void free_switching_key(CSwitchingKey* swk) {
+    free(swk->data);
+    swk->data = NULL;
 }
 
 void free_relin_key(CRelinKey* rlk) {
-    for (int i = 0; i < rlk->n_public_key; i++) {
-        free_ciphertext(&rlk->public_keys[i]);
-    }
-    free(rlk->public_keys);
+    free_switching_key(rlk);
 }
 
 void free_galois_key(CGaloisKey* gk) {
-    for (int i = 0; i < gk->n_key_switch_key; i++) {
-        free_relin_key(&gk->key_switch_keys[i]);
-    }
     free(gk->galois_elements);
-    free(gk->key_switch_keys);
+    if (gk->switching_keys != NULL) {
+        for (int i = 0; i < gk->n_switching_key; i++) {
+            free_switching_key(&gk->switching_keys[i]);
+        }
+    }
+    free(gk->switching_keys);
+    gk->galois_elements = NULL;
+    gk->switching_keys = NULL;
 }
 
 inline void import_bfv_ciphertext(uint64_t dest_handle, CCiphertext* c_ciphertext) {
@@ -177,35 +174,35 @@ inline void export_ckks_galois_key(uint64_t parameter_handle,
 
 inline void export_ckks_switching_key(uint64_t parameter_handle,
                                       uint64_t switching_key_handle,
-                                      int level,
-                                      int sp_level,
+                                      int level_q,
+                                      int level_p,
                                       int key_mf_nbits,
-                                      CKeySwitchKey* switching_key) {
-    ExportCkksSwitchingKey(parameter_handle, switching_key_handle, level, sp_level, key_mf_nbits, switching_key);
+                                      CSwitchingKey* switching_key) {
+    ExportCkksSwitchingKey(parameter_handle, switching_key_handle, level_q, level_p, key_mf_nbits, switching_key);
 }
 
-inline void bfv_component_ntt(uint64_t parameter_handle, uint64_t* coeff, int lvl_idx) {
-    BfvComponentNttInplace(parameter_handle, coeff, lvl_idx);
+inline void bfv_poly_ntt(uint64_t parameter_handle, uint64_t* data, int level_q, int level_p) {
+    BfvPolyNttInplace(parameter_handle, data, level_q, level_p);
 }
 
-inline void bfv_component_inv_ntt(uint64_t parameter_handle, uint64_t* coeff, int lvl_idx) {
-    BfvComponentInvNttInplace(parameter_handle, coeff, lvl_idx);
+inline void bfv_poly_inv_ntt(uint64_t parameter_handle, uint64_t* data, int level_q, int level_p) {
+    BfvPolyInvNttInplace(parameter_handle, data, level_q, level_p);
 }
 
-inline void ckks_component_ntt(uint64_t parameter_handle, uint64_t* coeff, int lvl_idx) {
-    CkksComponentNttInplace(parameter_handle, coeff, lvl_idx);
+inline void bfv_poly_mul_by_pow2(uint64_t parameter_handle, uint64_t* data, int level_q, int level_p, int pow2) {
+    BfvPolyMulByPow2Inplace(parameter_handle, data, level_q, level_p, pow2);
 }
 
-inline void ckks_component_inv_ntt(uint64_t parameter_handle, uint64_t* coeff, int lvl_idx) {
-    CkksComponentInvNttInplace(parameter_handle, coeff, lvl_idx);
+inline void ckks_poly_ntt(uint64_t parameter_handle, uint64_t* data, int level_q, int level_p) {
+    CkksPolyNttInplace(parameter_handle, data, level_q, level_p);
 }
 
-inline void bfv_component_mul_by_pow2(uint64_t parameter_handle, uint64_t* coeff, int lvl_idx, int pow2) {
-    BfvComponentMulByPow2Inplace(parameter_handle, coeff, lvl_idx, pow2);
+inline void ckks_poly_inv_ntt(uint64_t parameter_handle, uint64_t* data, int level_q, int level_p) {
+    CkksPolyInvNttInplace(parameter_handle, data, level_q, level_p);
 }
 
-inline void ckks_component_mul_by_pow2(uint64_t parameter_handle, uint64_t* coeff, int lvl_idx, int pow2) {
-    CkksComponentMulByPow2Inplace(parameter_handle, coeff, lvl_idx, pow2);
+inline void ckks_poly_mul_by_pow2(uint64_t parameter_handle, uint64_t* data, int level_q, int level_p, int pow2) {
+    CkksPolyMulByPow2Inplace(parameter_handle, data, level_q, level_p, pow2);
 }
 
 inline uint64_t

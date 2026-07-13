@@ -63,7 +63,7 @@ using namespace fhe_ops_lib;
  * - BfvCiphertext/CkksCiphertext → CCiphertext
  * - BfvPlaintext/CkksPlaintext → CPlaintext (ringt/mul/normal)
  * - RelinKey/GaloisKey → CRelinKey/CGaloisKey
- * - KeySwitchKey → CKeySwitchKey (CKKS only)
+ * - KeySwitchKey → CSwitchingKey (CKKS only)
  *
  * @param algorithm FHE algorithm (ALGO_BFV or ALGO_CKKS)
  * @param heterogeneous_mode true to convert to C structs (GPU/FPGA), false to pass through native handles (CPU)
@@ -367,11 +367,11 @@ create_abi_export_executor(Algo algorithm, bool heterogeneous_mode = true, int m
                         break;
                     KeySwitchKey* swk = static_cast<KeySwitchKey*>(input_ptr.get());
 
-                    CKeySwitchKey* c_swk = (CKeySwitchKey*)malloc(sizeof(CKeySwitchKey));
+                    CSwitchingKey* c_swk = (CSwitchingKey*)malloc(sizeof(CSwitchingKey));
                     export_ckks_switching_key(param.get(), swk->get(), level, sp_level, key_mf_nbits, c_swk);
                     local_data[self.output_nodes[0]->index] =
-                        std::shared_ptr<CKeySwitchKey>(c_swk, [](CKeySwitchKey* p) {
-                            free_relin_key(p);  // CKeySwitchKey is typedef of CRelinKey
+                        std::shared_ptr<CSwitchingKey>(c_swk, [](CSwitchingKey* p) {
+                            free_switching_key(p);
                             free(p);
                         });
                     break;

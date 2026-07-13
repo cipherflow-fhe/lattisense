@@ -54,20 +54,20 @@ inline int get_data_node_size(const DatumNode& node) {
         throw std::runtime_error("Node missing FHE properties for FPGA size calculation");
     }
 
-    int n_component = node.fhe_prop->level + 1;
+    int q_rns_size = node.fhe_prop->level + 1;
 
     switch (node.datum_type) {
-        case TYPE_CIPHERTEXT: return (node.fhe_prop->degree + 1) * n_component;
-        case TYPE_PLAINTEXT: return n_component;
+        case TYPE_CIPHERTEXT: return (node.fhe_prop->degree + 1) * q_rns_size;
+        case TYPE_PLAINTEXT: return q_rns_size;
         case TYPE_RELIN_KEY: {
-            int p_count = node.fhe_prop->sp_level + 1;
-            int n_public_key = (n_component + p_count - 1) / p_count;
-            return n_public_key * 2 * (n_component + p_count);
+            int p_rns_size = node.fhe_prop->sp_level + 1;
+            int decomp_rns = (q_rns_size + p_rns_size - 1) / p_rns_size;
+            return decomp_rns * 2 * (q_rns_size + p_rns_size);
         }
         case TYPE_GALOIS_KEY: {
-            int p_count = node.fhe_prop->sp_level + 1;
-            int n_public_key = (n_component + p_count - 1) / p_count;
-            return 1 * n_public_key * 2 * (n_component + p_count);  // One key_switch_key per rotation
+            int p_rns_size = node.fhe_prop->sp_level + 1;
+            int decomp_rns = (q_rns_size + p_rns_size - 1) / p_rns_size;
+            return decomp_rns * 2 * (q_rns_size + p_rns_size);  // One switching key per rotation
         }
         default: throw std::runtime_error("Unsupported data type for FPGA size calculation");
     }
@@ -251,7 +251,7 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
                         int level = c_struct_node->fhe_prop->level;
 
                         auto* c_ct = (CCiphertext*)malloc(sizeof(CCiphertext));
-                        alloc_ciphertext(c_ct, degree, level, n);
+                        alloc_ciphertext(c_ct, degree + 1, level, n);
                         export_ct_pointers(c_ct, proj->pvo, offset, false);
 
                         available_data[c_struct_node->index] = std::shared_ptr<CCiphertext>(c_ct, [](CCiphertext* p) {

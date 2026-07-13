@@ -131,8 +131,8 @@ if(LATTISENSE_ENABLE_GPU)
     endif()
 
     if(EXISTS "${HEONGPU_INSTALL_DIR}/lib" AND NOT HEONGPU_INSTALL_CURRENT)
-        message(STATUS "HEonGPU install cache key mismatch; rebuilding ${HEONGPU_CACHE_KEY}")
-        file(REMOVE_RECURSE "${HEONGPU_BUILD_DIR}" "${HEONGPU_INSTALL_DIR}")
+        message(STATUS "HEonGPU install cache key mismatch; reinstalling ${HEONGPU_CACHE_KEY}")
+        file(REMOVE_RECURSE "${HEONGPU_INSTALL_DIR}")
     endif()
 
     if(NOT HEONGPU_INSTALL_CURRENT)

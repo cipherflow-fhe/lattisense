@@ -19,19 +19,23 @@
 #pragma once
 #include "c_types.h"
 
-void alloc_component(CComponent* component, int n);
+void alloc_plaintext(CPlaintext* pt, int level, int ring_degree);
 
-void alloc_plaintext(CPlaintext* pt, int level, int n);
+void alloc_ciphertext(CCiphertext* ct, int cipher_size, int level, int ring_degree);
 
-void alloc_ciphertext(CCiphertext* ct, int degree, int level, int n);
+void alloc_switching_key(CSwitchingKey* swk, int level_q, int level_p, int ring_degree);
 
 void free_plaintext(CPlaintext* pt);
 
 void free_ciphertext(CCiphertext* ct);
 
-void alloc_relin_key(CRelinKey* rlk, int n_public_key, int level, int n);
+void free_switching_key(CSwitchingKey* swk);
 
-void set_galois_key_steps(CGaloisKey* glk, uint64_t* galois_elements, int n_galois_elements);
+void alloc_relin_key(CRelinKey* rlk, int level_q, int level_p, int ring_degree);
+
+void alloc_galois_key(CGaloisKey* glk, int n_switching_key, int level_q, int level_p, int ring_degree);
+
+void set_galois_key_steps(CGaloisKey* glk, const uint64_t* galois_elements, int n_switching_key);
 
 void free_relin_key(CRelinKey* rlk);
 
@@ -89,22 +93,22 @@ void export_ckks_galois_key(uint64_t parameter_handle,
 
 void export_ckks_switching_key(uint64_t parameter_handle,
                                uint64_t switching_key_handle,
-                               int level,
-                               int sp_level,
+                               int level_q,
+                               int level_p,
                                int key_mf_nbits,
-                               CKeySwitchKey* switching_key);
+                               CSwitchingKey* switching_key);
 
-void bfv_component_ntt(uint64_t parameter_handle, uint64_t* coeff, int lvl_idx);
+void bfv_poly_ntt(uint64_t parameter_handle, uint64_t* data, int level_q, int level_p);
 
-void bfv_component_inv_ntt(uint64_t parameter_handle, uint64_t* coeff, int lvl_idx);
+void bfv_poly_inv_ntt(uint64_t parameter_handle, uint64_t* data, int level_q, int level_p);
 
-void ckks_component_ntt(uint64_t parameter_handle, uint64_t* coeff, int lvl_idx);
+void bfv_poly_mul_by_pow2(uint64_t parameter_handle, uint64_t* data, int level_q, int level_p, int pow2);
 
-void ckks_component_inv_ntt(uint64_t parameter_handle, uint64_t* coeff, int lvl_idx);
+void ckks_poly_ntt(uint64_t parameter_handle, uint64_t* data, int level_q, int level_p);
 
-void bfv_component_mul_by_pow2(uint64_t parameter_handle, uint64_t* coeff, int lvl_idx, int pow2);
+void ckks_poly_inv_ntt(uint64_t parameter_handle, uint64_t* data, int level_q, int level_p);
 
-void ckks_component_mul_by_pow2(uint64_t parameter_handle, uint64_t* coeff, int lvl_idx, int pow2);
+void ckks_poly_mul_by_pow2(uint64_t parameter_handle, uint64_t* data, int level_q, int level_p, int pow2);
 
 uint64_t c_set_bfv_parameter(uint64_t N, uint64_t T, const uint64_t* Q, int q_len, const uint64_t* P, int p_len);
 
