@@ -56,55 +56,77 @@ inline void CHECK(cudaError_t err) {
     }
 }
 
-struct H2DEntry {
+struct GpuTransferEntry {
     void* dst;
     void* src;
     size_t size;
 };
 
+inline void append_gpu_transfer(std::vector<GpuTransferEntry>& entries, void* dst, const void* src, size_t size) {
+    if (size == 0) {
+        return;
+    }
+    entries.push_back({dst, const_cast<void*>(src), size});
+}
+
+inline void submit_gpu_transfer_batch(const std::vector<GpuTransferEntry>& entries,
+                                      cudaMemcpyKind fallback_kind,
+                                      cudaStream_t stream) {
+    if (entries.empty()) {
+        return;
+    }
+
+#if defined(CUDART_VERSION) && CUDART_VERSION >= 12080
+    if (entries.size() > 1) {
+        std::vector<void*> dsts;
+        std::vector<void*> srcs;
+        std::vector<size_t> sizes;
+        dsts.reserve(entries.size());
+        srcs.reserve(entries.size());
+        sizes.reserve(entries.size());
+
+        for (const auto& entry : entries) {
+            dsts.push_back(entry.dst);
+            srcs.push_back(entry.src);
+            sizes.push_back(entry.size);
+        }
+
+        cudaMemcpyAttributes attr{};
+        attr.srcAccessOrder = cudaMemcpySrcAccessOrderStream;
+        size_t attr_idx = 0;
+        size_t fail_idx = std::numeric_limits<size_t>::max();
+        CHECK(cudaMemcpyBatchAsync(dsts.data(), srcs.data(), sizes.data(), entries.size(), &attr, &attr_idx, 1,
+                                   &fail_idx, stream));
+        return;
+    }
+#endif
+
+    for (const auto& entry : entries) {
+        CHECK(cudaMemcpyAsync(entry.dst, entry.src, entry.size, fallback_kind, stream));
+    }
+}
+
 struct H2DBatch {
-    std::vector<H2DEntry> entries;
+    std::vector<GpuTransferEntry> entries;
 
     void append(void* dst, const void* src, size_t size) {
-        if (size == 0) {
-            return;
-        }
-        entries.push_back({dst, const_cast<void*>(src), size});
+        append_gpu_transfer(entries, dst, src, size);
     }
 
     void submit(cudaStream_t stream) const {
-        if (entries.empty()) {
-            return;
-        }
+        submit_gpu_transfer_batch(entries, cudaMemcpyHostToDevice, stream);
+    }
+};
 
-#if defined(CUDART_VERSION) && CUDART_VERSION >= 12080
-        if (entries.size() > 1) {
-            std::vector<void*> dsts;
-            std::vector<void*> srcs;
-            std::vector<size_t> sizes;
-            dsts.reserve(entries.size());
-            srcs.reserve(entries.size());
-            sizes.reserve(entries.size());
+struct D2HBatch {
+    std::vector<GpuTransferEntry> entries;
 
-            for (const auto& entry : entries) {
-                dsts.push_back(entry.dst);
-                srcs.push_back(entry.src);
-                sizes.push_back(entry.size);
-            }
+    void append(void* dst, const void* src, size_t size) {
+        append_gpu_transfer(entries, dst, src, size);
+    }
 
-            cudaMemcpyAttributes attr{};
-            attr.srcAccessOrder = cudaMemcpySrcAccessOrderStream;
-            size_t attr_idx = 0;
-            size_t fail_idx = std::numeric_limits<size_t>::max();
-            CHECK(cudaMemcpyBatchAsync(dsts.data(), srcs.data(), sizes.data(), entries.size(), &attr, &attr_idx, 1,
-                                       &fail_idx, stream));
-            return;
-        }
-#endif
-
-        for (const auto& entry : entries) {
-            CHECK(cudaMemcpyAsync(entry.dst, entry.src, entry.size, cudaMemcpyHostToDevice, stream));
-        }
+    void submit(cudaStream_t stream) const {
+        submit_gpu_transfer_batch(entries, cudaMemcpyDeviceToHost, stream);
     }
 };
 
@@ -177,10 +199,10 @@ void export_switching_key(const ::CSwitchingKey& src, heongpu::Switchkey<SchemeT
 /**
  * @brief Import ciphertext from GPU device memory to C struct
  */
-template <heongpu::Scheme SchemeType> void import_ciphertext(heongpu::Ciphertext<SchemeType>& src, CCiphertext* dest) {
-    CHECK(cudaMemcpyAsync(dest->data, src.data(),
-                          dest->cipher_size * c_ciphertext_rns_size(dest) * dest->ring_degree * sizeof(uint64_t),
-                          cudaMemcpyDeviceToHost, src.stream()));
+template <heongpu::Scheme SchemeType>
+void import_ciphertext(heongpu::Ciphertext<SchemeType>& src, CCiphertext* dest, D2HBatch& batch) {
+    batch.append(dest->data, src.data(),
+                 dest->cipher_size * c_ciphertext_rns_size(dest) * dest->ring_degree * sizeof(uint64_t));
 }
 
 /**
@@ -319,6 +341,11 @@ template <heongpu::Scheme SchemeType> ExecutorFunc create_load_to_gpu_executor()
 template <heongpu::Scheme SchemeType> ExecutorFunc create_store_from_gpu_executor() {
     return [](ExecutionContext& ctx, std::unordered_map<NodeIndex, std::any>& local_data,
               const ComputeNode& self) -> void {
+        auto* d2h_batch = ctx.get_other_arg<D2HBatch>(2);
+        if (!d2h_batch) {
+            throw std::runtime_error("GPU D2H batch not found in execution context");
+        }
+
         // Get input node and GPU data
         const DatumNode* input_node = self.input_nodes[0];
         // Determine data type
@@ -344,7 +371,7 @@ template <heongpu::Scheme SchemeType> ExecutorFunc create_store_from_gpu_executo
                     free(ptr);
                 });
 
-                import_ciphertext(*gpu_ct, c_ct);
+                import_ciphertext(*gpu_ct, c_ct, *d2h_batch);
                 break;
             }
             default: throw std::runtime_error("Unsupported data type for D2H transfer");
