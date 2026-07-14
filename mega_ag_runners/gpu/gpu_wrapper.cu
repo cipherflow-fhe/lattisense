@@ -267,19 +267,24 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
                     }
 
                     // Execute computation using unified executor
+                    H2DBatch h2d_batch;
                     ExecutionContext exec_ctx;
                     exec_ctx.context = operators.get();
                     exec_ctx.other_args.push_back(&stream_options[stream_id]);
                     exec_ctx.other_args.push_back(&context);
 
-                    // LOAD_TO_BACKEND needs galois_key parameters after the common stream/context args.
+                    // LOAD_TO_BACKEND needs galois_key parameters and H2D batch after the common stream/context args.
                     if (has_load_to_backend) {
                         exec_ctx.other_args.push_back(&galois_key);
                         exec_ctx.other_args.push_back(&galois_key_mutex);
                         exec_ctx.other_args.push_back(&all_galois_elts);
+                        exec_ctx.other_args.push_back(&h2d_batch);
                     }
 
                     compute_node.execute(exec_ctx, thread_data_cache);
+                    if (has_load_to_backend) {
+                        h2d_batch.submit(streams[stream_id]);
+                    }
 
                     // Create events for GPU backend outputs (not STORE_FROM_BACKEND which outputs to C struct)
                     std::vector<cudaEvent_t> output_events;

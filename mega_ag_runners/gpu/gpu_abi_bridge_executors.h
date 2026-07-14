@@ -37,6 +37,8 @@
 #include <stdexcept>
 #include <any>
 #include <mutex>
+#include <vector>
+#include <limits>
 
 #include <heongpu/heongpu.hpp>
 
@@ -54,32 +56,82 @@ inline void CHECK(cudaError_t err) {
     }
 }
 
+struct H2DEntry {
+    void* dst;
+    void* src;
+    size_t size;
+};
+
+struct H2DBatch {
+    std::vector<H2DEntry> entries;
+
+    void append(void* dst, const void* src, size_t size) {
+        if (size == 0) {
+            return;
+        }
+        entries.push_back({dst, const_cast<void*>(src), size});
+    }
+
+    void submit(cudaStream_t stream) const {
+        if (entries.empty()) {
+            return;
+        }
+
+#if defined(CUDART_VERSION) && CUDART_VERSION >= 12080
+        if (entries.size() > 1) {
+            std::vector<void*> dsts;
+            std::vector<void*> srcs;
+            std::vector<size_t> sizes;
+            dsts.reserve(entries.size());
+            srcs.reserve(entries.size());
+            sizes.reserve(entries.size());
+
+            for (const auto& entry : entries) {
+                dsts.push_back(entry.dst);
+                srcs.push_back(entry.src);
+                sizes.push_back(entry.size);
+            }
+
+            cudaMemcpyAttributes attr{};
+            attr.srcAccessOrder = cudaMemcpySrcAccessOrderStream;
+            size_t attr_idx = 0;
+            size_t fail_idx = std::numeric_limits<size_t>::max();
+            CHECK(cudaMemcpyBatchAsync(dsts.data(), srcs.data(), sizes.data(), entries.size(), &attr, &attr_idx, 1,
+                                       &fail_idx, stream));
+            return;
+        }
+#endif
+
+        for (const auto& entry : entries) {
+            CHECK(cudaMemcpyAsync(entry.dst, entry.src, entry.size, cudaMemcpyHostToDevice, stream));
+        }
+    }
+};
+
 /**
  * @brief Export plaintext from C struct to GPU device memory
  */
 template <heongpu::Scheme SchemeType>
-void export_plaintext(const CPlaintext& src, heongpu::Plaintext<SchemeType>& dest) {
-    CHECK(cudaMemcpyAsync(dest.data(), src.data, c_plaintext_rns_size(&src) * src.ring_degree * sizeof(uint64_t),
-                          cudaMemcpyHostToDevice, dest.stream()));
+void export_plaintext(const CPlaintext& src, heongpu::Plaintext<SchemeType>& dest, H2DBatch& batch) {
+    batch.append(dest.data(), src.data, c_plaintext_rns_size(&src) * src.ring_degree * sizeof(uint64_t));
 }
 
 /**
  * @brief Export ciphertext from C struct to GPU device memory
  */
 template <heongpu::Scheme SchemeType>
-void export_ciphertext(const CCiphertext& src, heongpu::Ciphertext<SchemeType>& dest) {
-    CHECK(cudaMemcpyAsync(dest.data(), src.data,
-                          src.cipher_size * c_ciphertext_rns_size(&src) * src.ring_degree * sizeof(uint64_t),
-                          cudaMemcpyHostToDevice, dest.stream()));
+void export_ciphertext(const CCiphertext& src, heongpu::Ciphertext<SchemeType>& dest, H2DBatch& batch) {
+    batch.append(dest.data(), src.data,
+                 src.cipher_size * c_ciphertext_rns_size(&src) * src.ring_degree * sizeof(uint64_t));
 }
 
 /**
  * @brief Export relinearization key from C struct to GPU device memory
  */
-template <heongpu::Scheme SchemeType> void export_relin_key(const CRelinKey& src, heongpu::Relinkey<SchemeType>& dest) {
+template <heongpu::Scheme SchemeType>
+void export_relin_key(const CRelinKey& src, heongpu::Relinkey<SchemeType>& dest, H2DBatch& batch) {
     size_t element_count = (size_t)c_relin_key_decomp_rns(&src) * 2 * c_relin_key_rns_size(&src) * src.ring_degree;
-    CHECK(cudaMemcpyAsync(dest.data(), src.data, element_count * sizeof(uint64_t), cudaMemcpyHostToDevice,
-                          dest.stream()));
+    batch.append(dest.data(), src.data, element_count * sizeof(uint64_t));
 }
 
 /**
@@ -95,7 +147,10 @@ inline const CSwitchingKey* find_galois_switching_key(const CGaloisKey& src, uin
 }
 
 template <heongpu::Scheme SchemeType>
-void export_galois_key(const CGaloisKey& src, heongpu::Galoiskey<SchemeType>& dest, uint32_t galois_element) {
+void export_galois_key(const CGaloisKey& src,
+                       heongpu::Galoiskey<SchemeType>& dest,
+                       uint32_t galois_element,
+                       H2DBatch& batch) {
     const CSwitchingKey* switching_key = find_galois_switching_key(src, galois_element);
     if (!switching_key) {
         throw std::runtime_error("Galois key missing requested galois element");
@@ -106,19 +161,17 @@ void export_galois_key(const CGaloisKey& src, heongpu::Galoiskey<SchemeType>& de
     auto* dest_data = galois_element != static_cast<uint32_t>(2 * switching_key->ring_degree - 1) ?
                           dest.data(galois_element) :
                           dest.c_data();
-    CHECK(cudaMemcpyAsync(dest_data, switching_key->data, element_count * sizeof(uint64_t), cudaMemcpyHostToDevice,
-                          dest.stream()));
+    batch.append(dest_data, switching_key->data, element_count * sizeof(uint64_t));
 }
 
 /**
  * @brief Export switching key from C struct to GPU device memory
  */
 template <heongpu::Scheme SchemeType>
-void export_switching_key(const ::CSwitchingKey& src, heongpu::Switchkey<SchemeType>& dest) {
+void export_switching_key(const ::CSwitchingKey& src, heongpu::Switchkey<SchemeType>& dest, H2DBatch& batch) {
     size_t element_count =
         (size_t)c_switching_key_decomp_rns(&src) * 2 * c_switching_key_rns_size(&src) * src.ring_degree;
-    CHECK(cudaMemcpyAsync(dest.data(), src.data, element_count * sizeof(uint64_t), cudaMemcpyHostToDevice,
-                          dest.stream()));
+    batch.append(dest.data(), src.data, element_count * sizeof(uint64_t));
 }
 
 /**
@@ -160,9 +213,13 @@ template <heongpu::Scheme SchemeType> ExecutorFunc create_load_to_gpu_executor()
         auto* galois_key_ptr = ctx.get_other_arg<std::shared_ptr<heongpu::Galoiskey<SchemeType>>>(2);
         auto* galois_key_mutex = ctx.get_other_arg<std::mutex>(3);
         auto* all_galois_elts = ctx.get_other_arg<std::vector<uint32_t>>(4);
+        auto* h2d_batch = ctx.get_other_arg<H2DBatch>(5);
 
         if (!stream_option || !context) {
             throw std::runtime_error("GPU stream options or context not found in execution context");
+        }
+        if (!h2d_batch) {
+            throw std::runtime_error("GPU H2D batch not found in execution context");
         }
 
         // Get input node and data
@@ -189,7 +246,7 @@ template <heongpu::Scheme SchemeType> ExecutorFunc create_load_to_gpu_executor()
                 const CPlaintext* c_pt = c_pt_ptr.get();
                 auto gpu_plaintext =
                     std::make_shared<heongpu::Plaintext<SchemeType>>(*context, c_pt->level, *stream_option);
-                export_plaintext(*c_pt, *gpu_plaintext);
+                export_plaintext(*c_pt, *gpu_plaintext, *h2d_batch);
                 local_data[output_index] = gpu_plaintext;
                 break;
             }
@@ -198,7 +255,7 @@ template <heongpu::Scheme SchemeType> ExecutorFunc create_load_to_gpu_executor()
                 const CCiphertext* c_ct = c_ct_ptr.get();
                 auto gpu_ciphertext =
                     std::make_shared<heongpu::Ciphertext<SchemeType>>(*context, c_ct->level, *stream_option);
-                export_ciphertext(*c_ct, *gpu_ciphertext);
+                export_ciphertext(*c_ct, *gpu_ciphertext, *h2d_batch);
                 local_data[output_index] = gpu_ciphertext;
                 break;
             }
@@ -207,7 +264,7 @@ template <heongpu::Scheme SchemeType> ExecutorFunc create_load_to_gpu_executor()
                 const CRelinKey* c_rlk = c_rlk_ptr.get();
                 auto gpu_relin_key =
                     std::make_shared<heongpu::Relinkey<SchemeType>>(*context, c_rlk->level_q, *stream_option);
-                export_relin_key(*c_rlk, *gpu_relin_key);
+                export_relin_key(*c_rlk, *gpu_relin_key, *h2d_batch);
                 local_data[output_index] = gpu_relin_key;
                 break;
             }
@@ -222,7 +279,7 @@ template <heongpu::Scheme SchemeType> ExecutorFunc create_load_to_gpu_executor()
                             *context, *all_galois_elts, c_glk->switching_keys[0].level_q, *stream_option);
                     }
 
-                    export_galois_key(*c_glk, **galois_key_ptr, galois_element);
+                    export_galois_key(*c_glk, **galois_key_ptr, galois_element, *h2d_batch);
                 }
                 local_data[output_index] = *galois_key_ptr;
                 break;
@@ -233,7 +290,7 @@ template <heongpu::Scheme SchemeType> ExecutorFunc create_load_to_gpu_executor()
                     const CSwitchingKey* c_swk = c_swk_ptr.get();
                     auto gpu_switch_key =
                         std::make_shared<heongpu::Switchkey<SchemeType>>(*context, c_swk->level_q, *stream_option);
-                    export_switching_key(*c_swk, *gpu_switch_key);
+                    export_switching_key(*c_swk, *gpu_switch_key, *h2d_batch);
                     local_data[output_index] = gpu_switch_key;
                 } else {
                     throw std::runtime_error("Switch keys are only supported for CKKS GPU ABI transfers");
