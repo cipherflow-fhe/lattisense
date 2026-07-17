@@ -86,6 +86,7 @@ class OperationType(Enum):
     CmpacSum = 'cmpac_sum'
     CmpSum = 'cmp_sum'
     Bootstrap = 'bootstrap'
+    EncodeRingt = 'encode_ringt'
     FpgaKernel = 'fpga_kernel'
     ExportToAbi = 'export_to_abi'
     ImportFromAbi = 'import_from_abi'
@@ -898,9 +899,10 @@ class FheComputeNode(ComputeNode):
 class CustomComputeNode(ComputeNode):
     """
     @class CustomComputeNode
-    @brief Custom compute node type.
+    @brief Opaque custom compute node type.
 
     Allows users to create compute nodes with custom attributes and metadata.
+    The runtime does not know the operation semantics; users bind executors explicitly.
     """
 
     def __init__(self, type: str, attributes: dict | None = None) -> None:
@@ -925,6 +927,22 @@ class CustomComputeNode(ComputeNode):
         }
         if self.attributes:
             d['attributes'] = self.attributes
+        return d
+
+
+class EncodeRingtComputeNode(FheComputeNode):
+    """
+    @class EncodeRingtComputeNode
+    @brief CKKS encode_ringt op with custom-data input.
+    """
+
+    def __init__(self, scale: float) -> None:
+        super().__init__(type=OperationType.EncodeRingt)
+        self.scale = scale
+
+    def to_json_dict(self, dag: nx.DiGraph) -> dict:
+        d = super().to_json_dict(dag)
+        d['scale'] = self.scale
         return d
 
 

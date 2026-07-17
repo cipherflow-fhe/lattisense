@@ -810,6 +810,43 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS ct_pt_ringt_mac", "", CkksTestDefau
     }
 }
 
+TEMPLATE_TEST_CASE_METHOD(CkksFixture,
+                          "CKKS encode_ringt_cmp",
+                          "",
+                          CkksTestDefaultParams,
+                          CkksTestCustomParams,
+                          CkksTestSparseDefaultParams) {
+    for (int level = 1; level <= this->max_level; level++) {
+        SECTION("lv=" + to_string(level)) {
+            auto xv = new_ckks_test_ct(this->n_op, this->ctx, level, this->default_scale);
+            vector<vector<double>> y_values;
+            vector<CustomData> y_list;
+            vector<CkksCiphertext> z_list;
+            y_values.reserve(this->n_op);
+            y_list.reserve(this->n_op);
+            z_list.reserve(this->n_op);
+            for (int i = 0; i < this->n_op; i++) {
+                y_values.push_back(rand_double_values(this->n_slot));
+                y_list.push_back(CustomData(y_values[i]));
+                z_list.push_back(this->ctx.new_ciphertext(level, this->default_scale * this->default_scale));
+            }
+
+            string path = gpu_base_path + "/" + this->tag + "/CKKS_" + to_string(this->n_op) +
+                          "_encode_ringt_cmp/level_" + to_string(level);
+            FheTaskGpu proj(path);
+            vector<CxxVectorArgument> args = {
+                {"in_x_list", &xv.ciphertexts},
+                {"in_y_list", &y_list},
+                {"out_z_list", &z_list},
+            };
+            proj.run(&this->ctx, args);
+
+            for (int i = 0; i < this->n_op; i++)
+                verify_ckks_precision(this->ctx, vec_mul(xv.values[i], y_values[i]), z_list[i]);
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Bootstrap tests — use CkksBtpFixture
 // ---------------------------------------------------------------------------

@@ -24,6 +24,7 @@ from frontend.types import (
     BridgeComputeNode,
     ComputeNode,
     CustomComputeNode,
+    EncodeRingtComputeNode,
     FheComputeNode,
     OperationType,
     Processor,
@@ -86,6 +87,7 @@ class GreedyCompoundParams:
         OperationType.CmpacSum: 3,
         OperationType.Mult: 4,
         OperationType.Bootstrap: 32,
+        OperationType.EncodeRingt: 1,
         OperationType.ExportToAbi: 1,
         OperationType.ImportFromAbi: 1,
         OperationType.LoadToBackend: 1,
@@ -125,9 +127,9 @@ class GreedyCompoundFormer:
         heapq.heapify(available_heap)
 
         available_bridge_heaps: defaultdict[tuple, list] = defaultdict(list)
+        available_encode_ringt_heaps: defaultdict[tuple, list] = defaultdict(list)
         for node in available_computes:
-            if isinstance(node, BridgeComputeNode) and self._is_mergeable_op(node):
-                heapq.heappush(available_bridge_heaps[self._bridge_key(node)], (self.topo_index[node], node))
+            self._push_available_batch_op(node, available_bridge_heaps, available_encode_ringt_heaps)
 
         pbar = tqdm(total=progress_total, desc='Greedy compound forming', unit='ops', colour='green')
 
@@ -142,15 +144,22 @@ class GreedyCompoundFormer:
                 if node is None:
                     break
 
-                if not self._is_mergeable_op(node):
-                    completed = [node]
-                    compound_groups.append(completed)
-                elif isinstance(node, BridgeComputeNode):
+                if isinstance(node, BridgeComputeNode):
                     completed, _ = self._best_bridge_batch_candidate(
                         node,
                         available_computes,
                         available_bridge_heaps,
                     )
+                    compound_groups.append(completed)
+                elif isinstance(node, EncodeRingtComputeNode):
+                    completed, _ = self._best_encode_ringt_batch_candidate(
+                        node,
+                        available_computes,
+                        available_encode_ringt_heaps,
+                    )
+                    compound_groups.append(completed)
+                elif not self._is_mergeable_op(node):
+                    completed = [node]
                     compound_groups.append(completed)
                 else:
                     completed, _ = self._best_compute_candidate(node, processed_ops, available_data)
@@ -164,11 +173,7 @@ class GreedyCompoundFormer:
                         continue
                     available_computes.add(new_compute)
                     heapq.heappush(available_heap, (self.topo_index[new_compute], new_compute))
-                    if isinstance(new_compute, BridgeComputeNode) and self._is_mergeable_op(new_compute):
-                        heapq.heappush(
-                            available_bridge_heaps[self._bridge_key(new_compute)],
-                            (self.topo_index[new_compute], new_compute),
-                        )
+                    self._push_available_batch_op(new_compute, available_bridge_heaps, available_encode_ringt_heaps)
                 pbar.update(sum(self._is_mergeable_op(op) for op in completed))
         finally:
             pbar.close()
@@ -216,6 +221,17 @@ class GreedyCompoundFormer:
         produced_by_candidate = {data for op in ops for data in self.op_outputs[op]}
         return all(data in available_data or data in produced_by_candidate for op in ops for data in self.op_inputs[op])
 
+    def _push_available_batch_op(
+        self,
+        node: ComputeNode,
+        available_bridge_heaps: defaultdict[tuple, list],
+        available_encode_ringt_heaps: defaultdict[tuple, list],
+    ) -> None:
+        if isinstance(node, BridgeComputeNode):
+            heapq.heappush(available_bridge_heaps[self._bridge_key(node)], (self.topo_index[node], node))
+        elif isinstance(node, EncodeRingtComputeNode):
+            heapq.heappush(available_encode_ringt_heaps[self._encode_ringt_key(node)], (self.topo_index[node], node))
+
     def _bridge_topology_key(self, node: BridgeComputeNode) -> tuple:
         consumers = []
         for data in self.op_outputs[node]:
@@ -233,6 +249,9 @@ class GreedyCompoundFormer:
 
     def _bridge_key(self, node: BridgeComputeNode) -> tuple:
         return (node.type, self.runs_on_cpu[node], self._bridge_topology_key(node))
+
+    def _encode_ringt_key(self, node: ComputeNode) -> tuple:
+        return (node.type, self.runs_on_cpu[node])
 
     def _best_compute_candidate(
         self,
@@ -274,16 +293,31 @@ class GreedyCompoundFormer:
         available_computes: set,
         available_bridge_heaps: defaultdict[tuple, list],
     ) -> tuple[list, int]:
+        return self._best_batch_candidate(start, available_computes, available_bridge_heaps, self._bridge_key)
+
+    def _best_encode_ringt_batch_candidate(
+        self,
+        start: ComputeNode,
+        available_computes: set,
+        available_encode_ringt_heaps: defaultdict[tuple, list],
+    ) -> tuple[list, int]:
+        return self._best_batch_candidate(
+            start, available_computes, available_encode_ringt_heaps, self._encode_ringt_key
+        )
+
+    def _best_batch_candidate(
+        self,
+        start: ComputeNode,
+        available_computes: set,
+        available_heaps: defaultdict[tuple, list],
+        key_fn,
+    ) -> tuple[list, int]:
         candidate = [start]
         best_score = self._bridge_batch_score(candidate)
 
         while True:
             additions = []
-            for op in self._bridge_batch_frontier_ops(
-                candidate,
-                available_computes,
-                available_bridge_heaps,
-            ):
+            for op in self._batch_frontier_ops(candidate, available_computes, available_heaps, key_fn):
                 ops = self._ordered_ops([*candidate, op])
                 if self._candidate_cost(ops) > self.params.bridge_max_candidate_cost:
                     continue
@@ -301,14 +335,15 @@ class GreedyCompoundFormer:
 
         return candidate, best_score
 
-    def _bridge_batch_frontier_ops(
+    def _batch_frontier_ops(
         self,
         candidate: list,
         available_computes: set,
-        available_bridge_heaps: defaultdict[tuple, list],
+        available_heaps: defaultdict[tuple, list],
+        key_fn,
     ) -> list:
         candidate_set = set(candidate)
-        heap = available_bridge_heaps[self._bridge_key(candidate[0])]
+        heap = available_heaps[key_fn(candidate[0])]
         buffered = []
         while heap:
             item = heapq.heappop(heap)
@@ -336,7 +371,7 @@ class GreedyCompoundFormer:
             for neighbor in self.compute_neighbors[op]:
                 if neighbor in candidate_set or neighbor in processed_ops:
                     continue
-                if isinstance(neighbor, BridgeComputeNode) or not self._is_mergeable_op(neighbor):
+                if self._is_batch_op(neighbor) or not self._is_mergeable_op(neighbor):
                     continue
                 if self.runs_on_cpu[neighbor] != on_cpu:
                     continue
@@ -423,6 +458,9 @@ class GreedyCompoundFormer:
         else:
             task.id = f'compound_{task.index}'
         return task
+
+    def _is_batch_op(self, node: ComputeNode) -> bool:
+        return isinstance(node, (BridgeComputeNode, EncodeRingtComputeNode))
 
     def _is_mergeable_op(self, node: ComputeNode) -> bool:
         if isinstance(node, FheComputeNode):

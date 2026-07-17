@@ -25,6 +25,8 @@
 #include <HEonGPU-1.1/heongpu/heongpu.hpp>
 #include "../mega_ag_executors.h"
 
+using fhe_ops_lib::CustomData;
+
 template <heongpu::Scheme S> using Ct = heongpu::Ciphertext<S>;
 template <heongpu::Scheme S> using Pt = heongpu::Plaintext<S>;
 template <heongpu::Scheme S> using Rlk = heongpu::Relinkey<S>;
@@ -66,6 +68,30 @@ template <typename T> T& _get_input_data(std::unordered_map<NodeIndex, std::any>
     }
     T& data = *std::any_cast<std::shared_ptr<T>>(local_data.at(node.index));
     return data;
+}
+
+template <>
+CustomData& _get_input_data<CustomData>(std::unordered_map<NodeIndex, std::any>& local_data, const DatumNode& node) {
+    if (!node.custom_prop.has_value()) {
+        throw std::runtime_error("CustomData property not found for input node " + std::to_string(node.index));
+    }
+
+    auto& input_any = local_data.at(node.index);
+    if (auto* custom_ptr = std::any_cast<std::shared_ptr<CustomData>>(&input_any)) {
+        if (!*custom_ptr) {
+            throw std::runtime_error("CustomData input is null for node " + std::to_string(node.index));
+        }
+        return **custom_ptr;
+    }
+
+    if (auto* void_ptr = std::any_cast<std::shared_ptr<void>>(&input_any)) {
+        if (!*void_ptr) {
+            throw std::runtime_error("CustomData input is null for node " + std::to_string(node.index));
+        }
+        return *static_cast<CustomData*>(void_ptr->get());
+    }
+
+    throw std::runtime_error("CustomData input has unexpected storage type for node " + std::to_string(node.index));
 }
 
 template <heongpu::Scheme S>
@@ -468,6 +494,39 @@ template <heongpu::Scheme S> void bind_gpu_bootstrap(ComputeNode& node) {
     }
 }
 
+template <heongpu::Scheme S> void bind_gpu_encode_ringt(ComputeNode& node) {
+    if constexpr (S == heongpu::Scheme::CKKS) {
+        node.executor = [](ExecutionContext& ctx, std::unordered_map<NodeIndex, std::any>& local_data,
+                           const ComputeNode& self) -> void {
+            if (!self.fhe_prop.has_value() || !self.fhe_prop->p.has_value()) {
+                throw std::runtime_error("GPU CKKS encode_ringt missing FHE properties");
+            }
+
+            auto* stream_option = ctx.get_other_arg<heongpu::ExecutionOptions>(0);
+            auto* context = ctx.get_other_arg<heongpu::HEContext<heongpu::Scheme::CKKS>>(1);
+            auto* encoder = ctx.get_other_arg<heongpu::HEEncoder<heongpu::Scheme::CKKS>>(2);
+            if (!stream_option || !context || !encoder) {
+                throw std::runtime_error("GPU CKKS encode_ringt requires HEContext, encoder, and stream options");
+            }
+
+            double scale = self.fhe_prop->p->scale;
+            auto& custom_data = _get_input_data<CustomData>(local_data, *self.input_nodes[0]);
+            auto* msg_vec = custom_data.get_typed_data<std::vector<double>>();
+            if (!msg_vec) {
+                throw std::runtime_error("GPU CKKS encode_ringt expects std::vector<double> CustomData");
+            }
+
+            auto output = std::make_shared<heongpu::Plaintext<heongpu::Scheme::CKKS>>(*context, *stream_option);
+            encoder->encode_ringt(*output, *msg_vec, scale, *stream_option);
+            local_data[self.output_nodes[0]->index] = output;
+        };
+    } else {
+        node.executor = [](ExecutionContext&, std::unordered_map<NodeIndex, std::any>&, const ComputeNode&) -> void {
+            throw std::runtime_error("GPU encode_ringt is only supported for CKKS");
+        };
+    }
+}
+
 // Explicit template instantiations
 template void bind_gpu_add<heongpu::Scheme::BFV>(ComputeNode& node);
 template void bind_gpu_add<heongpu::Scheme::CKKS>(ComputeNode& node);
@@ -504,6 +563,8 @@ template void bind_gpu_cmp_sum<heongpu::Scheme::BFV>(ComputeNode& node);
 template void bind_gpu_cmp_sum<heongpu::Scheme::CKKS>(ComputeNode& node);
 
 template void bind_gpu_bootstrap<heongpu::Scheme::CKKS>(ComputeNode& node);
+
+template void bind_gpu_encode_ringt<heongpu::Scheme::CKKS>(ComputeNode& node);
 
 // Wrapper function for ExecutorBinder (callable from non-CUDA code)
 void bind_gpu_executor(ComputeNode& node, Algo algorithm) {
@@ -543,6 +604,7 @@ void bind_gpu_executor(ComputeNode& node, Algo algorithm) {
                 case OperationType::MAC_W_PARTIAL_SUM: bind_gpu_cmpac_sum<heongpu::Scheme::CKKS>(node); break;
                 case OperationType::MAC_WO_PARTIAL_SUM: bind_gpu_cmp_sum<heongpu::Scheme::CKKS>(node); break;
                 case OperationType::BOOTSTRAP: bind_gpu_bootstrap<heongpu::Scheme::CKKS>(node); break;
+                case OperationType::ENCODE_RINGT: bind_gpu_encode_ringt<heongpu::Scheme::CKKS>(node); break;
                 default: throw std::runtime_error("Unsupported operation type for GPU CKKS");
             }
             break;

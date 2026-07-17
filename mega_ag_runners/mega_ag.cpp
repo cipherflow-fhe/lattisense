@@ -46,6 +46,7 @@ const std::unordered_map<std::string, OperationType> str_to_operation_type = {
     {"cmp_sum", OperationType::MAC_WO_PARTIAL_SUM},
     {"cmpac_sum", OperationType::MAC_W_PARTIAL_SUM},
     {"bootstrap", OperationType::BOOTSTRAP},
+    {"encode_ringt", OperationType::ENCODE_RINGT},
     {"fpga_kernel", OperationType::FPGA_KERNEL},
     {"export_to_abi", OperationType::EXPORT_TO_ABI},
     {"import_from_abi", OperationType::IMPORT_FROM_ABI},
@@ -69,6 +70,10 @@ static ComputeNode::FheProperty parse_fhe_property(const nlohmann::json& value, 
     } else if (op_type == OperationType::MAC_WO_PARTIAL_SUM || op_type == OperationType::MAC_W_PARTIAL_SUM) {
         ComputeNode::FheProperty::ExtraProperty extra_prop;
         extra_prop.sum_cnt = value["sum_cnt"].get<int32_t>();
+        fhe_prop.p = extra_prop;
+    } else if (op_type == OperationType::ENCODE_RINGT) {
+        ComputeNode::FheProperty::ExtraProperty extra_prop;
+        extra_prop.scale = value["scale"].get<double>();
         fhe_prop.p = extra_prop;
     }
 

@@ -85,6 +85,7 @@ enum class OperationType {
     MAC_WO_PARTIAL_SUM,
     MAC_W_PARTIAL_SUM,
     BOOTSTRAP,
+    ENCODE_RINGT,
 
     FPGA_KERNEL,  // Composite FPGA sub-project operator (heterogeneous mode)
 
@@ -146,22 +147,23 @@ struct ComputeNode {
     // Unified executor function (CPU and GPU)
     ExecutorFunc executor;
 
-    // FHE-specific properties (use custom_prop.has_value() to check if custom node)
+    // FHE-specific properties
     struct FheProperty {
         OperationType op_type = OperationType::UNKNOWN;
 
         struct ExtraProperty {
             int32_t rotation_step = 0;
             int32_t sum_cnt = 0;
+            double scale = 0.0;
         };
         std::optional<ExtraProperty> p;
     };
     std::optional<FheProperty> fhe_prop;
 
-    // Custom-specific properties (if has value, this is a custom node)
+    // Custom-specific properties (opaque user-bound operation)
     struct CustomProperty {
-        std::string type;           // Custom operation type (e.g., "encode", "decode")
-        nlohmann::json attributes;  // Custom attributes from JSON (e.g., level, scale)
+        std::string type;           // Custom operation type
+        nlohmann::json attributes;  // Custom attributes from JSON
     };
     std::optional<CustomProperty> custom_prop;
 };

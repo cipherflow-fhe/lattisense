@@ -53,6 +53,7 @@ using namespace fhe_ops_lib;
 template <heongpu::Scheme SchemeType>
 void init_gpu_context(const nlohmann::json& param_json,
                       heongpu::HEContext<SchemeType>& context,
+                      std::unique_ptr<heongpu::HEEncoder<SchemeType>>& encoder,
                       std::unique_ptr<heongpu::HEArithmeticOperator<SchemeType>>& operators) {
     auto n = param_json["n"].get<int>();
 
@@ -80,8 +81,8 @@ void init_gpu_context(const nlohmann::json& param_json,
         context->set_coeff_modulus_values(Q, P);
         context->generate(pool_config);
 
-        auto gpu_encoder = std::make_unique<heongpu::HEEncoder<SchemeType>>(context);
-        operators = std::make_unique<heongpu::HEArithmeticOperator<SchemeType>>(context, *gpu_encoder);
+        encoder = std::make_unique<heongpu::HEEncoder<SchemeType>>(context);
+        operators = std::make_unique<heongpu::HEArithmeticOperator<SchemeType>>(context, *encoder);
 
         if (param_json.contains("btp_output_level")) {
             int cts_start_level = param_json["btp_cts_start_level"].get<int>();
@@ -132,8 +133,8 @@ void init_gpu_context(const nlohmann::json& param_json,
         context->set_plain_modulus(t);
         context->generate(pool_config);
 
-        auto gpu_encoder = std::make_unique<heongpu::HEEncoder<SchemeType>>(context);
-        operators = std::make_unique<heongpu::HEArithmeticOperator<SchemeType>>(context, *gpu_encoder);
+        encoder = std::make_unique<heongpu::HEEncoder<SchemeType>>(context);
+        operators = std::make_unique<heongpu::HEArithmeticOperator<SchemeType>>(context, *encoder);
     }
 }
 
@@ -151,9 +152,10 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
 
     // Initialize GPU context and operators for GPU FHE operations
     heongpu::HEContext<SchemeType> context;
+    std::unique_ptr<heongpu::HEEncoder<SchemeType>> encoder;
     std::unique_ptr<heongpu::HEArithmeticOperator<SchemeType>> operators;
 
-    init_gpu_context<SchemeType>(mega_ag.parameter, context, operators);
+    init_gpu_context<SchemeType>(mega_ag.parameter, context, encoder, operators);
 
     // GPU streams for FHE computations
     const int num_streams = 2;
@@ -215,7 +217,7 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
             gpu_pool.detach_task(
                 [task_index, pool_priority, device, &gpu_pool, &mega_ag, &m_mutex, &task_queue, &queued_computes,
                  &completed_tasks, &total_tasks, &completion_cv, &completion_mutex, &available_data, &operators,
-                 &data_ready_events, &stream_options, &streams, &context, &galois_key, &galois_key_mutex,
+                 &encoder, &data_ready_events, &stream_options, &streams, &context, &galois_key, &galois_key_mutex,
                  &data_ref_counts, &all_galois_elts, &galois_key_level, cancel_flag]() {
                     CHECK(cudaSetDevice(device));
                     if (cancel_flag && cancel_flag->load()) {
@@ -230,6 +232,7 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
                         compute_contains_operation(compute_node, OperationType::LOAD_TO_BACKEND);
                     const bool has_store_from_backend =
                         compute_contains_operation(compute_node, OperationType::STORE_FROM_BACKEND);
+                    const bool has_encode_ringt = compute_contains_operation(compute_node, OperationType::ENCODE_RINGT);
 
                     std::vector<cudaEvent_t> events_to_wait;
                     std::unordered_map<NodeIndex, std::any> thread_data_cache;
@@ -239,7 +242,7 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
                         // Check if all BACKEND input events are available.
                         // ABI inputs for LOAD_TO_BACKEND don't have events.
                         bool events_ready = true;
-                        if (!has_load_to_backend) {
+                        if (!has_load_to_backend && !has_encode_ringt) {
                             for (const auto* input_node : compute_input_nodes) {
                                 auto event_it = data_ready_events.find(input_node->index);
                                 if (event_it == data_ready_events.end()) {
@@ -259,7 +262,7 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
                         for (const auto* input_node : compute_input_nodes) {
                             thread_data_cache[input_node->index] = available_data[input_node->index];
 
-                            if (!has_load_to_backend) {
+                            if (!has_load_to_backend && !has_encode_ringt) {
                                 events_to_wait.push_back(data_ready_events.at(input_node->index));
                             }
                         }
@@ -277,6 +280,9 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
                     exec_ctx.context = operators.get();
                     exec_ctx.other_args.push_back(&stream_options[stream_id]);
                     exec_ctx.other_args.push_back(&context);
+                    if (has_encode_ringt) {
+                        exec_ctx.other_args.push_back(encoder.get());
+                    }
 
                     if (has_load_to_backend) {
                         exec_ctx.other_args.push_back(&galois_key);

@@ -590,6 +590,23 @@ class TestTask:
             processor=Processor.GPU,
         )
 
+    @pytest.mark.min_level(1)
+    def test_encode_ringt_cmp(self, param, lv):
+        set_fhe_param(param)
+        param_tag = _param_tag(param)
+        task_dir = os.path.join(GPU_OUTPUT_BASE_DIR, param_tag, f'CKKS_{N_OP}_encode_ringt_cmp', f'level_{lv}')
+        x_list = [CkksCiphertextNode(f'x_{i}', level=lv) for i in range(N_OP)]
+        y_list = [CustomDataNode(type='msg', id=f'y_{i}') for i in range(N_OP)]
+        y_ringt_list = [encode_ringt(y_list[i], param.scale, f'y_ringt_{i}') for i in range(N_OP)]
+        z_list = [mult(x_list[i], y_ringt_list[i], f'z_{i}') for i in range(N_OP)]
+        process_custom_task(
+            input_args=[Argument('in_x_list', x_list), Argument('in_y_list', y_list)],
+            offline_input_args=[],
+            output_args=[Argument('out_z_list', z_list)],
+            output_instruction_path=task_dir,
+            processor=Processor.GPU,
+        )
+
 
 class TestBootstrap:
     @pytest.mark.parametrize('lv', [0], ids=['lv0'])

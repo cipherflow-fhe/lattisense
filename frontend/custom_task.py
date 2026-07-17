@@ -47,6 +47,7 @@ from frontend.types import (
     DEFAULT_LEVEL,
     DataNode,
     DataType,
+    EncodeRingtComputeNode,
     FheComputeNode,
     FheDataNode,
     FpgaKernelNode,
@@ -1203,7 +1204,7 @@ def custom_compute(
     type: str,
     attributes: dict | None = None,
 ):
-    """!Create custom compute node
+    """!Create opaque custom compute node
 
     Allows users to define custom compute operations and add them to the computation graph.
 
@@ -1227,6 +1228,24 @@ def custom_compute(
     g_dag.add_edge(op, output)
 
     return
+
+
+def encode_ringt(x: CustomDataNode, scale: float, output_id: Optional[str] = None) -> CkksPlaintextRingtNode:
+    """!Create a CKKS ring-T plaintext from custom input data.
+
+    The op is represented as a normal compute node in the graph. GPU runtime
+    executes it with HEonGPU when the task is compiled for Processor.GPU.
+    """
+    global g_dag
+
+    if not isinstance(x, CustomDataNode):
+        raise ValueError('encode_ringt expects a CustomDataNode input.')
+
+    op = EncodeRingtComputeNode(scale=scale)
+    z = CkksPlaintextRingtNode(id=random_id() if output_id is None else output_id)
+    g_dag.add_edge(x, op)
+    g_dag.add_edge(op, z)
+    return z
 
 
 def process_custom_task(
