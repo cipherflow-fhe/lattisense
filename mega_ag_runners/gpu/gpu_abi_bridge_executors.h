@@ -76,7 +76,7 @@ inline void submit_gpu_transfer_batch(const std::vector<GpuTransferEntry>& entri
         return;
     }
 
-#if defined(CUDART_VERSION) && CUDART_VERSION >= 12080
+#if 0
     if (entries.size() > 1) {
         std::vector<void*> dsts;
         std::vector<void*> srcs;
