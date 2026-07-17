@@ -172,18 +172,41 @@ template <heongpu::Scheme SchemeType>
 void export_galois_key(const CGaloisKey& src,
                        heongpu::Galoiskey<SchemeType>& dest,
                        uint32_t galois_element,
+                       int dest_level_q,
                        H2DBatch& batch) {
     const CSwitchingKey* switching_key = find_galois_switching_key(src, galois_element);
     if (!switching_key) {
         throw std::runtime_error("Galois key missing requested galois element");
     }
+    if (dest_level_q < switching_key->level_q) {
+        throw std::runtime_error("GPU Galois key destination level is smaller than source level");
+    }
 
-    size_t element_count = (size_t)c_switching_key_decomp_rns(switching_key) * 2 *
-                           c_switching_key_rns_size(switching_key) * switching_key->ring_degree;
-    auto* dest_data = galois_element != static_cast<uint32_t>(2 * switching_key->ring_degree - 1) ?
-                          dest.data(galois_element) :
-                          dest.c_data();
-    batch.append(dest_data, switching_key->data, element_count * sizeof(uint64_t));
+    const int ring_degree = switching_key->ring_degree;
+    const int src_q_size = switching_key->level_q + 1;
+    const int src_p_size = switching_key->level_p + 1;
+    const int src_decomp_count = c_switching_key_decomp_rns(switching_key);
+    const int dst_q_size = dest_level_q + 1;
+    const int dst_rns_size = dst_q_size + src_p_size;
+    auto* dest_data =
+        galois_element != static_cast<uint32_t>(2 * ring_degree - 1) ? dest.data(galois_element) : dest.c_data();
+
+    for (int decomp_idx = 0; decomp_idx < src_decomp_count; decomp_idx++) {
+        for (int poly_idx = 0; poly_idx < 2; poly_idx++) {
+            for (int q_idx = 0; q_idx < src_q_size; q_idx++) {
+                auto* dst = dest_data + (((size_t)decomp_idx * 2 + poly_idx) * dst_rns_size + q_idx) * ring_degree;
+                const uint64_t* src_limb = c_switching_key_const_rns_limb(switching_key, decomp_idx, poly_idx, q_idx);
+                batch.append(dst, src_limb, ring_degree * sizeof(uint64_t));
+            }
+            for (int p_idx = 0; p_idx < src_p_size; p_idx++) {
+                auto* dst =
+                    dest_data + (((size_t)decomp_idx * 2 + poly_idx) * dst_rns_size + dst_q_size + p_idx) * ring_degree;
+                const uint64_t* src_limb =
+                    c_switching_key_const_rns_limb(switching_key, decomp_idx, poly_idx, src_q_size + p_idx);
+                batch.append(dst, src_limb, ring_degree * sizeof(uint64_t));
+            }
+        }
+    }
 }
 
 /**
@@ -305,7 +328,7 @@ template <heongpu::Scheme SchemeType> ExecutorFunc create_load_to_gpu_executor()
                             *context, *all_galois_elts, *galois_key_level, *stream_option);
                     }
 
-                    export_galois_key(*c_glk, **galois_key_ptr, galois_element, *h2d_batch);
+                    export_galois_key(*c_glk, **galois_key_ptr, galois_element, *galois_key_level, *h2d_batch);
                 }
                 local_data[output_index] = *galois_key_ptr;
                 break;
