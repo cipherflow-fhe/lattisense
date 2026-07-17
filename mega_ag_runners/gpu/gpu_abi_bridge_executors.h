@@ -224,6 +224,9 @@ void import_ciphertext(heongpu::Ciphertext<SchemeType>& src, CCiphertext* dest, 
  * @note Requires heongpu::HEContext in ExecutionContext other_args[1]
  * @note Requires galois_key shared_ptr in ExecutionContext other_args[2]
  * @note Requires galois_key_mutex in ExecutionContext other_args[3]
+ * @note Requires all_galois_elts in ExecutionContext other_args[4]
+ * @note Requires galois_key_level in ExecutionContext other_args[5]
+ * @note Requires H2DBatch in ExecutionContext other_args[6]
  */
 template <heongpu::Scheme SchemeType> ExecutorFunc create_load_to_gpu_executor() {
     return [](ExecutionContext& ctx, std::unordered_map<NodeIndex, std::any>& local_data,
@@ -235,7 +238,8 @@ template <heongpu::Scheme SchemeType> ExecutorFunc create_load_to_gpu_executor()
         auto* galois_key_ptr = ctx.get_other_arg<std::shared_ptr<heongpu::Galoiskey<SchemeType>>>(2);
         auto* galois_key_mutex = ctx.get_other_arg<std::mutex>(3);
         auto* all_galois_elts = ctx.get_other_arg<std::vector<uint32_t>>(4);
-        auto* h2d_batch = ctx.get_other_arg<H2DBatch>(5);
+        auto* galois_key_level = ctx.get_other_arg<int>(5);
+        auto* h2d_batch = ctx.get_other_arg<H2DBatch>(6);
 
         if (!stream_option || !context) {
             throw std::runtime_error("GPU stream options or context not found in execution context");
@@ -298,7 +302,7 @@ template <heongpu::Scheme SchemeType> ExecutorFunc create_load_to_gpu_executor()
                     std::lock_guard<std::mutex> lock(*galois_key_mutex);
                     if (!(*galois_key_ptr)) {
                         *galois_key_ptr = std::make_shared<heongpu::Galoiskey<SchemeType>>(
-                            *context, *all_galois_elts, c_glk->switching_keys[0].level_q, *stream_option);
+                            *context, *all_galois_elts, *galois_key_level, *stream_option);
                     }
 
                     export_galois_key(*c_glk, **galois_key_ptr, galois_element, *h2d_batch);

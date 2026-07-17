@@ -189,11 +189,15 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
     std::shared_ptr<heongpu::Galoiskey<SchemeType>> galois_key;
     std::mutex galois_key_mutex;
 
-    // Collect all galois elements from data nodes
+    // Collect all galois elements and the shared maximum GLK level from data nodes
     std::vector<uint32_t> all_galois_elts;
+    int galois_key_level = -1;
     for (const auto& [data_index, data_node] : mega_ag.data) {
-        if (data_node.datum_type == DataType::TYPE_GALOIS_KEY && data_node.fhe_prop->p.has_value()) {
-            all_galois_elts.push_back(data_node.fhe_prop->p->galois_element);
+        if (data_node.datum_type == DataType::TYPE_GALOIS_KEY && data_node.fhe_prop.has_value()) {
+            galois_key_level = std::max(galois_key_level, data_node.fhe_prop->level);
+            if (data_node.fhe_prop->p.has_value()) {
+                all_galois_elts.push_back(data_node.fhe_prop->p->galois_element);
+            }
         }
     }
 
@@ -212,7 +216,7 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
                 [task_index, pool_priority, device, &gpu_pool, &mega_ag, &m_mutex, &task_queue, &queued_computes,
                  &completed_tasks, &total_tasks, &completion_cv, &completion_mutex, &available_data, &operators,
                  &data_ready_events, &stream_options, &streams, &context, &galois_key, &galois_key_mutex,
-                 &data_ref_counts, &all_galois_elts, cancel_flag]() {
+                 &data_ref_counts, &all_galois_elts, &galois_key_level, cancel_flag]() {
                     CHECK(cudaSetDevice(device));
                     if (cancel_flag && cancel_flag->load()) {
                         return;
@@ -278,6 +282,7 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
                         exec_ctx.other_args.push_back(&galois_key);
                         exec_ctx.other_args.push_back(&galois_key_mutex);
                         exec_ctx.other_args.push_back(&all_galois_elts);
+                        exec_ctx.other_args.push_back(&galois_key_level);
                         exec_ctx.other_args.push_back(&h2d_batch);
                     }
                     if (has_store_from_backend) {
