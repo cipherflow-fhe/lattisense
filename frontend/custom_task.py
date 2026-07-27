@@ -24,7 +24,7 @@ from typing import List, Optional
 import networkx as nx
 from enum import Enum
 
-from frontend.bootstrap_params import (
+from .bootstrap_params import (
     LinearTransformType,
     SineType,
     EncodingMatrixParams,

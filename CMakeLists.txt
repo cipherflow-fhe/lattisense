@@ -232,10 +232,26 @@ if(LATTISENSE_ENABLE_GPU)
 
     # ── find HEonGPU and its dependencies ────────────────────────────────
     list(APPEND CMAKE_PREFIX_PATH "${HEONGPU_INSTALL_DIR}")
-    # Add CCCL from HEonGPU build directory
-    if(EXISTS "${HEONGPU_BUILD_DIR}/_deps/cccl-src/lib/cmake/cccl")
-        list(APPEND CMAKE_PREFIX_PATH "${HEONGPU_BUILD_DIR}/_deps/cccl-src/lib/cmake/cccl")
+    # Use the CCCL/libcu++ headers that HEonGPU used to build RMM. If CMake
+    # falls back to the CUDA Toolkit copies, libcudacxx ABI namespaces can
+    # differ and leave unresolved rmm::device_buffer symbols in liblattisense.so.
+    set(_heongpu_rapids_cmake_dir "${HEONGPU_INSTALL_DIR}/lib/rapids/cmake")
+    if(EXISTS "${_heongpu_rapids_cmake_dir}/cccl")
+        set(CCCL_CONFIG_FILE "${_heongpu_rapids_cmake_dir}/cccl/cccl-config.cmake" CACHE FILEPATH "HEonGPU CCCL config file" FORCE)
+        set(CCCL_DIR "${_heongpu_rapids_cmake_dir}/cccl" CACHE PATH "HEonGPU CCCL package directory" FORCE)
+        set(libcudacxx_DIR "${_heongpu_rapids_cmake_dir}/libcudacxx" CACHE PATH "HEonGPU libcudacxx package directory" FORCE)
+        set(CUB_DIR "${_heongpu_rapids_cmake_dir}/cub" CACHE PATH "HEonGPU CUB package directory" FORCE)
+        set(Thrust_DIR "${_heongpu_rapids_cmake_dir}/thrust" CACHE PATH "HEonGPU Thrust package directory" FORCE)
+        list(APPEND CMAKE_PREFIX_PATH "${_heongpu_rapids_cmake_dir}")
+    elseif(EXISTS "${HEONGPU_BUILD_DIR}/_deps/cccl-src/lib/cmake/cccl")
+        set(CCCL_CONFIG_FILE "${HEONGPU_BUILD_DIR}/_deps/cccl-src/lib/cmake/cccl/cccl-config.cmake" CACHE FILEPATH "HEonGPU CCCL config file" FORCE)
+        set(CCCL_DIR "${HEONGPU_BUILD_DIR}/_deps/cccl-src/lib/cmake/cccl" CACHE PATH "HEonGPU CCCL package directory" FORCE)
+        set(libcudacxx_DIR "${HEONGPU_BUILD_DIR}/_deps/cccl-src/lib/cmake/libcudacxx" CACHE PATH "HEonGPU libcudacxx package directory" FORCE)
+        set(CUB_DIR "${HEONGPU_BUILD_DIR}/_deps/cccl-src/lib/cmake/cub" CACHE PATH "HEonGPU CUB package directory" FORCE)
+        set(Thrust_DIR "${HEONGPU_BUILD_DIR}/_deps/cccl-src/lib/cmake/thrust" CACHE PATH "HEonGPU Thrust package directory" FORCE)
+        list(APPEND CMAKE_PREFIX_PATH "${HEONGPU_BUILD_DIR}/_deps/cccl-src/lib/cmake")
     endif()
+    unset(_heongpu_rapids_cmake_dir)
     include_directories("${HEONGPU_INSTALL_DIR}/include")
     link_directories("${HEONGPU_INSTALL_DIR}/lib")
     find_package(CUDAToolkit REQUIRED)
