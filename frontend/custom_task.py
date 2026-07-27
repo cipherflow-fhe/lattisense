@@ -273,6 +273,7 @@ class Param:
             instance.q.append(q)
 
         instance.max_level = param_json['max_level']
+        instance.scale = param_json.get('scale', math.pow(2.0, 40))
 
         return instance
 
@@ -1933,8 +1934,10 @@ def process_custom_task(
 
     if True:
         parameter = {'n': g_param.n, 'max_level': g_param.max_level, 'q': g_param.q, 'p': g_param.p}
-        if isinstance(g_param, CkksBtpParam):
+        if g_param.algo == Algo.CKKS and g_param.scale > 0:
             parameter['scale'] = g_param.scale
+
+        if isinstance(g_param, CkksBtpParam):
             parameter['btp_cts_start_level'] = g_param.btp_cts_start_level
             parameter['btp_eval_mod_start_level'] = g_param.btp_eval_mod_start_level
             parameter['btp_stc_start_level'] = g_param.btp_stc_start_level
@@ -2022,6 +2025,9 @@ def process_custom_task(
         os.makedirs(output_instruction_path)
     with open(os.path.join(output_instruction_path, 'mega_ag.json'), 'w', encoding='utf-8') as f:
         json.dump(mag, f, indent=4)
+
+    with open(os.path.join(output_instruction_path, 'fhe_parameter.json'), 'w', encoding='utf-8') as f:
+        json.dump(mag['parameter'], f, indent=4)
 
     with open(
         os.path.join(output_instruction_path, 'task_signature.json'),

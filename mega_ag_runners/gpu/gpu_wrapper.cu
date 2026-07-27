@@ -206,7 +206,6 @@ void init_context(const nlohmann::json& param_json,
                   std::unique_ptr<heongpu::HEArithmeticOperator<SchemeType>>& operators) {
     auto n = param_json["n"].get<int>();
 
-    auto max_level = param_json["max_level"].get<int>();
     auto q = param_json["q"].get<std::vector<uint64_t>>();
     auto p = param_json["p"].get<std::vector<uint64_t>>();
 
@@ -216,12 +215,12 @@ void init_context(const nlohmann::json& param_json,
         context->set_poly_modulus_degree(n);
 
         std::vector<Data64> Q, P;
-        for (int i = 0; i <= max_level; i++) {
-            Q.push_back(Data64(q[i]));
+        for (uint64_t qi : q) {
+            Q.push_back(Data64(qi));
         }
 
-        for (int i = 0; i < p.size(); i++) {
-            P.push_back(Data64(p[i]));
+        for (uint64_t pi : p) {
+            P.push_back(Data64(pi));
         }
         context->set_coeff_modulus_values(Q, P);
         context->generate();
@@ -251,11 +250,11 @@ void init_context(const nlohmann::json& param_json,
         context->set_poly_modulus_degree(n);
 
         std::vector<Data64> Q, P;
-        for (int i = 0; i <= max_level; i++) {
-            Q.push_back(Data64(q[i]));
+        for (uint64_t qi : q) {
+            Q.push_back(Data64(qi));
         }
-        for (int i = 0; i < p.size(); i++) {
-            P.push_back(Data64(p[i]));
+        for (uint64_t pi : p) {
+            P.push_back(Data64(pi));
         }
         context->set_coeff_modulus_values(Q, P);
         context->set_plain_modulus(t);

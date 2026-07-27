@@ -38,10 +38,47 @@ extern "C" {
 #include <iostream>
 #include <any>
 #include <memory>
+#include <algorithm>
+#include <cstdlib>
 
 namespace cpu_wrapper {
 
 using namespace fhe_ops_lib;
+
+int default_thread_count() {
+    unsigned int hardware_threads = std::thread::hardware_concurrency();
+    if (hardware_threads == 0) {
+        hardware_threads = 1;
+    }
+    return std::min(32, static_cast<int>(hardware_threads));
+}
+
+int parse_thread_count_env(const char* name) {
+    const char* value = std::getenv(name);
+    if (value == nullptr || value[0] == '\0') {
+        return 0;
+    }
+
+    char* end = nullptr;
+    long parsed = std::strtol(value, &end, 10);
+    if (end == value || parsed <= 0) {
+        return 0;
+    }
+
+    return static_cast<int>(parsed);
+}
+
+int configured_thread_count() {
+    const int max_threads = default_thread_count();
+    int requested_threads = parse_thread_count_env("LATTI_CPU_THREADS");
+    if (requested_threads <= 0) {
+        requested_threads = parse_thread_count_env("OMP_NUM_THREADS");
+    }
+    if (requested_threads <= 0) {
+        return max_threads;
+    }
+    return std::min(requested_threads, max_threads);
+}
 
 template <typename TContext>
 std::vector<Handle*> extract_input_handles(CArgument* input_args, uint64_t n_in_args, TContext& context) {
@@ -157,7 +194,7 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args, gsl::span<CArgument> out
 
     auto start = std::chrono::high_resolution_clock::now();
 
-    int num_threads = std::min(32, static_cast<int>(std::thread::hardware_concurrency()));
+    int num_threads = configured_thread_count();
     BS::thread_pool pool(num_threads);
 
     std::vector<std::unique_ptr<TContext>> fhe_context_ptrs(num_threads);

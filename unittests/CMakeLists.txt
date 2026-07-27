@@ -26,31 +26,37 @@ configure_file(
 
 add_executable(test_lattigo test_lattigo.cpp utils.cpp)
 include_directories(test_lattigo ${CMAKE_CURRENT_SOURCE_DIR}/../cxx_sdk_v2 ${CMAKE_CURRENT_SOURCE_DIR}/../fhe_ops_lib ${CMAKE_CURRENT_BINARY_DIR})
-target_link_libraries(test_lattigo cxx_sdk_v2)
+target_link_libraries(test_lattigo cxx_sdk_v2 Threads::Threads)
+add_test(NAME test_lattigo COMMAND test_lattigo)
 
 add_executable(test_cpu_bfv test_cpu_bfv.cpp)
 include_directories(test_cpu_sim_bfv ${CMAKE_CURRENT_SOURCE_DIR}/../cxx_sdk_v2 ${CMAKE_CURRENT_SOURCE_DIR}/../fhe_ops_lib ${CMAKE_CURRENT_BINARY_DIR})
 target_link_libraries(test_cpu_bfv cxx_sdk_v2)
+add_test(NAME test_cpu_bfv COMMAND test_cpu_bfv)
 
 if(LATTISENSE_ENABLE_GPU)
     add_executable(test_gpu_bfv test_gpu_bfv.cpp)
     include_directories(test_gpu_bfv ${CMAKE_CURRENT_SOURCE_DIR}/../cxx_sdk_v2 ${CMAKE_CURRENT_SOURCE_DIR}/../fhe_ops_lib ${CMAKE_CURRENT_BINARY_DIR})
     target_link_libraries(test_gpu_bfv cxx_sdk_v2)
     target_compile_definitions(test_gpu_bfv PRIVATE LATTISENSE_ENABLE_GPU)
+    add_test(NAME test_gpu_bfv COMMAND test_gpu_bfv)
 
     add_executable(test_gpu_ckks test_gpu_ckks.cpp)
     include_directories(test_gpu_ckks ${CMAKE_CURRENT_SOURCE_DIR}/../cxx_sdk_v2 ${CMAKE_CURRENT_SOURCE_DIR}/../fhe_ops_lib ${CMAKE_CURRENT_BINARY_DIR})
     target_link_libraries(test_gpu_ckks cxx_sdk_v2)
     target_compile_definitions(test_gpu_ckks PRIVATE LATTISENSE_ENABLE_GPU)
+    add_test(NAME test_gpu_ckks COMMAND test_gpu_ckks)
 endif()
 
 add_executable(test_cpu_ckks test_cpu_ckks.cpp)
 include_directories(test_cpu_sim_ckks ${CMAKE_CURRENT_SOURCE_DIR}/../cxx_sdk_v2 ${CMAKE_CURRENT_SOURCE_DIR}/../fhe_ops_lib ${CMAKE_CURRENT_BINARY_DIR})
 target_link_libraries(test_cpu_ckks cxx_sdk_v2)
+add_test(NAME test_cpu_ckks COMMAND test_cpu_ckks)
 
 add_executable(test_mp_lattigo test_mp_lattigo.cpp utils.cpp)
 include_directories(test_mp_lattigo ${CMAKE_CURRENT_SOURCE_DIR}/../cxx_sdk_v2 ${CMAKE_CURRENT_SOURCE_DIR}/../fhe_ops_lib ${CMAKE_CURRENT_BINARY_DIR})
 target_link_libraries(test_mp_lattigo cxx_sdk_v2)
+add_test(NAME test_mp_lattigo COMMAND test_mp_lattigo)
 
 if(OPENMP_FOUND)
     message(STATUS "Found OpenMP version: ${OpenMP_VERSION}")
