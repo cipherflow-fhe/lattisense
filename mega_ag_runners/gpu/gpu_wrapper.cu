@@ -25,6 +25,7 @@
 #include <set>
 #include <memory>
 #include <algorithm>
+#include <limits>
 #include <HEonGPU-1.1/heongpu/heongpu.hpp>
 
 #include "nlohmann/json.hpp"
@@ -49,6 +50,70 @@ extern "C" {
 
 namespace gpu_wrapper {
 using namespace fhe_ops_lib;
+
+const char* operation_type_name(OperationType op_type) {
+    switch (op_type) {
+        case OperationType::ADD: return "add";
+        case OperationType::SUB: return "sub";
+        case OperationType::NEGATE: return "neg";
+        case OperationType::MULTIPLY: return "mult";
+        case OperationType::RELINEARIZE: return "relin";
+        case OperationType::RESCALE: return "rescale";
+        case OperationType::DROP_LEVEL: return "drop_level";
+        case OperationType::ROTATE_COL: return "rotate_col";
+        case OperationType::ROTATE_ROW: return "rotate_row";
+        case OperationType::MAC_WO_PARTIAL_SUM: return "cmp_sum";
+        case OperationType::MAC_W_PARTIAL_SUM: return "cmpac_sum";
+        case OperationType::BOOTSTRAP: return "bootstrap";
+        case OperationType::ENCODE_RINGT: return "encode_ringt";
+        case OperationType::EXPORT_TO_ABI: return "export_to_abi";
+        case OperationType::IMPORT_FROM_ABI: return "import_from_abi";
+        case OperationType::LOAD_TO_BACKEND: return "load_to_backend";
+        case OperationType::STORE_FROM_BACKEND: return "store_from_backend";
+        default: return "unknown";
+    }
+}
+
+const char* data_type_name(DataType data_type) {
+    switch (data_type) {
+        case TYPE_PLAINTEXT: return "pt";
+        case TYPE_CIPHERTEXT: return "ct";
+        case TYPE_RELIN_KEY: return "rlk";
+        case TYPE_GALOIS_KEY: return "glk";
+        case TYPE_SWITCH_KEY: return "swk";
+        default: return "custom";
+    }
+}
+
+void log_gpu_task_failure(const CompoundComputeNode& compute_node, const std::exception& e) {
+    auto& mem_pool = heongpu::MemoryPool::instance();
+    std::cerr << "[GPU task failed] task=" << compute_node.index << " priority=" << compute_node.priority
+              << " error=" << e.what() << " pool_used_gb="
+              << static_cast<double>(mem_pool.get_current_device_pool_memory_usage()) / (1024.0 * 1024.0 * 1024.0)
+              << " pool_free_gb="
+              << static_cast<double>(mem_pool.get_free_device_pool_memory()) / (1024.0 * 1024.0 * 1024.0)
+              << " ops=";
+    for (const auto& op : compute_node.ops) {
+        std::cerr << (op.fhe_prop.has_value() ? operation_type_name(op.fhe_prop->op_type) : "custom") << ' ';
+    }
+    std::cerr << "\n  inputs=";
+    for (const auto* input_node : compute_node.input_nodes) {
+        std::cerr << input_node->index << ':' << data_type_name(input_node->datum_type);
+        if (input_node->fhe_prop.has_value()) {
+            std::cerr << "(l" << input_node->fhe_prop->level << ",d" << input_node->fhe_prop->degree << ')';
+        }
+        std::cerr << ' ';
+    }
+    std::cerr << "\n  outputs=";
+    for (const auto* output_node : compute_node.output_nodes) {
+        std::cerr << output_node->index << ':' << data_type_name(output_node->datum_type);
+        if (output_node->fhe_prop.has_value()) {
+            std::cerr << "(l" << output_node->fhe_prop->level << ",d" << output_node->fhe_prop->degree << ')';
+        }
+        std::cerr << ' ';
+    }
+    std::cerr << std::endl;
+}
 
 template <heongpu::Scheme SchemeType>
 void init_gpu_context(const nlohmann::json& param_json,
@@ -295,12 +360,21 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
                         exec_ctx.other_args.push_back(&d2h_batch);
                     }
 
-                    compute_node.execute(exec_ctx, thread_data_cache);
-                    if (has_load_to_backend) {
-                        h2d_batch.submit(streams[stream_id]);
-                    }
-                    if (has_store_from_backend) {
-                        d2h_batch.submit(streams[stream_id]);
+                    try {
+                        compute_node.execute(exec_ctx, thread_data_cache);
+                        if (has_load_to_backend) {
+                            h2d_batch.submit(streams[stream_id]);
+                        }
+                        if (has_store_from_backend) {
+                            d2h_batch.submit(streams[stream_id]);
+                        }
+                    } catch (const std::exception& e) {
+                        log_gpu_task_failure(compute_node, e);
+                        throw;
+                    } catch (...) {
+                        std::runtime_error e("unknown GPU task failure");
+                        log_gpu_task_failure(compute_node, e);
+                        throw;
                     }
 
                     // Create events for GPU backend outputs (not STORE_FROM_BACKEND which outputs to C struct)
@@ -335,6 +409,7 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
                         }
                     }
 
+                    const BS::priority_t cleanup_priority = std::numeric_limits<BS::priority_t>::max();
                     gpu_pool.detach_task(
                         [compute_node, output_events, device, &mega_ag, &m_mutex, &available_data, &data_ref_counts]() {
                             CHECK(cudaSetDevice(device));
@@ -347,7 +422,7 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
                                 mega_ag.purge_unused_data(compute_node, data_ref_counts, available_data);
                             }
                         },
-                        pool_priority);
+                        cleanup_priority);
 
                     // Check if all tasks are completed (in this thread, not async lambda)
                     if (completed_tasks.fetch_add(1) + 1 >= total_tasks) {

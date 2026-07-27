@@ -272,6 +272,8 @@ class GreedyCompoundFormer:
                     continue
                 if not compound_external_outputs(self.dag, ops, self.graph_output_set):
                     continue
+                if self._has_passthrough_external_output(ops):
+                    continue
 
                 score = self._compute_score(ops)
                 if score > best_score:
@@ -361,6 +363,15 @@ class GreedyCompoundFormer:
             heapq.heappush(heap, item)
 
         return [op for _, op in buffered]
+
+    def _has_passthrough_external_output(self, ops: list) -> bool:
+        external_outputs = set(compound_external_outputs(self.dag, ops, self.graph_output_set))
+        if not external_outputs:
+            return False
+
+        produced_by_candidate = {data for op in ops for data in self.op_outputs[op]}
+        consumed_by_candidate = {data for op in ops for data in self.op_inputs[op]}
+        return bool(external_outputs & produced_by_candidate & consumed_by_candidate)
 
     def _compute_frontier_ops(self, candidate: list, processed_ops: set) -> list:
         candidate_set = set(candidate)
