@@ -23,7 +23,7 @@
 #include "nlohmann/json.hpp"
 #include <map>
 
-namespace cxx_sdk_v2 {
+namespace lattisense {
 
 // Type mapping declarations
 inline std::map<CxxArgumentType, std::string> cxx_argument_type_str_map = {
@@ -220,15 +220,13 @@ inline void check_parameter(FheContext* context, const nlohmann::json& param_jso
  * @param cxx_args      Array of task input/output arguments to validate
  * @param task_sig_json Task signature JSON object
  * @param expected_algo Expected algorithm (ALGO_BFV or ALGO_CKKS), must match the context type
- * @param online_phase  If true, validate against the "online" signature; otherwise "offline" (default: true)
  * @return Number of input arguments (phase == "in" or "offline") among cxx_args
  * @throws std::runtime_error if any check fails
  */
 inline int check_signatures(FheContext* context,
                             const std::vector<CxxVectorArgument>& cxx_args,
                             const nlohmann::json& task_sig_json,
-                            Algo expected_algo,
-                            bool online_phase = true) {
+                            Algo expected_algo) {
     if (expected_algo == Algo::ALGO_BFV) {
         if (typeid(*context) != typeid(BfvContext)) {
             throw std::runtime_error("Algorithm is BFV but context is not BfvContext");
@@ -243,8 +241,9 @@ inline int check_signatures(FheContext* context,
 
     check_context_for_key_signatures(*context, task_sig_json["key"]);
 
-    auto data_sig_json = online_phase ? task_sig_json["online"].get<std::vector<nlohmann::json>>() :
-                                        task_sig_json["offline"].get<std::vector<nlohmann::json>>();
+    const auto& offline = task_sig_json["offline"];
+    auto data_sig_json = offline.empty() ? task_sig_json["online"].get<std::vector<nlohmann::json>>() :
+                                           offline.get<std::vector<nlohmann::json>>();
 
     int n_in_args = 0;
 
@@ -277,6 +276,6 @@ inline int check_signatures(FheContext* context,
     return n_in_args;
 }
 
-}  // namespace cxx_sdk_v2
+}  // namespace lattisense
 
 #endif  // CHECK_SIG_H

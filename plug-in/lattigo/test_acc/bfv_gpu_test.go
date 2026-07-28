@@ -13,6 +13,7 @@ import (
 
 var (
 	TestBfvGpuParamLiterals = []bfv.ParametersLiteral{bfv.PN14QP438}
+	bfv_gpu_base_path = gpu_base_path + "/bfv_param_default_n16384_t10001"
 )
 
 func TestBfvGpuAcc(t *testing.T) {
@@ -60,7 +61,7 @@ func testBfvGpuCtAddPtRt(tc *testBfvContext, t *testing.T) {
 				acc.NewGoVectorArgument("in_y_list", plaintext2),
 				acc.NewGoVectorArgument("out_z_list", ciphertext),
 			}
-			project_path := fmt.Sprintf("%s/BFV_%d_cap_ringt/level_%d", gpu_base_path, tc.n_op, lvl)
+			project_path := fmt.Sprintf("%s/BFV_%d_cap_ringt/level_%d", bfv_gpu_base_path, tc.n_op, lvl)
 			project, err := acc.NewFheTaskGpu(project_path)
 			if err != nil {
 				t.Fatal(err)
@@ -100,7 +101,7 @@ func testBfvGpuCtAddPt(tc *testBfvContext, t *testing.T) {
 				acc.NewGoVectorArgument("in_y_list", plaintext2),
 				acc.NewGoVectorArgument("out_z_list", ciphertext),
 			}
-			project_path := fmt.Sprintf("%s/BFV_%d_cap/level_%d", gpu_base_path, tc.n_op, lvl)
+			project_path := fmt.Sprintf("%s/BFV_%d_cap/level_%d", bfv_gpu_base_path, tc.n_op, lvl)
 			project, err := acc.NewFheTaskGpu(project_path)
 			if err != nil {
 				t.Fatal(err)
@@ -141,7 +142,7 @@ func testBfvGpuCtAddCt(tc *testBfvContext, t *testing.T) {
 				acc.NewGoVectorArgument("in_y_list", ciphertext2),
 				acc.NewGoVectorArgument("out_z_list", ciphertext),
 			}
-			project_path := fmt.Sprintf("%s/BFV_%d_cac/level_%d", gpu_base_path, tc.n_op, lvl)
+			project_path := fmt.Sprintf("%s/BFV_%d_cac/level_%d", bfv_gpu_base_path, tc.n_op, lvl)
 			project, err := acc.NewFheTaskGpu(project_path)
 			if err != nil {
 				t.Fatal(err)
@@ -181,7 +182,7 @@ func testBfvGpuCtMulPtRt(tc *testBfvContext, t *testing.T) {
 				acc.NewGoVectorArgument("in_y_list", plaintext2),
 				acc.NewGoVectorArgument("out_z_list", ciphertext),
 			}
-			project_path := fmt.Sprintf("%s/BFV_%d_cmp_ringt/level_%d", gpu_base_path, tc.n_op, lvl)
+			project_path := fmt.Sprintf("%s/BFV_%d_cmp_ringt/level_%d", bfv_gpu_base_path, tc.n_op, lvl)
 			project, err := acc.NewFheTaskGpu(project_path)
 			if err != nil {
 				t.Fatal(err)
@@ -223,7 +224,7 @@ func testBfvGpuCtMulCtRelin(tc *testBfvContext, t *testing.T) {
 				acc.NewGoVectorArgument("in_y_list", ciphertext2),
 				acc.NewGoVectorArgument("out_z_list", ciphertext),
 			}
-			project_path := fmt.Sprintf("%s/BFV_%d_cmc_relin/level_%d", gpu_base_path, tc.n_op, lvl)
+			project_path := fmt.Sprintf("%s/BFV_%d_cmc_relin/level_%d", bfv_gpu_base_path, tc.n_op, lvl)
 			project, err := acc.NewFheTaskGpu(project_path)
 			if err != nil {
 				t.Fatal(err)
@@ -274,7 +275,7 @@ func testBfvGpuCtRotateCol(tc *testBfvContext, t *testing.T) {
 					steps_str += "_"
 				}
 			}
-			project_path := fmt.Sprintf("%s/BFV_%d_advanced_rotate_col/level_%d/steps_%s", gpu_base_path, tc.n_op, lvl, steps_str)
+			project_path := fmt.Sprintf("%s/BFV_%d_advanced_rotate_col/level_%d/steps_%s", bfv_gpu_base_path, tc.n_op, lvl, steps_str)
 			project, err := acc.NewFheTaskGpu(project_path)
 			if err != nil {
 				t.Fatal(err)
@@ -317,7 +318,7 @@ func testBfvGpuCtSquareRelin(tc *testBfvContext, t *testing.T) {
 				acc.NewGoVectorArgument("in_x_list", ciphertext1),
 				acc.NewGoVectorArgument("out_z_list", ciphertext),
 			}
-			project_path := fmt.Sprintf("%s/BFV_%d_csqr_relin/level_%d", gpu_base_path, tc.n_op, lvl)
+			project_path := fmt.Sprintf("%s/BFV_%d_csqr_relin/level_%d", bfv_gpu_base_path, tc.n_op, lvl)
 			project, err := acc.NewFheTaskGpu(project_path)
 			if err != nil {
 				t.Fatal(err)
@@ -356,7 +357,7 @@ func testBfvGpuCtRotateRow(tc *testBfvContext, t *testing.T) {
 				acc.NewGoVectorArgument("arg_x", ciphertext1),
 				acc.NewGoVectorArgument("arg_y", ciphertext),
 			}
-			project_path := fmt.Sprintf("%s/BFV_%d_rotate_row/level_%d/", gpu_base_path, tc.n_op, lvl)
+			project_path := fmt.Sprintf("%s/BFV_%d_rotate_row/level_%d/", bfv_gpu_base_path, tc.n_op, lvl)
 			project, err := acc.NewFheTaskGpu(project_path)
 			if err != nil {
 				t.Fatal(err)
@@ -394,7 +395,7 @@ func testBfvGpuCtRescale(tc *testBfvContext, t *testing.T) {
 				acc.NewGoVectorArgument("in_x_list", ciphertext1),
 				acc.NewGoVectorArgument("out_y_list", ciphertext),
 			}
-			project_path := fmt.Sprintf("%s/BFV_%d_rescale/level_%d", gpu_base_path, tc.n_op, lvl)
+			project_path := fmt.Sprintf("%s/BFV_%d_rescale/level_%d", bfv_gpu_base_path, tc.n_op, lvl)
 			project, err := acc.NewFheTaskGpu(project_path)
 			if err != nil {
 				t.Fatal(err)

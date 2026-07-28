@@ -41,6 +41,7 @@ def bfv_mult():
         input_args=[Argument('x', x), Argument('y', y)],
         output_args=[Argument('z', z)],
         output_instruction_path='bfv_mult',
+        fpga_acc=False,
     )
 
 

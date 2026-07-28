@@ -24,7 +24,7 @@
 #include <iostream>
 
 using namespace std;
-using namespace cxx_sdk_v2;
+using namespace lattisense;
 
 void ckks_euclidean_distance_cpu() {
     int level = 3;

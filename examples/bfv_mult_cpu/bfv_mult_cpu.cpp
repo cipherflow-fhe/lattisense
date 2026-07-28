@@ -21,7 +21,7 @@
 
 #include <cstdio>
 
-using namespace cxx_sdk_v2;
+using namespace lattisense;
 using namespace std;
 
 void bfv_mult_cpu() {
@@ -45,7 +45,7 @@ void bfv_mult_cpu() {
         {"z", &z_ct},
     };
 
-    string project_path = "bfv_mult_cpu";
+    string project_path = "project";
     FheTaskCpu cpu_project(project_path);
     cpu_project.run(&context, cxx_args);
 

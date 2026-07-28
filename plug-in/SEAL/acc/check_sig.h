@@ -1,4 +1,25 @@
-#include "runner.h"
+/*
+ * Copyright (c) 2025-2026 CipherFlow (Shenzhen) Co., Ltd.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#pragma once
+
+#include "argument.h"
+#include <map>
 #include <stdexcept>
 
 static std::map<SealArgumentType, std::string> seal_argument_type_str_map = {
@@ -74,7 +95,7 @@ check_key_signatures(const seal::RelinKeys& rlk, const seal::GaloisKeys& glk, co
     }
 }
 
-void check_parameter(seal::SEALContext* context, const nlohmann::json& param_json) {
+inline void check_parameter(seal::SEALContext* context, const nlohmann::json& param_json) {
     if (!param_json.contains("n")) {
         throw std::runtime_error("Parameter JSON missing 'n' field");
     }
@@ -163,12 +184,11 @@ void check_parameter(seal::SEALContext* context, const nlohmann::json& param_jso
     }
 }
 
-int check_signatures(seal::SEALContext* context,
-                     const seal::RelinKeys& rlk,
-                     const seal::GaloisKeys& glk,
-                     const std::vector<SealVectorArgument>& seal_args,
-                     const nlohmann::json& task_sig_json,
-                     bool online_phase) {
+inline int check_signatures(seal::SEALContext* context,
+                            const seal::RelinKeys& rlk,
+                            const seal::GaloisKeys& glk,
+                            const std::vector<SealVectorArgument>& seal_args,
+                            const nlohmann::json& task_sig_json) {
     int algo;
     if (context->key_context_data()->parms().scheme() == seal::scheme_type::bfv) {
         algo = 0;
@@ -186,8 +206,9 @@ int check_signatures(seal::SEALContext* context,
 
     check_key_signatures(rlk, glk, task_sig_json["key"]);
 
-    auto data_sig_json = online_phase ? task_sig_json["online"].get<std::vector<nlohmann::json>>() :
-                                        task_sig_json["offline"].get<std::vector<nlohmann::json>>();
+    const auto& offline = task_sig_json["offline"];
+    auto data_sig_json = offline.empty() ? task_sig_json["online"].get<std::vector<nlohmann::json>>() :
+                                           offline.get<std::vector<nlohmann::json>>();
 
     int n_in_args = 0;
 

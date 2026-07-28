@@ -21,7 +21,7 @@
 
 #include <cstdio>
 
-using namespace cxx_sdk_v2;
+using namespace lattisense;
 using namespace std;
 
 void ckks_mult_cpu() {

@@ -10,6 +10,10 @@ endif()
 
 add_subdirectory(cpu)
 
+if(LATTISENSE_ENABLE_FPGA)
+    add_subdirectory(fpga)
+endif()
+
 if(LATTISENSE_ENABLE_GPU)
     add_subdirectory(gpu)
 endif()

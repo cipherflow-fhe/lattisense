@@ -22,9 +22,6 @@
 #include <vector>
 #include <string>
 #include <cmath>
-#include <algorithm>
-#include <sstream>
-#include <iomanip>
 #include "fhe_lib_v2.h"
 
 namespace fhe_ops_lib {
@@ -92,52 +89,38 @@ public:
      * @param context CKKS context
      * @param vWant Vector of expected values
      * @param element Plaintext to analyze
-     * @param logSlots Logarithm of the number of slots
-     * @param sigma Noise parameter
      * @return Precision statistics
      */
     static PrecisionStats GetPrecisionStats(CkksContext& context,
                                             const std::vector<double>& vWant,
                                             const CkksPlaintext& element,
-                                            int logSlots,
-                                            double sigma = 3.2);
+                                            bool in_coeffs_domain = false);
 
     /**
      * @brief Analyze CKKS ciphertext precision statistics
      * @param context CKKS context
      * @param vWant Vector of expected values
      * @param element Ciphertext to analyze
-     * @param logSlots Logarithm of the number of slots
-     * @param sigma Noise parameter
      * @return Precision statistics
      */
     static PrecisionStats GetPrecisionStats(CkksContext& context,
                                             const std::vector<double>& vWant,
                                             const CkksCiphertext& element,
-                                            int logSlots,
-                                            double sigma = 3.2);
+                                            bool in_coeffs_domain = false);
 
     /**
      * @brief Analyze precision statistics between two vectors
      * @param vWant Vector of expected values
      * @param vTest Vector of test values
-     * @param logSlots Logarithm of the number of slots
-     * @param sigma Noise parameter
      * @return Precision statistics
      */
-    static PrecisionStats GetPrecisionStats(const std::vector<double>& vWant,
-                                            const std::vector<double>& vTest,
-                                            int logSlots,
-                                            double sigma = 3.2);
+    static PrecisionStats GetPrecisionStats(const std::vector<double>& vWant, const std::vector<double>& vTest);
 
 private:
     /**
      * @brief Core implementation of precision statistics computation
      */
-    static PrecisionStats GetPrecisionStatsImpl(const std::vector<double>& vWant,
-                                                const std::vector<double>& vTest,
-                                                int logSlots,
-                                                double sigma);
+    static PrecisionStats GetPrecisionStatsImpl(const std::vector<double>& vWant, const std::vector<double>& vTest);
 
     /**
      * @brief Convert delta values to precision values (log2(1/delta))

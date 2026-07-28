@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.13)
+cmake_minimum_required(VERSION 3.26.4)
 
 project(lattisense
     LANGUAGES C CXX ASM
@@ -12,18 +12,18 @@ set(LATTISENSE_ROOT_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 # Dependency Checking #
 #######################
 
-# Check C++ compiler version
+# Check C++ compiler version (C++17 required)
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-    if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS "10.0")
+    if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS "9.0")
         message(FATAL_ERROR
-            "GCC version >= 10.0 is required for C++20 support.\n"
+            "GCC version >= 9.0 is required for C++17 support.\n"
             "Current version: ${CMAKE_CXX_COMPILER_VERSION}\n"
             "Please upgrade your compiler or set CMAKE_CXX_COMPILER to a newer version.")
     endif()
 elseif(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
-    if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS "11.0")
+    if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS "9.0")
         message(FATAL_ERROR
-            "Clang version >= 11.0 is required for C++20 support.\n"
+            "Clang version >= 9.0 is required for C++17 support.\n"
             "Current version: ${CMAKE_CXX_COMPILER_VERSION}\n"
             "Please upgrade your compiler or set CMAKE_CXX_COMPILER to a newer version.")
     endif()
@@ -70,7 +70,7 @@ if(LATTISENSE_ENABLE_GPU)
     if(NOT CUDAToolkit_FOUND)
         message(FATAL_ERROR
             "CUDA toolkit is required when LATTISENSE_ENABLE_GPU=ON.\n"
-            "Please install CUDA toolkit >= 12.0.")
+            "Please install CUDA toolkit >=11.4.")
     endif()
 
     if(NOT LATTISENSE_CUDA_ARCH)
@@ -101,27 +101,125 @@ if(LATTISENSE_ENABLE_GPU)
         DESCRIPTION "FHE SDK Version 2.0"
     )
 
-    # Check if HEonGPU is installed
-    set(HEONGPU_INSTALL_DIR "${LATTISENSE_ROOT_DIR}/HEonGPU/install")
-    set(HEONGPU_BUILD_DIR "${LATTISENSE_ROOT_DIR}/HEonGPU/build")
+    # ── HEonGPU integration ──────────────────────────────────────────────
+    set(HEONGPU_SOURCE_DIR "${LATTISENSE_ROOT_DIR}/backends/HEonGPU")
+    set(HEONGPU_BUILD_DIR  "${HEONGPU_SOURCE_DIR}/build")
+    set(HEONGPU_INSTALL_DIR "${HEONGPU_SOURCE_DIR}/install")
+    set(HEONGPU_CACHE_MARKER ".heongpu_cache_key")
 
-    if(NOT EXISTS "${HEONGPU_INSTALL_DIR}/lib")
-        message(FATAL_ERROR
-            "HEonGPU not found at ${HEONGPU_INSTALL_DIR}\n"
-            "\n"
-            "GPU support requires HEonGPU to be built first. Please run:\n"
-            "\n"
-            "  cd ${LATTISENSE_ROOT_DIR}/HEonGPU\n"
-            "  cmake -S . -B build \\\n"
-            "    -DCMAKE_CUDA_ARCHITECTURES=${LATTISENSE_CUDA_ARCH} \\\n"
-            "    -DCMAKE_CUDA_COMPILER=/usr/local/cuda/bin/nvcc \\\n"
-            "    -DCMAKE_INSTALL_PREFIX=\$(pwd)/install\n"
-            "  cmake --build build -j\$(nproc)\n"
-            "  cmake --install build\n"
-            "\n"
-            "Then re-run cmake with -DLATTISENSE_ENABLE_GPU=ON -DLATTISENSE_CUDA_ARCH=${LATTISENSE_CUDA_ARCH}")
+    execute_process(
+        COMMAND git -C ${HEONGPU_SOURCE_DIR} rev-parse HEAD
+        OUTPUT_VARIABLE HEONGPU_COMMIT
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        RESULT_VARIABLE heongpu_commit_result
+        ERROR_QUIET
+    )
+    if(NOT heongpu_commit_result EQUAL 0 OR HEONGPU_COMMIT STREQUAL "")
+        message(FATAL_ERROR "Failed to determine HEonGPU commit for cache validation")
+    endif()
+    set(HEONGPU_CACHE_KEY "${HEONGPU_COMMIT}-arch${LATTISENSE_CUDA_ARCH}")
+    set(HEONGPU_INSTALL_CURRENT OFF)
+
+    if(EXISTS "${HEONGPU_INSTALL_DIR}/lib" AND EXISTS "${HEONGPU_INSTALL_DIR}/${HEONGPU_CACHE_MARKER}")
+        file(READ "${HEONGPU_INSTALL_DIR}/${HEONGPU_CACHE_MARKER}" HEONGPU_INSTALLED_CACHE_KEY)
+        string(STRIP "${HEONGPU_INSTALLED_CACHE_KEY}" HEONGPU_INSTALLED_CACHE_KEY)
+        if(HEONGPU_INSTALLED_CACHE_KEY STREQUAL HEONGPU_CACHE_KEY)
+            set(HEONGPU_INSTALL_CURRENT ON)
+        endif()
     endif()
 
+    if(EXISTS "${HEONGPU_INSTALL_DIR}/lib" AND NOT HEONGPU_INSTALL_CURRENT)
+        message(STATUS "HEonGPU install cache key mismatch; rebuilding ${HEONGPU_CACHE_KEY}")
+        file(REMOVE_RECURSE "${HEONGPU_BUILD_DIR}" "${HEONGPU_INSTALL_DIR}")
+    endif()
+
+    if(NOT HEONGPU_INSTALL_CURRENT)
+        message(STATUS "HEonGPU not found for ${HEONGPU_CACHE_KEY}, building automatically...")
+
+        # Determine parallel jobs
+        include(ProcessorCount)
+        ProcessorCount(NPROC)
+        if(NPROC EQUAL 0)
+            set(NPROC 4)
+        endif()
+
+        # Step 1: configure
+        # Forward CPM_SOURCE_CACHE so HEonGPU's dependencies (CCCL, etc.)
+        # are cached across rebuilds.
+        set(_heongpu_extra_args)
+        if(DEFINED ENV{CPM_SOURCE_CACHE})
+            list(APPEND _heongpu_extra_args "-DCPM_SOURCE_CACHE=$ENV{CPM_SOURCE_CACHE}")
+        elseif(DEFINED CPM_SOURCE_CACHE)
+            list(APPEND _heongpu_extra_args "-DCPM_SOURCE_CACHE=${CPM_SOURCE_CACHE}")
+        endif()
+
+        # Generate a rapids-cmake override file to use a CCCL mirror if specified.
+        # Usage: cmake -DHEONGPU_CCCL_GIT_URL=https://gitee.com/nvidia_mirror/cccl.git ...
+        if(DEFINED HEONGPU_CCCL_GIT_URL)
+            set(_override_json [=[{"packages":{"CCCL":{"git_url":"@HEONGPU_CCCL_GIT_URL@"}}}]=])
+            string(REPLACE "@HEONGPU_CCCL_GIT_URL@" "${HEONGPU_CCCL_GIT_URL}" _override_json "${_override_json}")
+            set(_override_file "${HEONGPU_BUILD_DIR}/cccl_override.json")
+            file(WRITE "${_override_file}" "${_override_json}")
+            list(APPEND _heongpu_extra_args "-DRAPIDS_CMAKE_CPM_OVERRIDE_VERSION_FILE=${_override_file}")
+            message(STATUS "[HEonGPU] Using CCCL mirror: ${HEONGPU_CCCL_GIT_URL}")
+        endif()
+
+        message(STATUS "[HEonGPU] Configuring...")
+        execute_process(
+            COMMAND ${CMAKE_COMMAND}
+                -S ${HEONGPU_SOURCE_DIR}
+                -B ${HEONGPU_BUILD_DIR}
+                -DCMAKE_CUDA_ARCHITECTURES=${LATTISENSE_CUDA_ARCH}
+                -DCMAKE_CUDA_COMPILER=${CMAKE_CUDA_COMPILER}
+                -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
+                -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
+                -DCMAKE_INSTALL_PREFIX=${HEONGPU_INSTALL_DIR}
+                -DCMAKE_BUILD_TYPE=Release
+                -DHEonGPU_BUILD_TESTS=OFF
+                -DHEonGPU_BUILD_EXAMPLES=OFF
+                -DHEonGPU_BUILD_BENCHMARKS=OFF
+                -Wno-dev
+                ${_heongpu_extra_args}
+            RESULT_VARIABLE heongpu_config_result
+            COMMAND_ECHO STDOUT
+        )
+        if(NOT heongpu_config_result EQUAL 0)
+            message(FATAL_ERROR "[HEonGPU] Configure failed (exit ${heongpu_config_result})")
+        endif()
+        message(STATUS "[HEonGPU] Configure done.")
+
+        # Step 2: build
+        message(STATUS "[HEonGPU] Building (parallel ${NPROC})...")
+        execute_process(
+            COMMAND ${CMAKE_COMMAND}
+                --build ${HEONGPU_BUILD_DIR}
+                --parallel ${NPROC}
+            RESULT_VARIABLE heongpu_build_result
+            COMMAND_ECHO STDOUT
+        )
+        if(NOT heongpu_build_result EQUAL 0)
+            message(FATAL_ERROR "[HEonGPU] Build failed (exit ${heongpu_build_result})")
+        endif()
+        message(STATUS "[HEonGPU] Build done.")
+
+        # Step 3: install
+        message(STATUS "[HEonGPU] Installing to ${HEONGPU_INSTALL_DIR}...")
+        execute_process(
+            COMMAND ${CMAKE_COMMAND}
+                --install ${HEONGPU_BUILD_DIR}
+            RESULT_VARIABLE heongpu_install_result
+            COMMAND_ECHO STDOUT
+        )
+        if(NOT heongpu_install_result EQUAL 0)
+            message(FATAL_ERROR "[HEonGPU] Install failed (exit ${heongpu_install_result})")
+        endif()
+        file(WRITE "${HEONGPU_INSTALL_DIR}/${HEONGPU_CACHE_MARKER}" "${HEONGPU_CACHE_KEY}\n")
+        message(STATUS "[HEonGPU] Install done.")
+    else()
+        message(STATUS "Found existing HEonGPU installation at ${HEONGPU_INSTALL_DIR} (${HEONGPU_CACHE_KEY})")
+    endif()
+
+    # ── find HEonGPU and its dependencies ────────────────────────────────
     list(APPEND CMAKE_PREFIX_PATH "${HEONGPU_INSTALL_DIR}")
     # Add CCCL from HEonGPU build directory
     if(EXISTS "${HEONGPU_BUILD_DIR}/_deps/cccl-src/lib/cmake/cccl")
@@ -133,6 +231,7 @@ if(LATTISENSE_ENABLE_GPU)
     find_package(HEonGPU REQUIRED)
     set(CMAKE_CUDA_FLAGS_DEBUG "${CMAKE_CUDA_FLAGS_DEBUG} -g")
     set(CMAKE_CUDA_FLAGS_RELEASE "${CMAKE_CUDA_FLAGS_RELEASE} -O3")
+
     message(STATUS "GPU support enabled with HEonGPU (CUDA arch: ${LATTISENSE_CUDA_ARCH})")
 endif()
 
@@ -144,7 +243,7 @@ if(LATTISENSE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|i[3-6]86)$")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -maes")
 endif()
 
-set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED TRUE)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
@@ -180,6 +279,16 @@ if(LATTISENSE_DEV)
     add_definitions(-DLATTISENSE_DEV)
 endif()
 
+option(LATTISENSE_ENABLE_FPGA "Enable FPGA" OFF)
+message(STATUS "LATTISENSE_ENABLE_FPGA: ${LATTISENSE_ENABLE_FPGA}")
+if(LATTISENSE_ENABLE_FPGA)
+    add_definitions(-DLATTISENSE_ENABLE_FPGA)
+endif()
+
+set(LATTISENSE_FPGA_RESOURCE_DIR "${CMAKE_BINARY_DIR}/backends/lattisense-fpga/lattisense-fpga-runtime/resource/fpga_tasks"
+    CACHE PATH "Path to FPGA resource files (load_roots etc.)")
+message(STATUS "LATTISENSE_FPGA_RESOURCE_DIR: ${LATTISENSE_FPGA_RESOURCE_DIR}")
+
 option(LATTISENSE_PRINT_PROFILE "Profile mode" OFF)
 if(LATTISENSE_PRINT_PROFILE)
     add_definitions(-DPRINT_PROFILE)
@@ -194,16 +303,44 @@ message(STATUS "LATTISENSE_BUILD_TESTS: ${LATTISENSE_BUILD_TESTS}")
 
 include_directories(${LATTISENSE_ROOT_DIR}/lib ${LATTISENSE_ROOT_DIR}/common)
 
-add_custom_target(go_libs
-    COMMAND cd ${LATTISENSE_ROOT_DIR}/fhe_ops_lib/lattigo/go_sdk && bash build.sh
+set(GO_SDK_DIR ${LATTISENSE_ROOT_DIR}/fhe_ops_lib/lattigo/go_sdk)
+set(LIBLATTIGO_A   ${GO_SDK_DIR}/liblattigo.a)
+set(LIBLATTIGO_SO  ${GO_SDK_DIR}/liblattigo.so)
+set(LIBLATTIGO_H   ${GO_SDK_DIR}/liblattigo.h)
+# Sanitized copy of liblattigo.h with cgo #line virtual-filename directives stripped.
+# NVCC's -MD dep scanner emits those virtual names (e.g. "cgo-builtin-export-prolog")
+# as Make prerequisites; because they don't exist as files, Make treats them as always
+# out-of-date, rebuilding all .cu files on every invocation.  The sanitized copy keeps
+# all declarations intact but replaces offending #line markers with blank lines.
+set(LIBLATTIGO_H_SANITIZED ${GO_SDK_DIR}/liblattigo_sanitized.h)
+
+add_custom_command(
+    OUTPUT ${LIBLATTIGO_A} ${LIBLATTIGO_SO} ${LIBLATTIGO_H_SANITIZED}
+    COMMAND bash build.sh
+    COMMAND ${CMAKE_COMMAND} -P ${GO_SDK_DIR}/strip_cgo_line.cmake
+    WORKING_DIRECTORY ${GO_SDK_DIR}
+    DEPENDS
+        ${GO_SDK_DIR}/main.go
+        ${GO_SDK_DIR}/bootstrap.go
+        ${GO_SDK_DIR}/c_struct_import_export.go
+        ${GO_SDK_DIR}/conversion.go
+        ${GO_SDK_DIR}/multiparty.go
     COMMENT "Building Go dynamic libraries"
 )
 
+add_custom_target(go_libs DEPENDS ${LIBLATTIGO_A} ${LIBLATTIGO_SO} ${LIBLATTIGO_H_SANITIZED})
+
+add_subdirectory(abi)
+add_dependencies(abi go_libs)
 add_subdirectory(fhe_ops_lib)
 add_dependencies(fhe_ops_lib go_libs)
 add_subdirectory(cxx_sdk_v2)
 
 add_subdirectory(mega_ag_runners)
+
+if(LATTISENSE_ENABLE_FPGA)
+    add_subdirectory(backends/lattisense-fpga/lattisense-fpga-runtime)
+endif()
 
 if(LATTISENSE_BUILD_TESTS)
     enable_testing()
@@ -214,12 +351,19 @@ if(LATTISENSE_BUILD_MODE STREQUAL "SHARED")
     add_library(lattisense SHARED
         $<TARGET_OBJECTS:cxx_sdk_v2_obj>
         $<TARGET_OBJECTS:fhe_ops_lib_obj>
+        $<TARGET_OBJECTS:abi_obj>
     )
 
     target_sources(lattisense PRIVATE
         $<TARGET_OBJECTS:mega_ag_obj>
         $<TARGET_OBJECTS:cpu_mega_ag_runner_obj>
     )
+    if(LATTISENSE_ENABLE_FPGA)
+        target_sources(lattisense PRIVATE
+            $<TARGET_OBJECTS:fpga_mega_ag_runner_obj>
+            $<TARGET_OBJECTS:fpga_bfv_obj>
+        )
+    endif()
     if(LATTISENSE_ENABLE_GPU)
         target_sources(lattisense PRIVATE
             $<TARGET_OBJECTS:gpu_mega_ag_runner_obj>
@@ -253,6 +397,10 @@ if(LATTISENSE_BUILD_MODE STREQUAL "SHARED")
         )
     endif()
 
+    if(LATTISENSE_ENABLE_FPGA)
+        target_link_libraries(lattisense PRIVATE fpga_ops fpga_bfv)
+    endif()
+
     set_target_properties(lattisense PROPERTIES
         INSTALL_RPATH "$ORIGIN"
         BUILD_WITH_INSTALL_RPATH OFF
@@ -265,11 +413,7 @@ endif()
 option(LATTISENSE_BUILD_SEAL_PLUG_IN "Build lattisense plug-in for SEAL" OFF)
 message(STATUS "LATTISENSE_BUILD_SEAL_PLUG_IN: ${LATTISENSE_BUILD_SEAL_PLUG_IN}")
 if(LATTISENSE_BUILD_SEAL_PLUG_IN)
-    if(LATTISENSE_ENABLE_GPU)
-        add_subdirectory(plug-in/SEAL)
-    else()
-        message(WARNING "LATTISENSE_BUILD_SEAL_PLUG_IN requires LATTISENSE_ENABLE_GPU=ON. SEAL plug-in will not be built.")
-    endif()
+    add_subdirectory(plug-in/SEAL)
 endif()
 
 # install

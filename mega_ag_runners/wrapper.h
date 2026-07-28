@@ -30,36 +30,78 @@ extern "C" {
 
 typedef struct fhe_task_handle_st* fhe_task_handle;
 
+/**
+ * @brief Progress callback function type for tracking mega_ag execution progress.
+ * @param completed Number of compute nodes completed so far.
+ * @param total Total number of compute nodes in the mega_ag graph.
+ * @param user_data Opaque pointer passed through from the caller.
+ *
+ * @note Called from worker threads. The caller is responsible for thread-safe handling.
+ * @note Throttled internally to at most once per 100ms. The final task always triggers a callback.
+ */
+typedef void (*progress_callback_t)(int completed, int total, void* user_data);
+
+// ========== CPU Task Functions ==========
+
 fhe_task_handle create_fhe_cpu_task(const char* project_path);
 
 void release_fhe_cpu_task(fhe_task_handle handle);
 
-fhe_task_handle create_fhe_gpu_task(const char* project_path);
+void bind_cpu_task_custom_executors(fhe_task_handle handle,
+                                    const char** custom_types,
+                                    void** executors,
+                                    uint64_t n_executors);
 
-void release_fhe_gpu_task(fhe_task_handle handle);
-
-// run func is a C interface for calculating an FHE task. Its users can be SDK in different languages (C++/C/Go, etc.).
-// Different homomorphic encryption underlying algorithm libraries (such as CPU/GPU/FPGA implementation libraries of
-// homomorphic encryption need to implement this interface. The input of the interface is the arguments of c_sdk,
-// including the input and output of the computing task. Specifically, it needs to be implemented in three steps:
-//
-// 1. Convert the c_sdk data format to the library data format
-// 2. Call the library calculation function for calculation
-// 3. Convert the library data format back to the c_sdk data format
+void bind_cpu_task_abi_bridge_executors(fhe_task_handle handle, void* abi_export_executor, void* abi_import_executor);
 
 int run_fhe_cpu_task(fhe_task_handle handle,
                      CArgument* input_args,
                      uint64_t n_in_args,
                      CArgument* output_args,
                      uint64_t n_out_args,
-                     Algo algo);
+                     progress_callback_t progress_cb,
+                     void* user_data);
+
+// ========== GPU Task Functions ==========
+
+fhe_task_handle create_fhe_gpu_task(const char* project_path);
+
+void release_fhe_gpu_task(fhe_task_handle handle);
+
+void bind_gpu_task_abi_bridge_executors(fhe_task_handle handle, void* abi_export_executor, void* abi_import_executor);
+
+void bind_gpu_task_custom_executors(fhe_task_handle handle,
+                                    const char** custom_types,
+                                    void** executors,
+                                    uint64_t n_executors);
 
 int run_fhe_gpu_task(fhe_task_handle handle,
                      CArgument* input_args,
                      uint64_t n_in_args,
                      CArgument* output_args,
                      uint64_t n_out_args,
-                     Algo algo);
+                     progress_callback_t progress_cb,
+                     void* user_data,
+                     int gpu_device);
+
+// ========== FPGA Task Functions ==========
+
+fhe_task_handle create_fhe_fpga_task(const char* project_path);
+
+void release_fhe_fpga_task(fhe_task_handle handle);
+
+void bind_fpga_task_abi_bridge_executors(fhe_task_handle handle, void* abi_export_executor, void* abi_import_executor);
+
+void bind_fpga_task_custom_executors(fhe_task_handle handle,
+                                     const char** custom_types,
+                                     void** executors,
+                                     uint64_t n_executors);
+
+int run_fhe_fpga_task(fhe_task_handle handle,
+                      CArgument* input_args,
+                      uint64_t n_in_args,
+                      CArgument* output_args,
+                      uint64_t n_out_args);
 
 #ifdef __cplusplus
 }

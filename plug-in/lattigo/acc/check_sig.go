@@ -235,7 +235,7 @@ func check_parameter(params interface{}, param_json map[string]interface{}) {
 	}
 }
 
-func check_signatures(param interface{}, rlk *rlwe.RelinearizationKey, glk *rlwe.RotationKeySet, args []GoVectorArgument, task_signature map[string]interface{}, online_phase bool) int {
+func check_signatures(param interface{}, rlk *rlwe.RelinearizationKey, glk *rlwe.RotationKeySet, args []GoVectorArgument, task_signature map[string]interface{}) int {
 	switch param.(type) {
 	case bfv.Parameters:
 		if task_signature["algorithm"].(string) != "BFV" {
@@ -252,10 +252,11 @@ func check_signatures(param interface{}, rlk *rlwe.RelinearizationKey, glk *rlwe
 	check_key_signature(rlk, glk, task_signature["key"].(map[string]interface{}))
 
 	var data_signature []interface{}
-	if online_phase {
+	offline := task_signature["offline"].([]interface{})
+	if len(offline) == 0 {
 		data_signature = task_signature["online"].([]interface{})
 	} else {
-		data_signature = task_signature["offline"].([]interface{})
+		data_signature = offline
 	}
 
 	n_in_args := 0

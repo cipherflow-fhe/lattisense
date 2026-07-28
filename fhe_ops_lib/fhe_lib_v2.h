@@ -20,21 +20,26 @@
 #define CXX_FHE_LIB_H
 
 #include <cmath>
+#include <complex>
 #include <inttypes.h>
 #include <memory>
 #include <utility>
 #include <vector>
 #include <map>
 #include <functional>
-#include <random>
 #include <type_traits>
 #include <gsl/span>
 
 extern "C" {
-#include "fhe_types_v2.h"
-#include "lattigo/go_sdk/liblattigo.h"
+// Use the sanitized copy of the cgo-generated header. The original liblattigo.h
+// contains #line directives with virtual filenames (e.g. "cgo-builtin-export-prolog")
+// that NVCC's -MD dep scanner emits as Make prerequisites; since those names are not
+// real files, Make rebuilds all .cu files on every invocation. GCC/Clang ignore #line
+// arguments in dep scanning so they are unaffected, but using the sanitized header
+// universally is simpler. liblattigo_sanitized.h is generated alongside liblattigo.h
+// by the go_libs build step.
+#include "lattigo/go_sdk/liblattigo_sanitized.h"
 }
-#include "utils.h"
 
 namespace fhe_ops_lib {
 
@@ -272,6 +277,18 @@ public:
     uint64_t get_q(int index) const;
 
     double get_default_scale() const;
+
+    /**
+     * Get the log_slots of the CKKS parameter.
+     * @return The log2 of the number of slots.
+     */
+    int get_log_slots() const;
+
+    /**
+     * Set the log_slots of the CKKS parameter.
+     * @param log_slots The log2 of the number of slots.
+     */
+    void set_log_slots(int log_slots);
 };
 
 class CkksBtpParameter : public CkksParameter {
@@ -283,6 +300,8 @@ public:
     static CkksBtpParameter create_toy_parameter();
 
     CkksParameter& get_ckks_parameter();
+
+    void set_log_slots(int log_slots);
 
 protected:
     CkksParameter _parameter;
@@ -915,8 +934,7 @@ public:
      * @return The encoded plaintext.
      */
     CkksPlaintext encode(const std::vector<double>& x_mg, int level, double scale);
-
-    CkksPlaintext encode_complex(const std::vector<double>& x_mg, int level, double scale);
+    CkksPlaintext encode(const std::vector<std::complex<double>>& x_mg, int level, double scale);
 
     /**
      * Encode message data into a CKKS plaintext in ring-t form for multiplication.
@@ -925,6 +943,7 @@ public:
      * @return The encoded plaintext for multiplication.
      */
     CkksPlaintextRingt encode_ringt(const std::vector<double>& x_mg, double scale);
+    CkksPlaintextRingt encode_ringt(const std::vector<std::complex<double>>& x_mg, double scale);
 
     /**
      * Encode message data into a CKKS plaintext for multiplication.
@@ -934,6 +953,7 @@ public:
      * @return The encoded plaintext for multiplication.
      */
     CkksPlaintextMul encode_mul(const std::vector<double>& x_mg, int level, double scale);
+    CkksPlaintextMul encode_mul(const std::vector<std::complex<double>>& x_mg, int level, double scale);
 
     /**
      * Encode a floating-point array into a CKKS plaintext, with array components directly embedded into plaintext
@@ -978,8 +998,7 @@ public:
      * @return The decoded message data.
      */
     std::vector<double> decode(const CkksPlaintext& x_pt);
-
-    std::vector<double> decode_complex(const CkksPlaintext& x_pt);
+    std::vector<std::complex<double>> decode_complex(const CkksPlaintext& x_pt);
 
     /**
      * Decode a CKKS plaintext into message data (coefficient encoding).
@@ -1491,6 +1510,87 @@ public:
     Bytes serialize() const;
 
     static RefreshAndPermuteShare deserialize(const RefreshAndPermuteContext& context, BytesView data);
+};
+
+/**
+ * @brief Custom data type for storing user-defined data nodes from mega_ag.json
+ *
+ * This class extends the Handle base class and adds a void* data member
+ * to store custom data payloads that are not part of the standard FHE types.
+ * It is designed to be used with the mega_ag execution framework for handling
+ * custom operation types (e.g., encode, decode, custom algorithms).
+ */
+class CustomData : public Handle {
+public:
+    using Handle::Handle;
+
+    /**
+     * @brief Construct a CustomData object with arbitrary typed data
+     * @tparam T The type of the custom data
+     * @param custom_data The custom data to store (will be heap-allocated and converted to void*)
+     * @param k Keep flag (default false)
+     *
+     * This constructor accepts any type T, creates a heap copy of the data,
+     * converts it to void*, and generates a random 64-bit handle value.
+     */
+    template <typename T>
+    CustomData(const T& custom_data, bool k = false)
+        : Handle(uint64_t(0), k), data(static_cast<void*>(new typename std::decay<T>::type(custom_data))) {}
+
+    /**
+     * @brief Construct a CustomData object with arbitrary typed data (move semantics)
+     * @tparam T The type of the custom data
+     * @param custom_data The custom data to store (will be moved to heap and converted to void*)
+     * @param k Keep flag (default false)
+     */
+    template <typename T>
+    CustomData(T&& custom_data,
+               bool k = false,
+               typename std::enable_if<!std::is_lvalue_reference<T>::value, int>::type = 0)
+        : Handle(uint64_t(0), k),
+          data(static_cast<void*>(new typename std::decay<T>::type(std::forward<T>(custom_data)))) {}
+
+    /**
+     * @brief Construct a CustomData object with a raw void pointer
+     * @param custom_data Pointer to custom user-defined data
+     * @param k Keep flag (default false)
+     *
+     * This constructor accepts a raw void* pointer and generates a random handle.
+     */
+    explicit CustomData(void* custom_data, bool k = false) : Handle(uint64_t(0), k), data(custom_data) {}
+
+    /**
+     * @brief Default constructor
+     */
+    CustomData() : Handle(), data(nullptr) {}
+
+    /**
+     * @brief Move constructor
+     */
+    CustomData(CustomData&& other) : Handle(std::move(other)), data(other.data) {
+        other.data = nullptr;
+    }
+
+    /**
+     * @brief Move assignment operator
+     */
+    void operator=(CustomData&& other) {
+        Handle::operator=(std::move(other));
+        data = other.data;
+        other.data = nullptr;
+    }
+
+    /**
+     * @brief Template helper to get typed custom data
+     * @tparam T The type to cast the data pointer to
+     * @return T* Typed pointer to the custom data
+     */
+    template <typename T> T* get_typed_data() const {
+        return static_cast<T*>(data);
+    }
+
+private:
+    void* data;  ///< Pointer to custom user-defined data from mega_ag.json
 };
 
 }  // namespace fhe_ops_lib

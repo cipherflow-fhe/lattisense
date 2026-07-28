@@ -16,7 +16,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include "fhe_types_v2.h"
+#include "bridge.h"
 
 double bridge_func(Operation f, double x) {
     return f(x);

@@ -77,7 +77,7 @@ The second part is the online phase, which calls the computing chip for cipherte
 #include <fhe_ops_lib/fhe_lib_v2.h>
 
 using namespace std;
-using namespace cxx_sdk_v2;
+using namespace lattisense;
 
 // Initialize parameters required for BFV
 uint64_t t = 0x28001;

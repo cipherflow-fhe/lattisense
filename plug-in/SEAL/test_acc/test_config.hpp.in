@@ -1,0 +1,13 @@
+#pragma once
+
+#include <string>
+
+// Auto-generated test configuration
+// These paths are configured via CMake variables:
+// - TEST_BASE_DIR
+
+namespace test_config {
+    const std::string test_base_path = "@TEST_BASE_DIR@";
+    const std::string fpga_base_path = "@TEST_BASE_DIR@/fpga_tests/noc_config_16c_3";
+    const std::string gpu_base_path  = "@TEST_BASE_DIR@/gpu_tests/";
+}

@@ -29,11 +29,12 @@ jobs:
             --suppress=useStlAlgorithm \
             --suppress=noExplicitConstructor \
             --suppress=unusedFunction \
+            --suppress=virtualCallInConstructor \
             --suppress=*:lib/* \
             --error-exitcode=1 \
             --inline-suppr \
             --language=c++ \
-            --std=c++20 \
+            --std=c++17 \
             -i HEonGPU \
             -i fhe_ops_lib/lattigo \
             -i lib \
@@ -60,16 +61,15 @@ jobs:
 
       - name: Generate compile_commands.json
         run: |
-          mkdir -p build && cd build
-          cmake .. -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
-          cd ..
+          cmake -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
           ln -sf build/compile_commands.json .
 
       - name: Run clang-tidy
         run: |
           # Find source files, excluding third-party and test directories
           files=$(find . \
-            -path './HEonGPU' -prune -o \
+            -path './backends/HEonGPU' -prune -o \
+            -path './backends/lattisense-fpga' -prune -o \
             -path './fhe_ops_lib/lattigo' -prune -o \
             -path './lib' -prune -o \
             -path './build' -prune -o \

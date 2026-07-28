@@ -24,10 +24,19 @@ jobs:
         shell: bash
     container:
       image: localhost:5000/lattisense-ci:latest
-      options: --gpus all
+      options: >-
+        --gpus all
+        --device=/dev/xdma0_c2h_0:/dev/xdma0_c2h_0
+        --device=/dev/xdma0_c2h_1:/dev/xdma0_c2h_1
+        --device=/dev/xdma0_h2c_0:/dev/xdma0_h2c_0
+        --device=/dev/xdma0_h2c_1:/dev/xdma0_h2c_1
+        --device=/dev/xdma0_h2c_2:/dev/xdma0_h2c_2
+        --device=/dev/xdma0_h2c_3:/dev/xdma0_h2c_3
+        --device=/dev/xdma0_user:/dev/xdma0_user
       volumes:
         - /opt/heongpu-cache:/opt/heongpu-cache
         - /opt/go-mod-cache:/root/go/pkg/mod
+        - /var/lock:/var/lock
     timeout-minutes: 60
 
     steps:
@@ -35,6 +44,38 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
+          token: ${{ secrets.PRIVATE_REPO_ACCESS_TOKEN }}
+
+      - name: Sync submodules
+        env:
+          TOKEN: ${{ secrets.PRIVATE_REPO_ACCESS_TOKEN }}
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global url."https://x-access-token:${TOKEN}@github.com/".insteadOf "https://github.com/"
+          git submodule sync --recursive
+          git submodule update --init --recursive --force
+          echo "=== Submodule status ==="
+          git submodule status --recursive
+
+      - name: Init FPGA submodules (CI only)
+        env:
+          TOKEN: ${{ secrets.PRIVATE_REPO_ACCESS_TOKEN }}
+        run: |
+          git -c submodule."backends/lattisense-fpga/lattisense-fpga-runtime".update=checkout \
+              -c submodule."backends/lattisense-fpga/lattisense-fpga-linker".update=checkout \
+              submodule update --init --recursive \
+              backends/lattisense-fpga/lattisense-fpga-runtime \
+              backends/lattisense-fpga/lattisense-fpga-linker
+
+      - name: Install FPGA linker dependencies
+        run: |
+          pip3 install -i https://pypi.tuna.tsinghua.edu.cn/simple \
+            -r backends/lattisense-fpga/lattisense-fpga-linker/requirements.txt
+
+      - name: Build FPGA compiler C++ extension
+        run: |
+          cd backends/lattisense-fpga/lattisense-fpga-linker/lattisense-fpga-compiler/cpp
+          bash compile.sh
 
       - name: Verify prerequisites
         run: |
@@ -45,51 +86,81 @@ jobs:
           nvidia-smi --query-gpu=name --format=csv,noheader
           python3 --version
 
-      - name: Configure git mirrors for China
+      - name: Restore HEonGPU cache
         run: |
-          git config --global url."https://gitee.com/nvidia_mirror/cccl.git".insteadOf "https://github.com/NVIDIA/cccl.git"
+          HEONGPU_COMMIT=$(git -C backends/HEonGPU rev-parse HEAD)
+          CUDA_ARCH=86
+          HEONGPU_CACHE_KEY="${HEONGPU_COMMIT}-arch${CUDA_ARCH}"
+          HEONGPU_CACHE_MARKER=".heongpu_cache_key"
+          CACHE_DIR="/opt/heongpu-cache/${HEONGPU_CACHE_KEY}"
 
-      - name: Build HEonGPU (cached)
-        run: |
-          HEONGPU_COMMIT=$(git -C HEonGPU rev-parse HEAD)
-          CACHE_DIR="/opt/heongpu-cache/${HEONGPU_COMMIT}"
-          if [ -d "${CACHE_DIR}/install/lib" ]; then
-            echo "Using cached HEonGPU build (${HEONGPU_COMMIT:0:8})"
-            cp -a "${CACHE_DIR}/install" HEonGPU/install
-            cp -a "${CACHE_DIR}/build" HEonGPU/build
+          if [ -d backends/HEonGPU/install/lib ] && \
+             [ -d backends/HEonGPU/build ] && \
+             [ -f "backends/HEonGPU/install/${HEONGPU_CACHE_MARKER}" ] && \
+             [ "$(cat "backends/HEonGPU/install/${HEONGPU_CACHE_MARKER}")" = "${HEONGPU_CACHE_KEY}" ]; then
+            echo "Using existing HEonGPU build (${HEONGPU_COMMIT:0:8}, arch=${CUDA_ARCH})"
           else
-            echo "Building HEonGPU from scratch"
-            cd HEonGPU
-            cmake -S . -B build \
-              -DCMAKE_CUDA_ARCHITECTURES=86 \
-              -DCMAKE_CUDA_COMPILER=/usr/local/cuda/bin/nvcc \
-              -DCMAKE_INSTALL_PREFIX=$(pwd)/install
-            cmake --build build -j$(nproc)
-            cmake --install build
-            cd ..
+            rm -rf backends/HEonGPU/build backends/HEonGPU/install
+            if [ -d "${CACHE_DIR}/install/lib" ] && \
+               [ -d "${CACHE_DIR}/build" ] && \
+               [ -f "${CACHE_DIR}/install/${HEONGPU_CACHE_MARKER}" ] && \
+               [ "$(cat "${CACHE_DIR}/install/${HEONGPU_CACHE_MARKER}")" = "${HEONGPU_CACHE_KEY}" ]; then
+              echo "Using cached HEonGPU (${HEONGPU_COMMIT:0:8}, arch=${CUDA_ARCH})"
+              cp -a "${CACHE_DIR}/install" backends/HEonGPU/install
+              cp -a "${CACHE_DIR}/build" backends/HEonGPU/build
+              find backends/HEonGPU/install -name '*.cmake' -exec sed -i \
+                "s|${GITHUB_WORKSPACE}/HEonGPU/|${GITHUB_WORKSPACE}/backends/HEonGPU/|g" {} +
+            else
+              echo "No matching HEonGPU cache found; HEonGPU will be built during cmake configure"
+            fi
+          fi
+
+      - name: Build SDK (CPU + GPU + FPGA + Examples)
+        run: |
+          cmake -B build \
+            -DLATTISENSE_BUILD_TESTS=ON \
+            -DLATTISENSE_BUILD_EXAMPLES=ON \
+            -DLATTISENSE_ENABLE_GPU=ON \
+            -DLATTISENSE_ENABLE_FPGA=ON \
+            -DLATTISENSE_CUDA_ARCH=86 \
+            -DHEONGPU_CCCL_GIT_URL=https://gitee.com/nvidia_mirror/cccl.git
+          cmake --build build -j$(nproc)
+
+      - name: Save HEonGPU cache
+        run: |
+          HEONGPU_COMMIT=$(git -C backends/HEonGPU rev-parse HEAD)
+          CUDA_ARCH=86
+          HEONGPU_CACHE_KEY="${HEONGPU_COMMIT}-arch${CUDA_ARCH}"
+          HEONGPU_CACHE_MARKER=".heongpu_cache_key"
+          CACHE_DIR="/opt/heongpu-cache/${HEONGPU_CACHE_KEY}"
+          if [ -d "backends/HEonGPU/install/lib" ] && \
+             { [ ! -d "${CACHE_DIR}/install/lib" ] || \
+               [ ! -f "${CACHE_DIR}/install/${HEONGPU_CACHE_MARKER}" ] || \
+               [ "$(cat "${CACHE_DIR}/install/${HEONGPU_CACHE_MARKER}" 2>/dev/null)" != "${HEONGPU_CACHE_KEY}" ]; }; then
+            echo "Saving HEonGPU build to cache"
+            echo "${HEONGPU_CACHE_KEY}" > "backends/HEonGPU/install/${HEONGPU_CACHE_MARKER}"
+            rm -rf "${CACHE_DIR}"
             mkdir -p "${CACHE_DIR}"
-            cp -a HEonGPU/install "${CACHE_DIR}/"
-            cp -a HEonGPU/build "${CACHE_DIR}/"
+            cp -a backends/HEonGPU/install "${CACHE_DIR}/"
+            cp -a backends/HEonGPU/build "${CACHE_DIR}/"
             ls -dt /opt/heongpu-cache/*/ 2>/dev/null | tail -n +4 | xargs rm -rf 2>/dev/null || true
           fi
 
-      - name: Build SDK (CPU + GPU)
-        run: |
-          mkdir -p build && cd build
-          cmake .. \
-            -DLATTISENSE_BUILD_TESTS=ON \
-            -DLATTISENSE_ENABLE_GPU=ON \
-            -DLATTISENSE_CUDA_ARCH=86
-          make -j$(nproc)
-
-      - name: Generate test data
+      - name: Generate CPU/GPU test data
         run: |
           cd unittests
           export PYTHONPATH=$GITHUB_WORKSPACE/build/unittests:$GITHUB_WORKSPACE:$PYTHONPATH
-          python3 test_cpu_bfv.py
-          python3 test_cpu_ckks.py
-          python3 test_gpu_bfv.py
-          python3 test_gpu_ckks.py
+          python3 -m pytest test_cpu_bfv.py -v
+          python3 -m pytest test_cpu_ckks.py -v
+          python3 -m pytest test_gpu_bfv.py -v
+          python3 -m pytest test_gpu_ckks.py -v
+
+      - name: Generate FPGA test data
+        run: |
+          cd unittests
+          export PYTHONPATH=$GITHUB_WORKSPACE/build/unittests:$GITHUB_WORKSPACE:$PYTHONPATH
+          python3 -m pytest test_fpga_bfv.py -v
+          python3 -m pytest test_fpga_ckks.py -v
 
       - name: Run CPU tests
         timeout-minutes: 20
@@ -105,9 +176,65 @@ jobs:
         timeout-minutes: 20
         run: |
           cd build/unittests
-          export LD_LIBRARY_PATH=$GITHUB_WORKSPACE/build/lib:$GITHUB_WORKSPACE/HEonGPU/install/lib:$LD_LIBRARY_PATH
+          export LD_LIBRARY_PATH=$GITHUB_WORKSPACE/build/lib:$GITHUB_WORKSPACE/backends/HEonGPU/install/lib:$LD_LIBRARY_PATH
           ./test_gpu_bfv
           ./test_gpu_ckks
+
+      - name: Run FPGA tests
+        timeout-minutes: 20
+        run: |
+          cd build/unittests
+          export LD_LIBRARY_PATH=$GITHUB_WORKSPACE/build/lib:$LD_LIBRARY_PATH
+          ./test_fpga_bfv '~[.]' '~*power_dag*' '~*power_mul*'
+          ./test_fpga_ckks
+
+      - name: Run CPU examples
+        timeout-minutes: 10
+        run: |
+          export PYTHONPATH=$GITHUB_WORKSPACE:$PYTHONPATH
+          export LD_LIBRARY_PATH=$GITHUB_WORKSPACE/build:$GITHUB_WORKSPACE/build/fhe_ops_lib:$GITHUB_WORKSPACE/fhe_ops_lib/lattigo/go_sdk:$LD_LIBRARY_PATH
+
+          cd build/examples/bfv_mult_cpu
+          python3 bfv_mult_cpu.py && ./bfv_mult_cpu
+
+          cd $GITHUB_WORKSPACE/build/examples/ckks_mult_cpu
+          python3 ckks_mult_cpu.py && ./ckks_mult_cpu
+
+          cd $GITHUB_WORKSPACE/build/examples/ckks_mult_serialization_cpu
+          ./ckks_mult_serialization_cpu
+
+          cd $GITHUB_WORKSPACE/build/examples/bfv_poly_7_cpu
+          python3 bfv_poly_7_cpu.py && ./bfv_poly_7_cpu
+
+          cd $GITHUB_WORKSPACE/build/examples/ckks_euclidean_distance_cpu
+          python3 ckks_euclidean_distance_cpu.py && ./ckks_euclidean_distance_cpu
+
+          cd $GITHUB_WORKSPACE/build/examples/ckks_logistic_regression_cpu
+          python3 ckks_logistic_regression_cpu.py && ./ckks_logistic_regression_cpu
+
+      - name: Run CPU benchmarks
+        timeout-minutes: 10
+        run: |
+          export PYTHONPATH=$GITHUB_WORKSPACE:$PYTHONPATH
+          export LD_LIBRARY_PATH=$GITHUB_WORKSPACE/build:$GITHUB_WORKSPACE/build/fhe_ops_lib:$GITHUB_WORKSPACE/fhe_ops_lib/lattigo/go_sdk:$LD_LIBRARY_PATH
+
+          cd $GITHUB_WORKSPACE/build/examples/benchmark_cpu
+          python3 benchmark_cpu.py && ./benchmark_cpu all
+
+          cd $GITHUB_WORKSPACE/build/examples/benchmark_convolution
+          python3 benchmark_convolution.py && ./benchmark_convolution_cpu
+
+      - name: Run GPU benchmarks
+        timeout-minutes: 10
+        run: |
+          export PYTHONPATH=$GITHUB_WORKSPACE:$PYTHONPATH
+          export LD_LIBRARY_PATH=$GITHUB_WORKSPACE/build:$GITHUB_WORKSPACE/build/fhe_ops_lib:$GITHUB_WORKSPACE/fhe_ops_lib/lattigo/go_sdk:$GITHUB_WORKSPACE/backends/HEonGPU/install/lib:$LD_LIBRARY_PATH
+
+          cd $GITHUB_WORKSPACE/build/examples/benchmark_gpu
+          python3 benchmark_gpu.py && ./benchmark_gpu all
+
+          cd $GITHUB_WORKSPACE/build/examples/benchmark_convolution
+          ./benchmark_convolution_gpu
 
   build-docker:
     if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
@@ -144,8 +271,7 @@ jobs:
           docker run --rm lattisense:latest bash -c "
             cd /workspace/project_template
             python3 bfv_mult.py
-            mkdir -p build && cd build
-            cmake .. && make && cd ..
+            cmake -B build && cmake --build build && cd ..
             ./build/my_fhe_app
           "
 
