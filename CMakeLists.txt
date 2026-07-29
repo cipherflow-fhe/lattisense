@@ -337,6 +337,7 @@ if(LATTISENSE_ENABLE_FPGA)
 endif()
 
 if(LATTISENSE_BUILD_TESTS)
+    enable_testing()
     add_subdirectory(unittests)
 endif()
 
