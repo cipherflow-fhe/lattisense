@@ -918,6 +918,7 @@ CkksParameter& CkksBtpParameter::get_ckks_parameter() {
     return _parameter;
 }
 
+// cppcheck-suppress duplInheritedMember
 void CkksBtpParameter::set_log_slots(int log_slots) {
     _value = SetCkksBtpParameterLogSlots(_value, log_slots);
     _parameter = CkksParameter(0);

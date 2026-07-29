@@ -301,6 +301,7 @@ public:
 
     CkksParameter& get_ckks_parameter();
 
+    // cppcheck-suppress duplInheritedMember
     void set_log_slots(int log_slots);
 
 protected:
