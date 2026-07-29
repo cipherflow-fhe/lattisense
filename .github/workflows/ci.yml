@@ -15,6 +15,7 @@ concurrency:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
+  CPM_SOURCE_CACHE: /opt/heongpu-cache/cpm-source-cache
 
 jobs:
   build-and-test:
@@ -76,6 +77,13 @@ jobs:
         run: |
           cd backends/lattisense-fpga/lattisense-fpga-linker/lattisense-fpga-compiler/cpp
           bash compile.sh
+
+      - name: Install required CMake
+        run: |
+          python3 -m pip install --upgrade -i https://pypi.tuna.tsinghua.edu.cn/simple cmake==3.30.5
+          hash -r
+          which cmake
+          cmake --version
 
       - name: Verify prerequisites
         run: |
