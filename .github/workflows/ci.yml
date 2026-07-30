@@ -131,7 +131,8 @@ jobs:
             -DLATTISENSE_ENABLE_GPU=ON \
             -DLATTISENSE_ENABLE_FPGA=ON \
             -DLATTISENSE_CUDA_ARCH=86 \
-            -DHEONGPU_CCCL_GIT_URL=https://gitee.com/nvidia_mirror/cccl.git
+            -DHEONGPU_CCCL_GIT_URL=https://gitee.com/nvidia_mirror/cccl.git \
+            -DHEONGPU_SPDLOG_GIT_URL=https://gitee.com/mirror-luyi/spdlog.git
           cmake --build build -j$(nproc)
 
       - name: Save HEonGPU cache
