@@ -4,12 +4,3 @@
 [submodule "fhe_ops_lib/lattigo"]
 	path = fhe_ops_lib/lattigo
 	url = https://github.com/cipherflow-fhe/lattigo.git
-[submodule "backends/lattisense-fpga/lattisense-fpga-runtime"]
-	path = backends/lattisense-fpga/lattisense-fpga-runtime
-	url = https://github.com/cipherflow-fhe/lattisense-fpga-runtime.git
-	update = none
-[submodule "backends/lattisense-fpga/lattisense-fpga-linker"]
-	path = backends/lattisense-fpga/lattisense-fpga-linker
-	url = https://github.com/cipherflow-fhe/lattisense-fpga-linker.git
-	update = none
-
