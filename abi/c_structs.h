@@ -23,80 +23,32 @@ void alloc_plaintext(CPlaintext* pt, int level, int ring_degree);
 
 void alloc_ciphertext(CCiphertext* ct, int cipher_size, int level, int ring_degree);
 
-void alloc_switching_key(CSwitchingKey* swk, int level_q, int level_p, int ring_degree);
+void alloc_evaluation_key(CEvaluationKey* evk, int level_q, int level_p, int ring_degree);
 
 void free_plaintext(CPlaintext* pt);
 
 void free_ciphertext(CCiphertext* ct);
 
-void free_switching_key(CSwitchingKey* swk);
+void free_evaluation_key(CEvaluationKey* evk);
 
-void alloc_relin_key(CRelinKey* rlk, int level_q, int level_p, int ring_degree);
+ErrorStatus import_ciphertext(uint64_t parameter_handle,
+                              uint64_t dest_handle,
+                              Metadata* source_metadata,
+                              Metadata* target_metadata,
+                              CCiphertext* c_ciphertext);
 
-void alloc_galois_key(CGaloisKey* glk, int n_switching_key, int level_q, int level_p, int ring_degree);
+void export_plaintext(uint64_t parameter_handle, uint64_t plaintext_handle, Metadata* metadata, CPlaintext* plaintext);
 
-void set_galois_key_steps(CGaloisKey* glk, const uint64_t* galois_elements, int n_switching_key);
+void export_ciphertext(uint64_t parameter_handle,
+                       uint64_t ciphertext_handle,
+                       Metadata* metadata,
+                       CCiphertext* ciphertext);
 
-void free_relin_key(CRelinKey* rlk);
-
-void free_galois_key(CGaloisKey* gk);
-
-void import_bfv_ciphertext(uint64_t dest_handle, CCiphertext* c_ciphertext);
-
-void import_ckks_ciphertext(uint64_t dest_handle, CCiphertext* c_ciphertext);
-
-void export_bfv_plaintext_ringt(uint64_t plaintext_ringt_handle, CPlaintext* plaintext);
-
-void export_bfv_plaintext_mul(uint64_t parameter_handle,
-                              uint64_t plaintext_mul_handle,
-                              int mf_nbits,
-                              CPlaintext* plaintext);
-
-void export_ckks_plaintext_mul(uint64_t parameter_handle,
-                               uint64_t plaintext_mul_handle,
-                               int mf_nbits,
-                               CPlaintext* plaintext);
-
-void export_ckks_plaintext_ringt(uint64_t plaintext_ringt_handle, CPlaintext* plaintext);
-
-void export_bfv_plaintext(uint64_t plaintext_handle, CPlaintext* plaintext);
-
-void export_ckks_plaintext(uint64_t plaintext_handle, CPlaintext* plaintext);
-
-void export_bfv_ciphertext(uint64_t ciphertext_handle, CCiphertext* ciphertext);
-
-void export_ckks_ciphertext(uint64_t ciphertext_handle, CCiphertext* ciphertext);
-
-void export_bfv_relin_key(uint64_t parameter_handle,
-                          uint64_t relin_key_handle,
-                          int level,
-                          int key_mf_nbits,
-                          CRelinKey* relin_key);
-
-void export_ckks_relin_key(uint64_t parameter_handle,
-                           uint64_t relin_key_handle,
-                           int level,
-                           int key_mf_nbits,
-                           CRelinKey* relin_key);
-
-void export_bfv_galois_key(uint64_t parameter_handle,
-                           uint64_t galois_key_handle,
-                           int level,
-                           int key_mf_nbits,
-                           CGaloisKey* galois_key);
-
-void export_ckks_galois_key(uint64_t parameter_handle,
-                            uint64_t galois_key_handle,
-                            int level,
-                            int key_mf_nbits,
-                            CGaloisKey* galois_key);
-
-void export_ckks_switching_key(uint64_t parameter_handle,
-                               uint64_t switching_key_handle,
-                               int level_q,
-                               int level_p,
-                               int key_mf_nbits,
-                               CSwitchingKey* switching_key);
+void export_evaluation_key(uint64_t parameter_handle,
+                           uint64_t evaluation_key_handle,
+                           int level_p,
+                           Metadata* metadata,
+                           CEvaluationKey* evaluation_key);
 
 void bfv_poly_ntt(uint64_t parameter_handle, uint64_t* data, int level_q, int level_p);
 

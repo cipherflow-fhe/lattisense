@@ -288,15 +288,6 @@ if(LATTISENSE_DEV)
     add_definitions(-DLATTISENSE_DEV)
 endif()
 
-option(LATTISENSE_ENABLE_FPGA "Enable FPGA" OFF)
-message(STATUS "LATTISENSE_ENABLE_FPGA: ${LATTISENSE_ENABLE_FPGA}")
-if(LATTISENSE_ENABLE_FPGA)
-    add_definitions(-DLATTISENSE_ENABLE_FPGA)
-endif()
-
-set(LATTISENSE_FPGA_RESOURCE_DIR "${CMAKE_BINARY_DIR}/backends/lattisense-fpga/lattisense-fpga-runtime/resource/fpga_tasks"
-    CACHE PATH "Path to FPGA resource files (load_roots etc.)")
-message(STATUS "LATTISENSE_FPGA_RESOURCE_DIR: ${LATTISENSE_FPGA_RESOURCE_DIR}")
 
 option(LATTISENSE_PRINT_PROFILE "Profile mode" OFF)
 if(LATTISENSE_PRINT_PROFILE)
@@ -330,7 +321,17 @@ set(LIBLATTIGO_H   ${GO_SDK_DIR}/liblattigo.h)
 # all declarations intact but replaces offending #line markers with blank lines.
 set(LIBLATTIGO_H_SANITIZED ${GO_SDK_DIR}/liblattigo_sanitized.h)
 
-set(GO_SOURCES main.go bootstrap.go c_struct_import_export.go conversion.go multiparty.go)
+set(GO_SOURCES
+    main.go
+    objects.go
+    rlwe.go
+    bfv.go
+    ckks.go
+    bootstrap.go
+    c_struct_import_export.go
+    conversion.go
+    multiparty.go
+)
 if(WIN32)
     # Windows: only build c-archive. c-shared fails because bridge_func (defined in
     # bridge.c on the C++ side) is unresolved — Windows linker requires all symbols at
@@ -344,6 +345,10 @@ if(WIN32)
         WORKING_DIRECTORY ${GO_SDK_DIR}
         DEPENDS
             ${GO_SDK_DIR}/main.go
+            ${GO_SDK_DIR}/objects.go
+            ${GO_SDK_DIR}/rlwe.go
+            ${GO_SDK_DIR}/bfv.go
+            ${GO_SDK_DIR}/ckks.go
             ${GO_SDK_DIR}/bootstrap.go
             ${GO_SDK_DIR}/c_struct_import_export.go
             ${GO_SDK_DIR}/conversion.go
@@ -362,6 +367,10 @@ else()
         WORKING_DIRECTORY ${GO_SDK_DIR}
         DEPENDS
             ${GO_SDK_DIR}/main.go
+            ${GO_SDK_DIR}/objects.go
+            ${GO_SDK_DIR}/rlwe.go
+            ${GO_SDK_DIR}/bfv.go
+            ${GO_SDK_DIR}/ckks.go
             ${GO_SDK_DIR}/bootstrap.go
             ${GO_SDK_DIR}/c_struct_import_export.go
             ${GO_SDK_DIR}/conversion.go
@@ -381,10 +390,6 @@ if(NOT LATTISENSE_CLIENT_ONLY)
 
     add_subdirectory(mega_ag_runners)
 
-    if(LATTISENSE_ENABLE_FPGA)
-        add_subdirectory(backends/lattisense-fpga/lattisense-fpga-runtime)
-    endif()
-
     if(LATTISENSE_BUILD_TESTS)
         add_subdirectory(unittests)
     endif()
@@ -402,12 +407,6 @@ if(LATTISENSE_BUILD_MODE STREQUAL "SHARED")
         $<TARGET_OBJECTS:mega_ag_obj>
         $<TARGET_OBJECTS:cpu_mega_ag_runner_obj>
     )
-    if(LATTISENSE_ENABLE_FPGA)
-        target_sources(lattisense PRIVATE
-            $<TARGET_OBJECTS:fpga_mega_ag_runner_obj>
-            $<TARGET_OBJECTS:fpga_bfv_obj>
-        )
-    endif()
     if(LATTISENSE_ENABLE_GPU)
         target_sources(lattisense PRIVATE
             $<TARGET_OBJECTS:gpu_mega_ag_runner_obj>
@@ -439,10 +438,6 @@ if(LATTISENSE_BUILD_MODE STREQUAL "SHARED")
             CUDA_SEPARABLE_COMPILATION ON
             CUDA_RESOLVE_DEVICE_SYMBOLS ON
         )
-    endif()
-
-    if(LATTISENSE_ENABLE_FPGA)
-        target_link_libraries(lattisense PRIVATE fpga_ops fpga_bfv)
     endif()
 
     set_target_properties(lattisense PROPERTIES

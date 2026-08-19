@@ -281,14 +281,14 @@ cmake --build build -j$(nproc)
 
 # Generate test data
 cd unittests
-python3 test_cpu_bfv.py
-python3 test_cpu_ckks.py
+python3 test_bfv.py
+python3 test_ckks.py
 
 # Run tests
 cd build/unittests
 ./test_lattigo       # underlying operators tests
-./test_cpu_bfv       # BFV CPU tests
-./test_cpu_ckks      # CKKS CPU tests
+./test_bfv           # BFV CPU/GPU tests
+./test_ckks          # CKKS CPU/GPU tests
 ```
 
 ## License

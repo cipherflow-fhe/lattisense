@@ -16,10 +16,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <cassert>
 #include <cmath>
 #include <cstdint>
-#include <random>
+#include <utility>
 
 #include "utils.h"
 
@@ -32,257 +31,238 @@ double sigmoid(double x) {
 }
 
 double step_function(double x) {
-    if (x > 0)
+    if (x > 0) {
         return 1;
-    if (x < 0)
+    }
+    if (x < 0) {
         return 0;
+    }
     return 0;
 }
 
 // ---------------------------------------------------------------------------
-// BFV test std::vector helpers
+// Batch accessors
 // ---------------------------------------------------------------------------
 
-BfvTestCt new_bfv_test_ct(int n_data, BfvContext& ctx, int level, uint64_t t) {
-    BfvTestCt tv;
-    int n = ctx.get_parameter().get_n();
-    for (int i = 0; i < n_data; i++) {
-        tv.values.push_back(rand_values(n, t));
-        auto pt = ctx.encode(tv.values[i], level);
-        tv.ciphertexts.push_back(ctx.encrypt_asymmetric(pt));
+const std::vector<std::vector<uint64_t>>& BfvTestCtBatch::messages() {
+    _messages.clear();
+    _messages.reserve(samples.size());
+    for (const BfvTestCt& sample : samples) {
+        _messages.push_back(sample.message);
     }
-    return tv;
+    return _messages;
 }
 
-BfvTestPt new_bfv_test_pt(int n_data, BfvContext& ctx, int level, uint64_t t) {
-    BfvTestPt tv;
-    int n = ctx.get_parameter().get_n();
-    for (int i = 0; i < n_data; i++) {
-        tv.values.push_back(rand_values(n, t));
-        tv.plaintexts.push_back(ctx.encode(tv.values[i], level));
+std::vector<BfvCiphertext>& BfvTestCtBatch::ciphertexts() {
+    _ciphertexts.clear();
+    _ciphertexts.reserve(samples.size());
+    for (BfvTestCt& sample : samples) {
+        _ciphertexts.push_back(std::move(sample.ciphertext));
     }
-    return tv;
+    return _ciphertexts;
 }
 
-BfvTestPtRingt new_bfv_test_pt_ringt(int n_data, BfvContext& ctx, uint64_t t) {
-    BfvTestPtRingt tv;
-    int n = ctx.get_parameter().get_n();
-    for (int i = 0; i < n_data; i++) {
-        tv.values.push_back(rand_values(n, t));
-        tv.plaintexts.push_back(ctx.encode_ringt(tv.values[i]));
+const std::vector<std::vector<uint64_t>>& BfvTestPtBatch::messages() {
+    _messages.clear();
+    _messages.reserve(samples.size());
+    for (const BfvTestPt& sample : samples) {
+        _messages.push_back(sample.message);
     }
-    return tv;
+    return _messages;
 }
 
-BfvTestPtMul new_bfv_test_pt_mul(int n_data, BfvContext& ctx, int level, uint64_t t) {
-    BfvTestPtMul tv;
-    int n = ctx.get_parameter().get_n();
-    for (int i = 0; i < n_data; i++) {
-        tv.values.push_back(rand_values(n, t));
-        tv.plaintexts.push_back(ctx.encode_mul(tv.values[i], level));
+std::vector<BfvPlaintext>& BfvTestPtBatch::plaintexts() {
+    _plaintexts.clear();
+    _plaintexts.reserve(samples.size());
+    for (BfvTestPt& sample : samples) {
+        _plaintexts.push_back(std::move(sample.plaintext));
     }
-    return tv;
+    return _plaintexts;
 }
 
-BfvTestCt new_bfv_test_ct_coeffs(int n_data, BfvContext& ctx, int level, uint64_t t) {
-    BfvTestCt tv;
-    int n = ctx.get_parameter().get_n();
-    for (int i = 0; i < n_data; i++) {
-        tv.values.push_back(rand_values(n, t));
-        auto pt = ctx.encode_coeffs(tv.values[i], level);
-        tv.ciphertexts.push_back(ctx.encrypt_asymmetric(pt));
+const std::vector<std::vector<double>>& CkksRealTestCtBatch::messages() {
+    _messages.clear();
+    _messages.reserve(samples.size());
+    for (const CkksRealTestCt& sample : samples) {
+        _messages.push_back(sample.message);
     }
-    return tv;
+    return _messages;
 }
 
-BfvTestPt new_bfv_test_pt_coeffs(int n_data, BfvContext& ctx, int level, uint64_t t) {
-    BfvTestPt tv;
-    int n = ctx.get_parameter().get_n();
-    for (int i = 0; i < n_data; i++) {
-        tv.values.push_back(rand_values(n, t));
-        tv.plaintexts.push_back(ctx.encode_coeffs(tv.values[i], level));
+std::vector<CkksCiphertext>& CkksRealTestCtBatch::ciphertexts() {
+    _ciphertexts.clear();
+    _ciphertexts.reserve(samples.size());
+    for (CkksRealTestCt& sample : samples) {
+        _ciphertexts.push_back(std::move(sample.ciphertext));
     }
-    return tv;
+    return _ciphertexts;
 }
 
-BfvTestPtRingt new_bfv_test_pt_ringt_coeffs(int n_data, BfvContext& ctx, uint64_t t) {
-    BfvTestPtRingt tv;
-    int n = ctx.get_parameter().get_n();
-    for (int i = 0; i < n_data; i++) {
-        tv.values.push_back(rand_values(n, t));
-        tv.plaintexts.push_back(ctx.encode_coeffs_ringt(tv.values[i]));
+const std::vector<std::vector<std::complex<double>>>& CkksComplexTestCtBatch::messages() {
+    _messages.clear();
+    _messages.reserve(samples.size());
+    for (const CkksComplexTestCt& sample : samples) {
+        _messages.push_back(sample.message);
     }
-    return tv;
+    return _messages;
 }
 
-BfvTestPtMul new_bfv_test_pt_mul_coeffs(int n_data, BfvContext& ctx, int level, uint64_t t) {
-    BfvTestPtMul tv;
-    int n = ctx.get_parameter().get_n();
-    for (int i = 0; i < n_data; i++) {
-        tv.values.push_back(rand_values(n, t));
-        tv.plaintexts.push_back(ctx.encode_coeffs_mul(tv.values[i], level));
+std::vector<CkksCiphertext>& CkksComplexTestCtBatch::ciphertexts() {
+    _ciphertexts.clear();
+    _ciphertexts.reserve(samples.size());
+    for (CkksComplexTestCt& sample : samples) {
+        _ciphertexts.push_back(std::move(sample.ciphertext));
     }
-    return tv;
+    return _ciphertexts;
 }
 
-std::vector<std::vector<uint64_t>> decrypt_and_decode_coeffs(BfvContext& ctx, const std::vector<BfvCiphertext>& cts) {
-    std::vector<std::vector<uint64_t>> result(cts.size());
-    for (size_t i = 0; i < cts.size(); i++)
-        result[i] = ctx.decode_coeffs(ctx.decrypt(cts[i]));
-    return result;
+const std::vector<std::vector<double>>& CkksRealTestPtBatch::messages() {
+    _messages.clear();
+    _messages.reserve(samples.size());
+    for (const CkksRealTestPt& sample : samples) {
+        _messages.push_back(sample.message);
+    }
+    return _messages;
 }
 
-std::vector<uint64_t> decrypt_and_decode_coeffs(BfvContext& ctx, const BfvCiphertext& ct) {
-    return ctx.decode_coeffs(ctx.decrypt(ct));
+std::vector<CkksPlaintext>& CkksRealTestPtBatch::plaintexts() {
+    _plaintexts.clear();
+    _plaintexts.reserve(samples.size());
+    for (CkksRealTestPt& sample : samples) {
+        _plaintexts.push_back(std::move(sample.plaintext));
+    }
+    return _plaintexts;
 }
 
-std::vector<std::vector<uint64_t>> decrypt_and_decode(BfvContext& ctx, const std::vector<BfvCiphertext>& cts) {
-    std::vector<std::vector<uint64_t>> result(cts.size());
-    for (size_t i = 0; i < cts.size(); i++)
-        result[i] = ctx.decode(ctx.decrypt(cts[i]));
-    return result;
+const std::vector<std::vector<std::complex<double>>>& CkksComplexTestPtBatch::messages() {
+    _messages.clear();
+    _messages.reserve(samples.size());
+    for (const CkksComplexTestPt& sample : samples) {
+        _messages.push_back(sample.message);
+    }
+    return _messages;
 }
 
-std::vector<std::vector<uint64_t>> decrypt_and_decode(BfvContext& ctx, const std::vector<BfvCiphertext3>& cts) {
-    std::vector<std::vector<uint64_t>> result(cts.size());
-    for (size_t i = 0; i < cts.size(); i++)
-        result[i] = ctx.decode(ctx.decrypt(cts[i]));
-    return result;
-}
-
-std::vector<uint64_t> decrypt_and_decode(BfvContext& ctx, const BfvCiphertext& ct) {
-    return ctx.decode(ctx.decrypt(ct));
+std::vector<CkksPlaintext>& CkksComplexTestPtBatch::plaintexts() {
+    _plaintexts.clear();
+    _plaintexts.reserve(samples.size());
+    for (CkksComplexTestPt& sample : samples) {
+        _plaintexts.push_back(std::move(sample.plaintext));
+    }
+    return _plaintexts;
 }
 
 // ---------------------------------------------------------------------------
-// CKKS test std::vector helpers
+// Batched wrappers over fhe_ops_lib/unittests/test_utils.h samples
 // ---------------------------------------------------------------------------
 
-CkksTestCt new_ckks_test_ct(int n_data, CkksContext& ctx, int level, double scale) {
-    CkksTestCt tv;
-    int n_slot = 1 << ctx.get_parameter().get_log_slots();
-    for (int i = 0; i < n_data; i++) {
-        tv.values.push_back(rand_double_values(n_slot));
-        auto pt = ctx.encode(tv.values[i], level, scale);
-        tv.ciphertexts.push_back(ctx.encrypt_asymmetric(pt));
+BfvTestPtBatch new_test_pts(int n_samples, BfvContext& ctx, int level, bool is_ringt, bool is_batched) {
+    BfvTestPtBatch batch;
+    batch.samples.reserve(n_samples);
+
+    for (int i = 0; i < n_samples; i++) {
+        batch.samples.push_back(new_pt(ctx, level, is_ringt, is_batched));
     }
-    return tv;
+    return batch;
 }
 
-CkksTestComplexCt new_ckks_test_complex_ct(int n_data, CkksContext& ctx, int level, double scale) {
-    CkksTestComplexCt tv;
-    int n_slot = 1 << ctx.get_parameter().get_log_slots();
-    for (int i = 0; i < n_data; i++) {
-        auto real_values = rand_double_values(n_slot);
-        auto imag_values = rand_double_values(n_slot);
-        std::vector<std::complex<double>> values;
-        values.reserve(n_slot);
-        for (int j = 0; j < n_slot; j++)
-            values.emplace_back(real_values[j], imag_values[j]);
-        tv.values.push_back(values);
-        auto pt = ctx.encode(tv.values[i], level, scale);
-        tv.ciphertexts.push_back(ctx.encrypt_asymmetric(pt));
+BfvTestCtBatch new_test_cts(int n_samples, BfvContext& ctx, int level, bool is_batched) {
+    BfvTestCtBatch batch;
+    batch.samples.reserve(n_samples);
+
+    for (int i = 0; i < n_samples; i++) {
+        batch.samples.push_back(new_ct(ctx, level, is_batched));
     }
-    return tv;
+    return batch;
 }
 
-CkksTestPt new_ckks_test_pt(int n_data, CkksContext& ctx, int level, double scale) {
-    CkksTestPt tv;
-    int n_slot = 1 << ctx.get_parameter().get_log_slots();
-    for (int i = 0; i < n_data; i++) {
-        tv.values.push_back(rand_double_values(n_slot));
-        tv.plaintexts.push_back(ctx.encode(tv.values[i], level, scale));
+CkksRealTestPtBatch
+new_test_real_pts(int n_samples, CkksContext& ctx, int level, bool is_ringt, bool is_batched, int log_slots) {
+    CkksRealTestPtBatch batch;
+    batch.samples.reserve(n_samples);
+
+    for (int i = 0; i < n_samples; i++) {
+        batch.samples.push_back(new_real_pt(ctx, level, is_ringt, is_batched, log_slots));
     }
-    return tv;
+    return batch;
 }
 
-CkksTestPtRingt new_ckks_test_pt_ringt(int n_data, CkksContext& ctx, double scale) {
-    CkksTestPtRingt tv;
-    int n_slot = 1 << ctx.get_parameter().get_log_slots();
-    for (int i = 0; i < n_data; i++) {
-        tv.values.push_back(rand_double_values(n_slot));
-        tv.plaintexts.push_back(ctx.encode_ringt(tv.values[i], scale));
+CkksComplexTestPtBatch new_test_complex_pts(int n_samples, CkksContext& ctx, int level, bool is_ringt, int log_slots) {
+    CkksComplexTestPtBatch batch;
+    batch.samples.reserve(n_samples);
+
+    for (int i = 0; i < n_samples; i++) {
+        batch.samples.push_back(new_complex_pt(ctx, level, is_ringt, log_slots));
     }
-    return tv;
+    return batch;
 }
 
-CkksTestPtMul new_ckks_test_pt_mul(int n_data, CkksContext& ctx, int level, double scale) {
-    CkksTestPtMul tv;
-    int n_slot = 1 << ctx.get_parameter().get_log_slots();
-    for (int i = 0; i < n_data; i++) {
-        tv.values.push_back(rand_double_values(n_slot));
-        tv.plaintexts.push_back(ctx.encode_mul(tv.values[i], level, scale));
+CkksRealTestCtBatch new_test_real_cts(int n_samples, CkksContext& ctx, int level, bool is_batched, int log_slots) {
+    CkksRealTestCtBatch batch;
+    batch.samples.reserve(n_samples);
+
+    for (int i = 0; i < n_samples; i++) {
+        batch.samples.push_back(new_real_ct(ctx, level, is_batched, log_slots));
     }
-    return tv;
+    return batch;
 }
 
-CkksTestCt new_ckks_test_ct_coeffs(int n_data, CkksContext& ctx, int level, double scale) {
-    CkksTestCt tv;
-    int n_slot = ctx.get_parameter().get_n() / 2;
-    for (int i = 0; i < n_data; i++) {
-        tv.values.push_back(rand_double_values(n_slot));
-        auto pt = ctx.encode_coeffs(tv.values[i], level, scale);
-        tv.ciphertexts.push_back(ctx.encrypt_asymmetric(pt));
+CkksComplexTestCtBatch new_test_complex_cts(int n_samples, CkksContext& ctx, int level, int log_slots) {
+    CkksComplexTestCtBatch batch;
+    batch.samples.reserve(n_samples);
+
+    for (int i = 0; i < n_samples; i++) {
+        batch.samples.push_back(new_complex_ct(ctx, level, log_slots));
     }
-    return tv;
+    return batch;
 }
 
-CkksTestPt new_ckks_test_pt_coeffs(int n_data, CkksContext& ctx, int level, double scale) {
-    CkksTestPt tv;
-    int n_slot = ctx.get_parameter().get_n() / 2;
-    for (int i = 0; i < n_data; i++) {
-        tv.values.push_back(rand_double_values(n_slot));
-        tv.plaintexts.push_back(ctx.encode_coeffs(tv.values[i], level, scale));
-    }
-    return tv;
+std::vector<uint64_t> decrypt_and_decode(BfvContext& ctx, const BfvCiphertext& ciphertext) {
+    BfvPlaintext plaintext = ctx.decrypt(ciphertext);
+    std::vector<uint64_t> message;
+    ctx.decode(plaintext, message);
+    return message;
 }
 
-CkksTestPtRingt new_ckks_test_pt_ringt_coeffs(int n_data, CkksContext& ctx, double scale) {
-    CkksTestPtRingt tv;
-    int n_slot = ctx.get_parameter().get_n() / 2;
-    for (int i = 0; i < n_data; i++) {
-        tv.values.push_back(rand_double_values(n_slot));
-        tv.plaintexts.push_back(ctx.encode_coeffs_ringt(tv.values[i], scale));
+std::vector<std::vector<uint64_t>> decrypt_and_decode(BfvContext& ctx, const std::vector<BfvCiphertext>& ciphertexts) {
+    std::vector<std::vector<uint64_t>> result;
+    result.reserve(ciphertexts.size());
+    for (const BfvCiphertext& ciphertext : ciphertexts) {
+        result.push_back(decrypt_and_decode(ctx, ciphertext));
     }
-    return tv;
-}
-
-CkksTestPtMul new_ckks_test_pt_mul_coeffs(int n_data, CkksContext& ctx, int level, double scale) {
-    CkksTestPtMul tv;
-    int n_slot = ctx.get_parameter().get_n() / 2;
-    for (int i = 0; i < n_data; i++) {
-        tv.values.push_back(rand_double_values(n_slot));
-        tv.plaintexts.push_back(ctx.encode_coeffs_mul(tv.values[i], level, scale));
-    }
-    return tv;
-}
-
-std::vector<std::vector<double>> decrypt_and_decode_ckks(CkksContext& ctx, const std::vector<CkksCiphertext>& cts) {
-    std::vector<std::vector<double>> result(cts.size());
-    for (size_t i = 0; i < cts.size(); i++)
-        result[i] = ctx.decode(ctx.decrypt(cts[i]));
     return result;
 }
 
-std::vector<std::vector<double>> decrypt_and_decode_ckks(CkksContext& ctx, const std::vector<CkksCiphertext3>& cts) {
-    std::vector<std::vector<double>> result(cts.size());
-    for (size_t i = 0; i < cts.size(); i++)
-        result[i] = ctx.decode(ctx.decrypt(cts[i]));
+std::vector<double> decrypt_and_decode_real(CkksContext& ctx, const CkksCiphertext& ciphertext) {
+    CkksPlaintext plaintext = ctx.decrypt(ciphertext);
+    std::vector<double> message;
+    ctx.decode(plaintext, message);
+    return message;
+}
+
+std::vector<std::vector<double>> decrypt_and_decode_real(CkksContext& ctx,
+                                                         const std::vector<CkksCiphertext>& ciphertexts) {
+    std::vector<std::vector<double>> result;
+    result.reserve(ciphertexts.size());
+    for (const CkksCiphertext& ciphertext : ciphertexts) {
+        result.push_back(decrypt_and_decode_real(ctx, ciphertext));
+    }
     return result;
 }
 
-std::vector<double> decrypt_and_decode_ckks(CkksContext& ctx, const CkksCiphertext& ct) {
-    return ctx.decode(ctx.decrypt(ct));
+std::vector<std::complex<double>> decrypt_and_decode_complex(CkksContext& ctx, const CkksCiphertext& ciphertext) {
+    CkksPlaintext plaintext = ctx.decrypt(ciphertext);
+    std::vector<std::complex<double>> message;
+    ctx.decode(plaintext, message);
+    return message;
 }
 
-std::vector<std::vector<double>> decrypt_and_decode_ckks_coeffs(CkksContext& ctx,
-                                                                const std::vector<CkksCiphertext>& cts) {
-    std::vector<std::vector<double>> result(cts.size());
-    for (size_t i = 0; i < cts.size(); i++)
-        result[i] = ctx.decode_coeffs(ctx.decrypt(cts[i]));
+std::vector<std::vector<std::complex<double>>>
+decrypt_and_decode_complex(CkksContext& ctx, const std::vector<CkksCiphertext>& ciphertexts) {
+    std::vector<std::vector<std::complex<double>>> result;
+    result.reserve(ciphertexts.size());
+    for (const CkksCiphertext& ciphertext : ciphertexts) {
+        result.push_back(decrypt_and_decode_complex(ctx, ciphertext));
+    }
     return result;
-}
-
-std::vector<double> decrypt_and_decode_ckks_coeffs(CkksContext& ctx, const CkksCiphertext& ct) {
-    return ctx.decode_coeffs(ctx.decrypt(ct));
 }

@@ -15,7 +15,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-processor_layout.py — ABI bridge node insertion for CPU/GPU/FPGA backends.
+processor_layout.py — ABI bridge node insertion for CPU/GPU backends.
 
 Mirrors the logic previously in mega_ag_runners/mega_ag.cpp:
   - insert_backend_abi_bridge_nodes()  for GPU
@@ -31,6 +31,9 @@ import networkx as nx
 from frontend.types import (
     ABIDataNode,
     BackendDataNode,
+    BfvCiphertextNode,
+    BfvPlaintextNode,
+    DataType,
     OperationType,
     Processor,
     is_bridge_compute,
@@ -38,7 +41,6 @@ from frontend.types import (
     is_custom_data_node,
     is_compute_node,
     is_data_node,
-    is_key_data_node,
 )
 from .bridge_ops import (
     export_to_abi,
@@ -68,7 +70,7 @@ def apply_processor_layout(
     input_set = set(input_nodes)
     output_set = set(output_nodes)
 
-    if processor in (Processor.GPU, Processor.FPGA):
+    if processor == Processor.GPU:
         _insert_backend_bridges(dag, input_set, output_set, processor)
     elif processor == Processor.CPU:
         _insert_cpu_bridges(dag, input_set, output_set)
@@ -79,7 +81,7 @@ def apply_processor_layout(
 
 
 # ---------------------------------------------------------------------------
-# GPU / FPGA bridge insertion
+# GPU bridge insertion
 # ---------------------------------------------------------------------------
 
 
@@ -89,7 +91,7 @@ def _insert_backend_bridges(
     output_set: set,
     processor: Processor,
 ) -> None:
-    """Mutate dag in place — add bridge nodes for GPU or FPGA.
+    """Mutate dag in place — add bridge nodes for GPU.
 
     Cases (mirror mega_ag.cpp::insert_backend_abi_bridge_nodes):
 
@@ -127,7 +129,17 @@ def _insert_backend_bridges(
 
         # Case 1: Handle with backend consumers
         if is_frontend_handle and backend_consumers:
-            c_struct = export_to_abi(dag, data_node)
+            backend_metadata = None
+            if not is_custom_data:
+                backend_metadata = data_node.metadata.copy()
+                if isinstance(data_node, BfvCiphertextNode) or (
+                    isinstance(data_node, BfvPlaintextNode) and not data_node.metadata.is_ringt
+                ):
+                    backend_metadata.is_ntt = False
+                if data_node.type in (DataType.RelinKey, DataType.GaloisKey, DataType.EvaluationKey):
+                    backend_metadata.mform_bits = 0
+
+            c_struct = export_to_abi(dag, data_node, backend_metadata)
             backend_data = load_to_backend(dag, c_struct, processor)
 
             _redirect_consumers(dag, data_node, backend_data, backend_consumers)
@@ -139,7 +151,17 @@ def _insert_backend_bridges(
             if isinstance(data_node, BackendDataNode):
                 backend_data = data_node
             else:
-                backend_data = BackendDataNode.create_from(data_node, processor)
+                backend_metadata = None
+                if not is_custom_data:
+                    backend_metadata = data_node.metadata.copy()
+                    if isinstance(data_node, BfvCiphertextNode) or (
+                        isinstance(data_node, BfvPlaintextNode) and not data_node.metadata.is_ringt
+                    ):
+                        backend_metadata.is_ntt = False
+                    if data_node.type in (DataType.RelinKey, DataType.GaloisKey, DataType.EvaluationKey):
+                        backend_metadata.mform_bits = 0
+
+                backend_data = BackendDataNode.create_from(data_node, processor, backend_metadata)
                 _redirect_producers(dag, data_node, backend_data, original_producers)
 
             c_struct = store_from_backend(dag, backend_data, processor)
@@ -147,7 +169,8 @@ def _insert_backend_bridges(
             if is_output:
                 import_from_abi(dag, c_struct, data_node)
             else:
-                handle = import_from_abi(dag, c_struct)
+                handle = ABIDataNode.create_from(data_node)
+                import_from_abi(dag, c_struct, handle)
                 _redirect_consumers(dag, data_node, handle, custom_consumers)
 
             _redirect_consumers(dag, data_node, backend_data, backend_consumers)
@@ -180,8 +203,6 @@ def _insert_cpu_bridges(
     Each output: original producers → concrete → IMPORT_FROM_ABI → output
     """
     for data_node in list(input_set):
-        if is_key_data_node(data_node):
-            continue
         original_consumers = list(dag.successors(data_node))
         concrete = export_to_abi(dag, data_node)
         _redirect_consumers(dag, data_node, concrete, original_consumers)
@@ -276,6 +297,4 @@ def compute_runs_on_cpu(node, processor: Processor) -> bool:
         return True
     if processor == Processor.GPU:
         return True if custom else node.type in (OperationType.ExportToAbi, OperationType.ImportFromAbi)
-    if processor == Processor.FPGA:
-        return custom or is_bridge_compute(node)
     raise ValueError(f'Unsupported processor for task placement: {processor!r}')

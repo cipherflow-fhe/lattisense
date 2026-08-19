@@ -20,7 +20,7 @@ from frontend.types import is_compute_node, is_data_node
 
 
 def internal_op_json(dag: nx.DiGraph, op) -> dict:
-    return {'index': op.index, **op.to_json_dict(dag)}
+    return op.to_json_dict(dag)
 
 
 def compound_external_inputs(dag: nx.DiGraph, ops: list) -> list:

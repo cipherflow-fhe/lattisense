@@ -33,9 +33,12 @@
 #include <unordered_map>
 #include <chrono>
 #include <thread>
+#include <utility>
 #include <cstdio>
+#include <exception>
 #include "nlohmann/json.hpp"
-#include "../fhe_ops_lib/fhe_lib_v2.h"
+#include "../fhe_ops_lib/schemes/bfv/bfv.h"
+#include "../fhe_ops_lib/schemes/ckks/ckks.h"
 #include "../lib/thread_pool/BS_thread_pool.hpp"
 #include "mega_ag.h"
 #include "task_cancellation.h"
@@ -59,11 +62,11 @@ using namespace fhe_ops_lib;
  * This function creates an FHE context from parameter JSON. It supports:
  * - BFV scheme (requires "t" parameter)
  * - CKKS scheme (without "t" parameter)
- * - Bootstrap contexts (CkksBtpContext when bootstrap parameters present)
  *
  * @tparam SchemeType Scheme type (HEScheme::BFV or HEScheme::CKKS)
- * @tparam TContext Context type (BfvContext, CkksContext, or CkksBtpContext)
- * @param param_json Parameter JSON containing: n, max_level, q, p, and optionally t (BFV only)
+ * @tparam TContext Context type (BfvContext or CkksContext)
+ * @param param_json Parameter JSON containing: log_n, max_level, q, p, and optionally t (BFV only)
+ *                   For CKKS: log_default_scale
  *                   For bootstrap: btp_cts_start_level, btp_eval_mod_start_level, btp_stc_start_level, scale
  * @param context Output unique_ptr to store the created context
  *
@@ -73,153 +76,38 @@ using namespace fhe_ops_lib;
  *       - fpga_wrapper::init_bfv_context and init_ckks_context
  */
 template <HEScheme SchemeType, typename TContext>
-void init_empty_context(const nlohmann::json& param_json, std::unique_ptr<TContext>& context) {
-    auto n = param_json["n"].get<int>();
-    auto max_level = param_json["max_level"].get<int>();
+void init_context(const nlohmann::json& param_json, std::unique_ptr<TContext>& context) {
+    auto log_n = param_json["log_n"].get<int>();
     auto q = param_json["q"].get<std::vector<uint64_t>>();
     auto p = param_json["p"].get<std::vector<uint64_t>>();
 
     if constexpr (SchemeType == HEScheme::CKKS) {
-        int slots = param_json["slots"].get<int>();
-        int log_slots = __builtin_ctz(slots);
+        auto log_default_scale = param_json["log_default_scale"].get<int>();
 
-        if constexpr (std::is_same_v<TContext, CkksBtpContext>) {
-            // Create CkksBtpContext for bootstrap
-            int cts_start_level = param_json["btp_cts_start_level"].get<int>();
-            int eval_mod_start_level = param_json["btp_eval_mod_start_level"].get<int>();
-            int stc_start_level = param_json["btp_stc_start_level"].get<int>();
-            double scale = param_json["scale"].get<double>();
+        // if constexpr (std::is_same_v<TContext, CkksBtpContext>) {
+        //     // Create CkksBtpContext for bootstrap
+        //     int cts_start_level = param_json["btp_cts_start_level"].get<int>();
+        //     int eval_mod_start_level = param_json["btp_eval_mod_start_level"].get<int>();
+        //     int stc_start_level = param_json["btp_stc_start_level"].get<int>();
+        //     double scale = param_json["scale"].get<double>();
 
-            if (n == 1 << 13) {
-                CkksBtpParameter btp_param = CkksBtpParameter::create_toy_parameter();
-                btp_param.set_log_slots(log_slots);
-                context = std::make_unique<TContext>(CkksBtpContext::create_empty_context(btp_param));
-            } else if (n == 1 << 16) {
-                CkksBtpParameter btp_param = CkksBtpParameter::create_parameter();
-                btp_param.set_log_slots(log_slots);
-                context = std::make_unique<TContext>(CkksBtpContext::create_empty_context(btp_param));
-            }
-        } else {
-            // Create regular CkksContext
-            CkksParameter param = CkksParameter::create_custom_parameter(n, q, p);
-            param.set_log_slots(log_slots);
-            context = std::make_unique<TContext>(CkksContext::create_empty_context(param));
-        }
+        //     if (n == 1 << 13) {
+        //         CkksBtpParameter btp_param = CkksBtpParameter::create_toy_parameter();
+        //         context = std::make_unique<TContext>(CkksBtpContext::create_empty_context(btp_param));
+        //     } else if (n == 1 << 16) {
+        //         CkksBtpParameter btp_param = CkksBtpParameter::create_parameter();
+        //         context = std::make_unique<TContext>(CkksBtpContext::create_empty_context(btp_param));
+        //     }
+        // } else {
+        // Create regular CkksContext
+        CkksParameter param = CkksParameter::create_custom_parameter(log_n, log_default_scale, q, p);
+        context = std::make_unique<TContext>(CkksContext::create_empty_context(param));
+        // }
     } else if constexpr (SchemeType == HEScheme::BFV) {
         auto t = param_json["t"].get<uint64_t>();
-        BfvParameter param = BfvParameter::create_custom_parameter(n, t, q, p);
+        BfvParameter param = BfvParameter::create_custom_parameter(log_n, t, q, p);
         context = std::make_unique<TContext>(BfvContext::create_empty_context(param));
     }
-}
-
-/**
- * @brief Set encryption keys (RLK, GLK, SWK) in context from input arguments
- *
- * This function scans input_args for key types and sets them in the context.
- * Used by CPU wrapper to initialize context with encryption keys.
- *
- * @tparam SchemeType Scheme type (HEScheme::BFV or HEScheme::CKKS)
- * @tparam TContext Context type (BfvContext, CkksContext, or CkksBtpContext)
- * @param input_args Input arguments array
- * @param context Context to set keys in
- */
-template <HEScheme SchemeType, typename TContext>
-void set_context_keys(gsl::span<CArgument> input_args, TContext& context) {
-    for (size_t i = 0; i < input_args.size(); ++i) {
-        auto& arg = input_args[i];
-        switch (arg.type) {
-            case TYPE_RELIN_KEY: {
-                Handle** handle_array = static_cast<Handle**>(arg.data);
-                for (int j = 0; j < arg.size; ++j) {
-                    RelinKey* rlk_ptr = static_cast<RelinKey*>(handle_array[j]);
-                    context.set_context_relin_key(*rlk_ptr);
-                }
-                break;
-            }
-            case TYPE_GALOIS_KEY: {
-                Handle** handle_array = static_cast<Handle**>(arg.data);
-                for (int j = 0; j < arg.size; ++j) {
-                    GaloisKey* glk_ptr = static_cast<GaloisKey*>(handle_array[j]);
-                    context.set_context_galois_key(*glk_ptr);
-                }
-                break;
-            }
-            case TYPE_SWITCH_KEY: {
-                if constexpr (std::is_same_v<TContext, CkksBtpContext>) {
-                    Handle** handle_array = static_cast<Handle**>(arg.data);
-                    std::string key_id(arg.id);
-                    for (int j = 0; j < arg.size; ++j) {
-                        KeySwitchKey* swk_ptr = static_cast<KeySwitchKey*>(handle_array[j]);
-                        if (key_id == "swk_dts") {
-                            context.set_context_switch_key_dts(*swk_ptr);
-                        } else if (key_id == "swk_std") {
-                            context.set_context_switch_key_std(*swk_ptr);
-                        }
-                    }
-                }
-                break;
-            }
-            default:
-                // Ignore non-key types
-                break;
-        }
-    }
-}
-
-/**
- * @brief Initialize context with keys and bootstrapper
- *
- * This function combines three steps:
- * 1. Initialize empty context from parameter JSON
- * 2. Set encryption keys (RLK, GLK, SWK) from input arguments
- * 3. Create bootstrapper if using CkksBtpContext
- *
- * @tparam SchemeType Scheme type (HEScheme::BFV or HEScheme::CKKS)
- * @tparam TContext Context type (BfvContext, CkksContext, or CkksBtpContext)
- * @param param_json Parameter JSON
- * @param input_args Input arguments array containing keys
- * @param context Output unique_ptr to store the initialized context
- */
-template <HEScheme SchemeType, typename TContext>
-void init_context(const nlohmann::json& param_json,
-                  gsl::span<CArgument> input_args,
-                  std::unique_ptr<TContext>& context) {
-    // Step 1: Initialize empty context
-    init_empty_context<SchemeType, TContext>(param_json, context);
-
-    // Step 2: Set keys in context
-    set_context_keys<SchemeType>(input_args, *context);
-
-    // Step 3: Create bootstrapper if needed
-    if constexpr (std::is_same_v<TContext, CkksBtpContext>) {
-        context->create_bootstrapper();
-    }
-}
-
-/**
- * @brief Create shallow copies of context for each thread in the pool
- *
- * This function creates a shallow copy of the given context for each thread
- * in the thread pool, allowing parallel execution with thread-local contexts.
- *
- * @tparam TContext Context type (e.g., BfvContext, CkksContext, CkksBtpContext)
- * @param pool Thread pool for parallel execution
- * @param context Source context to copy from
- * @return Vector of unique_ptrs to context copies, one per thread
- */
-template <typename TContext>
-std::vector<std::unique_ptr<TContext>> create_thread_contexts(BS::priority_thread_pool& pool,
-                                                              const std::unique_ptr<TContext>& context) {
-    const size_t num_threads = pool.get_thread_count();
-    std::vector<std::unique_ptr<TContext>> context_ptrs(num_threads);
-    for (size_t i = 0; i < num_threads; ++i) {
-        pool.detach_task([&context_ptrs, &context, i]() {
-            context_ptrs[i] = std::make_unique<TContext>(context->shallow_copy_context());
-        });
-    }
-    pool.wait();
-
-    return context_ptrs;
 }
 
 /**
@@ -231,21 +119,11 @@ std::vector<std::unique_ptr<TContext>> create_thread_contexts(BS::priority_threa
  * uintptr_t* for Lattigo, or any other plugin-specific type).
  *
  * @param input_args Array of input arguments
- * @param include_keys Whether to include key arguments (rlk, glk, swk) in the result
  */
-inline std::vector<void*> extract_input_handles(gsl::span<CArgument> input_args, bool include_keys = true) {
+inline std::vector<void*> extract_input_handles(gsl::span<CArgument> input_args) {
     std::vector<void*> input_handles;
     for (size_t i = 0; i < input_args.size(); ++i) {
         auto& arg = input_args[i];
-        DataType data_type = arg.type;
-
-        // Skip keys if include_keys is false
-        if (!include_keys) {
-            if (data_type == TYPE_RELIN_KEY || data_type == TYPE_GALOIS_KEY || data_type == TYPE_SWITCH_KEY) {
-                continue;
-            }
-        }
-
         void** ptr_array = static_cast<void**>(arg.data);
         for (int j = 0; j < arg.size; ++j) {
             input_handles.push_back(ptr_array[j]);
@@ -257,17 +135,17 @@ inline std::vector<void*> extract_input_handles(gsl::span<CArgument> input_args,
 /**
  * @brief Extract output handle map from CArgument array
  *
- * Builds a map from NodeIndex (mega_ag.outputs[i]) to void* (the pre-allocated
+ * Builds a map from NodeId (mega_ag.outputs[i]) to void* (the pre-allocated
  * output Handle pointer), combining extract_output_handles with output_handle_map
  * construction into a single step.
  *
  * @param mega_ag The computation graph containing output node indices
  * @param output_args Array of output arguments
- * @return Map from NodeIndex to void* for each output node
+ * @return Map from NodeId to void* for each output node
  */
-inline std::unordered_map<NodeIndex, void*> extract_output_handle_map(const MegaAG& mega_ag,
-                                                                      gsl::span<CArgument> output_args) {
-    std::unordered_map<NodeIndex, void*> output_handle_map;
+inline std::unordered_map<NodeId, void*> extract_output_handle_map(const MegaAG& mega_ag,
+                                                                   gsl::span<CArgument> output_args) {
+    std::unordered_map<NodeId, void*> output_handle_map;
     size_t output_idx = 0;
     for (size_t i = 0; i < output_args.size(); ++i) {
         auto& arg = output_args[i];
@@ -287,33 +165,18 @@ inline std::unordered_map<NodeIndex, void*> extract_output_handle_map(const Mega
  * for each compute node is responsible for interpreting the void* (e.g. casting
  * to Handle* for fhe_ops_lib, uintptr_t* for Lattigo, SealObject* for SEAL, etc.).
  *
- * For GLK nodes, all galois key nodes share the same shared_ptr<void>.
- *
  * @param mega_ag The computation graph containing inputs/data
  * @param input_handles Pre-extracted input void* pointers
- * @return Map from NodeIndex to std::any containing shared_ptr<void>
+ * @return Map from NodeId to std::any containing shared_ptr<void>
  */
-inline std::unordered_map<NodeIndex, std::any> init_available_data(const MegaAG& mega_ag,
-                                                                   const std::vector<void*>& input_handles) {
-    std::unordered_map<NodeIndex, std::any> available_data;
+inline std::unordered_map<NodeId, std::any> init_available_data(const MegaAG& mega_ag,
+                                                                const std::vector<void*>& input_handles) {
+    std::unordered_map<NodeId, std::any> available_data;
 
-    // Map input pointers
-    std::shared_ptr<void> shared_glk_ptr;
     size_t handle_idx = 0;
-    for (NodeIndex input_index : mega_ag.inputs) {
-        const DatumNode& input_datum = mega_ag.data.at(input_index);
-
-        if (input_datum.datum_type == DataType::TYPE_GALOIS_KEY) {
-            // All glk nodes share the same pointer
-            if (!shared_glk_ptr) {
-                shared_glk_ptr = std::shared_ptr<void>(input_handles[handle_idx], [](void*) {});
-                handle_idx++;
-            }
-            available_data[input_index] = shared_glk_ptr;
-        } else {
-            available_data[input_index] = std::shared_ptr<void>(input_handles[handle_idx], [](void*) {});
-            handle_idx++;
-        }
+    for (NodeId input_id : mega_ag.inputs) {
+        available_data[input_id] = std::shared_ptr<void>(input_handles[handle_idx], [](void*) {});
+        handle_idx++;
     }
 
     return available_data;
@@ -326,14 +189,14 @@ inline std::unordered_map<NodeIndex, std::any> init_available_data(const MegaAG&
  * (i.e., how many compute nodes have it as an input).
  *
  * @param mega_ag The computation graph containing data nodes
- * @return Map from NodeIndex to atomic reference count
+ * @return Map from NodeId to atomic reference count
  */
-inline std::unordered_map<NodeIndex, std::atomic<int>> get_data_ref_counts(const MegaAG& mega_ag) {
-    std::unordered_map<NodeIndex, std::atomic<int>> data_ref_counts;
+inline std::unordered_map<NodeId, std::atomic<int>> get_data_ref_counts(const MegaAG& mega_ag) {
+    std::unordered_map<NodeId, std::atomic<int>> data_ref_counts;
 
-    for (const auto& [data_index, data_node] : mega_ag.data) {
+    for (const auto& [data_id, data_node] : mega_ag.data) {
         int ref_count = static_cast<int>(data_node.successors.size());
-        data_ref_counts[data_index].store(ref_count);
+        data_ref_counts[data_id].store(ref_count);
     }
 
     return data_ref_counts;
@@ -346,7 +209,7 @@ inline std::unordered_map<NodeIndex, std::atomic<int>> get_data_ref_counts(const
  */
 struct TaskInfo {
     int priority;
-    NodeIndex index;
+    NodeId id;
 
     bool operator<(const TaskInfo& other) const {
         return priority < other.priority;
@@ -354,15 +217,15 @@ struct TaskInfo {
 };
 
 using OtherArgsCallback = std::function<std::vector<std::any>(const CompoundComputeNode&)>;
-using BackendTaskSubmitter = std::function<void(NodeIndex,
+using BackendTaskSubmitter = std::function<void(NodeId,
                                                 std::mutex&,
                                                 std::priority_queue<TaskInfo>&,
-                                                std::set<NodeIndex>&,
+                                                std::set<NodeId>&,
                                                 std::atomic<size_t>&,
                                                 std::atomic<size_t>&,
                                                 std::condition_variable&,
                                                 std::mutex&,
-                                                std::unordered_map<NodeIndex, std::atomic<int>>&)>;
+                                                std::unordered_map<NodeId, std::atomic<int>>&)>;
 
 struct RunTasksOptions {
     OtherArgsCallback get_other_args;
@@ -382,21 +245,18 @@ struct RunTasksOptions {
  * @tparam TContext Context type (BfvContext, CkksContext, or CkksBtpContext)
  * @param mega_ag The computation graph
  * @param pool CPU thread pool for parallel execution
- * @param base_context Base context to create thread-local copies from
- * @param available_data Map of available data indexed by NodeIndex
+ * @param base_context Shared context used by all CPU tasks
+ * @param available_data Map of available data indexed by NodeId
  * @param options Optional callbacks and cancellation flag for backend submission, cleanup, and progress.
  */
 template <typename TContext>
 void run_tasks(const MegaAG& mega_ag,
                BS::priority_thread_pool& pool,
                const std::unique_ptr<TContext>& base_context,
-               std::unordered_map<NodeIndex, std::any>& available_data,
+               std::unordered_map<NodeId, std::any>& available_data,
                const RunTasksOptions& options = {}) {
-    // Create thread-local contexts for CPU pool
-    std::vector<std::unique_ptr<TContext>> context_ptrs = create_thread_contexts(pool, base_context);
-
     // Initialize reference counts for memory management
-    std::unordered_map<NodeIndex, std::atomic<int>> data_ref_counts = get_data_ref_counts(mega_ag);
+    std::unordered_map<NodeId, std::atomic<int>> data_ref_counts = get_data_ref_counts(mega_ag);
 
     size_t task_count(mega_ag.computes.size());
 
@@ -405,12 +265,16 @@ void run_tasks(const MegaAG& mega_ag,
 
     // Task scheduling structures
     std::mutex m_mutex;
+    std::mutex abi_export_mutex;
     std::atomic<size_t> total_tasks(task_count);
     std::atomic<size_t> completed_tasks(0);
     std::condition_variable completion_cv;
     std::mutex completion_mutex;
     std::priority_queue<TaskInfo> task_queue;
-    std::set<NodeIndex> queued_computes;
+    std::set<NodeId> queued_computes;
+    std::exception_ptr first_exception;
+    std::mutex exception_mutex;
+    std::atomic<bool> failed(false);
 
     // Progress callback throttle state (best-effort, no mutex)
     using SteadyClock = std::chrono::steady_clock;
@@ -418,44 +282,59 @@ void run_tasks(const MegaAG& mega_ag,
     constexpr auto progress_interval = std::chrono::milliseconds(100);
 
     // Define CPU task submission function
-    std::function<void(NodeIndex, const std::vector<std::any>&)> submit_task =
-        [&](NodeIndex task_index, const std::vector<std::any>& other_args) {
-            const BS::priority_t pool_priority = mega_ag.computes.at(task_index).priority;
+    std::function<void(NodeId, const std::vector<std::any>&)> submit_task =
+        [&](NodeId task_id, const std::vector<std::any>& other_args) {
+            const BS::priority_t pool_priority = mega_ag.computes.at(task_id).priority;
             pool.detach_task(
-                [task_index, &mega_ag, &completed_tasks, &total_tasks, &m_mutex, &completion_mutex, &completion_cv,
-                 &available_data, &context_ptrs, &task_queue, &queued_computes, &data_ref_counts, other_args, &options,
-                 &last_progress_time, progress_interval]() {
-                    auto thread_id = BS::this_thread::get_index().value();
-
-                    const CompoundComputeNode& compute_node = mega_ag.computes.at(task_index);
+                [task_id, &mega_ag, &completed_tasks, &total_tasks, &m_mutex, &abi_export_mutex, &completion_mutex,
+                 &completion_cv, &available_data, &base_context, &task_queue, &queued_computes, &data_ref_counts,
+                 other_args, &options, &last_progress_time, progress_interval, &first_exception, &exception_mutex,
+                 &failed]() {
+                    const CompoundComputeNode& compute_node = mega_ag.computes.at(task_id);
                     const std::vector<DatumNode*>& compute_input_nodes = compute_node.input_nodes;
 
                     // Cache input data for this thread
-                    std::unordered_map<NodeIndex, std::any> thread_data_cache;
+                    std::unordered_map<NodeId, std::any> thread_data_cache;
                     {
                         std::lock_guard<std::mutex> lock(m_mutex);
 
                         for (const auto* input_node : compute_input_nodes) {
-                            thread_data_cache[input_node->index] = available_data.at(input_node->index);
+                            thread_data_cache[input_node->id] = available_data.at(input_node->id);
                         }
                     }
 
                     // Prepare execution context
+                    std::vector<std::any> exec_other_args = other_args;
+                    if (compute_contains_operation(compute_node, OperationType::EXPORT_TO_ABI)) {
+                        exec_other_args.push_back(&abi_export_mutex);
+                    }
+
                     ExecutionContext exec_ctx;
-                    exec_ctx.context = context_ptrs[thread_id].get();
-                    exec_ctx.other_args = other_args;
+                    exec_ctx.context = base_context.get();
+                    exec_ctx.other_args = std::move(exec_other_args);
 
                     try {
                         if (options.cancel_flag && options.cancel_flag->load()) {
                             return;
                         }
                         compute_node.execute(exec_ctx, thread_data_cache);
-                    } catch (const std::exception& e) {
-                        // Still increment completed_tasks to avoid deadlock
-                        if (completed_tasks.fetch_add(1) + 1 >= total_tasks) {
-                            std::lock_guard<std::mutex> lock(completion_mutex);
-                            completion_cv.notify_all();
+                    } catch (...) {
+                        {
+                            std::lock_guard<std::mutex> lock(exception_mutex);
+                            if (!first_exception) {
+                                first_exception = std::current_exception();
+                            }
                         }
+                        failed.store(true);
+                        {
+                            std::lock_guard<std::mutex> lock(m_mutex);
+                            while (!task_queue.empty()) {
+                                task_queue.pop();
+                            }
+                        }
+                        completed_tasks.fetch_add(1);
+                        std::lock_guard<std::mutex> lock(completion_mutex);
+                        completion_cv.notify_all();
                         return;
                     }
 
@@ -464,7 +343,7 @@ void run_tasks(const MegaAG& mega_ag,
                         std::lock_guard<std::mutex> lock(m_mutex);
 
                         for (const auto* output_node : compute_node.output_nodes) {
-                            available_data[output_node->index] = thread_data_cache.at(output_node->index);
+                            available_data[output_node->id] = thread_data_cache.at(output_node->id);
                         }
 
                         // Clean up unreferenced data
@@ -472,11 +351,11 @@ void run_tasks(const MegaAG& mega_ag,
 
                         auto newly_available_computes = mega_ag.step_available_computes(compute_node, available_data);
 
-                        for (const auto& new_task_index : newly_available_computes) {
-                            if (queued_computes.find(new_task_index) == queued_computes.end()) {
-                                int pri = mega_ag.computes.at(new_task_index).priority;
-                                task_queue.push({pri, new_task_index});
-                                queued_computes.insert(new_task_index);
+                        for (const auto& new_task_id : newly_available_computes) {
+                            if (queued_computes.find(new_task_id) == queued_computes.end()) {
+                                int pri = mega_ag.computes.at(new_task_id).priority;
+                                task_queue.push({pri, new_task_id});
+                                queued_computes.insert(new_task_id);
                             }
                         }
                     }
@@ -503,17 +382,25 @@ void run_tasks(const MegaAG& mega_ag,
         };
 
     // Get initial available computes and initialize task queue
-    std::unordered_set<NodeIndex> available_computes = mega_ag.get_available_computes(available_data);
-    for (const auto& task_index : available_computes) {
-        int pri = mega_ag.computes.at(task_index).priority;
-        task_queue.push({pri, task_index});
-        queued_computes.insert(task_index);
+    std::unordered_set<NodeId> available_computes = mega_ag.get_available_computes(available_data);
+    for (const auto& task_id : available_computes) {
+        int pri = mega_ag.computes.at(task_id).priority;
+        task_queue.push({pri, task_id});
+        queued_computes.insert(task_id);
     }
 
     bool cancelled = false;
 
     // Main task dispatcher loop
     while (true) {
+        if (failed.load()) {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            while (!task_queue.empty()) {
+                task_queue.pop();
+            }
+            break;
+        }
+
         if (options.cancel_flag && options.cancel_flag->load()) {
             std::lock_guard<std::mutex> lock(m_mutex);
             while (!task_queue.empty()) {
@@ -523,13 +410,13 @@ void run_tasks(const MegaAG& mega_ag,
             break;
         }
 
-        NodeIndex next_task;
+        NodeId next_task;
         bool has_task = false;
 
         {
             std::lock_guard<std::mutex> lock(m_mutex);
             if (!task_queue.empty()) {
-                next_task = task_queue.top().index;
+                next_task = task_queue.top().id;
                 task_queue.pop();
                 has_task = true;
             }
@@ -561,7 +448,7 @@ void run_tasks(const MegaAG& mega_ag,
     }
 
     // Wait for all tasks to complete
-    if (!cancelled) {
+    if (!cancelled && !failed.load()) {
         std::unique_lock<std::mutex> lock(completion_mutex);
         completion_cv.wait(lock, [&] { return completed_tasks.load() >= total_tasks; });
     }
@@ -576,5 +463,9 @@ void run_tasks(const MegaAG& mega_ag,
 
     if (cancelled) {
         throw mega_ag_runner::TaskCancelled();
+    }
+
+    if (first_exception) {
+        std::rethrow_exception(first_exception);
     }
 }

@@ -32,8 +32,9 @@ void ckks_euclidean_distance_cpu() {
     int n_ct = 1;
     int pack = 4;
     int skip = 256;
-    int N = 16384;
-    CkksParameter param = CkksParameter::create_parameter(N);
+    int logN = 14;
+    int N = 1 << logN;
+    CkksParameter param = CkksParameter::create_parameter(logN);
     CkksContext ctx = CkksContext::create_random_context(param);
     double default_scale = param.get_default_scale();
 
@@ -83,7 +84,8 @@ void ckks_euclidean_distance_cpu() {
     cpu_project.run(&ctx, cxx_args);
 
     CkksPlaintext d_pt = ctx.decrypt(d_ct);
-    vector<double> d_mg = ctx.decode(d_pt);
+    vector<double> d_mg;
+    ctx.decode(d_pt, d_mg);
 
     cout << "CKKS euclidean distance of two packed vectors, computed by CPU" << endl;
     print_double_message(x_values.data(), "x", x_values.size());

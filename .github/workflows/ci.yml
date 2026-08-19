@@ -150,10 +150,8 @@ jobs:
         run: |
           cd unittests
           export PYTHONPATH=$GITHUB_WORKSPACE/build/unittests:$GITHUB_WORKSPACE:$PYTHONPATH
-          python3 -m pytest test_cpu_bfv.py -v
-          python3 -m pytest test_cpu_ckks.py -v
-          python3 -m pytest test_gpu_bfv.py -v
-          python3 -m pytest test_gpu_ckks.py -v
+          python3 -m pytest test_bfv.py -v
+          python3 -m pytest test_ckks.py -v
 
       - name: Generate FPGA test data
         run: |
@@ -162,23 +160,15 @@ jobs:
           python3 -m pytest test_fpga_bfv.py -v
           python3 -m pytest test_fpga_ckks.py -v
 
-      - name: Run CPU tests
-        timeout-minutes: 20
-        run: |
-          cd build/unittests
-          export LD_LIBRARY_PATH=$GITHUB_WORKSPACE/build/lib:$LD_LIBRARY_PATH
-          ./test_lattigo
-          ./test_mp_lattigo
-          ./test_cpu_bfv
-          ./test_cpu_ckks
-
-      - name: Run GPU tests
+      - name: Run CPU/GPU tests
         timeout-minutes: 20
         run: |
           cd build/unittests
           export LD_LIBRARY_PATH=$GITHUB_WORKSPACE/build/lib:$GITHUB_WORKSPACE/backends/HEonGPU/install/lib:$LD_LIBRARY_PATH
-          ./test_gpu_bfv
-          ./test_gpu_ckks
+          ./test_lattigo
+          ./test_mp_lattigo
+          ./test_bfv
+          ./test_ckks
 
       - name: Run FPGA tests
         timeout-minutes: 20

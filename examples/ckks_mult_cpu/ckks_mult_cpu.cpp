@@ -26,8 +26,9 @@ using namespace lattisense;
 using namespace std;
 
 void ckks_mult_cpu() {
-    int N = 16384;
-    CkksParameter param = CkksParameter::create_parameter(N);
+    int logN = 14;
+    int N = 1 << logN;
+    CkksParameter param = CkksParameter::create_parameter(logN);
     CkksContext context = CkksContext::create_random_context(param);
     int level = 3;
     double default_scale = param.get_default_scale();

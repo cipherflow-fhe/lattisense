@@ -29,9 +29,9 @@ from frontend.types import (
 )
 
 
-def export_to_abi(dag: nx.DiGraph, src) -> ABIDataNode:
+def export_to_abi(dag: nx.DiGraph, src, metadata=None) -> ABIDataNode:
     op = ExportToAbiNode()
-    dst = ABIDataNode.create_from(src)
+    dst = ABIDataNode.create_from(src, metadata)
     dag.add_edge(src, op)
     dag.add_edge(op, dst)
     return dst

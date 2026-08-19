@@ -22,7 +22,8 @@
 
 #include "../mega_ag.h"
 #include "../cpu_task_utils.h"
-#include "../../fhe_ops_lib/fhe_lib_v2.h"
+#include "../../fhe_ops_lib/schemes/bfv/bfv.h"
+#include "../../fhe_ops_lib/schemes/ckks/ckks.h"
 #include "../../lib/thread_pool/BS_thread_pool.hpp"
 #include "../../lib/gsl/span"
 
@@ -53,7 +54,7 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
                        ProgressCallback progress_cb = nullptr,
                        const std::atomic<bool>* cancel_flag = nullptr) {
     std::unique_ptr<TContext> context;
-    init_context<SchemeType, TContext>(mega_ag.parameter, input_args, context);
+    init_context<SchemeType, TContext>(mega_ag.parameter, context);
 
     auto start = std::chrono::high_resolution_clock::now();
 
@@ -61,11 +62,11 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
     BS::priority_thread_pool pool(num_threads);
 
     // Extract input handles and build available_data map
-    std::vector<void*> input_handles = extract_input_handles(input_args, false);
-    std::unordered_map<NodeIndex, std::any> available_data = init_available_data(mega_ag, input_handles);
+    std::vector<void*> input_handles = extract_input_handles(input_args);
+    std::unordered_map<NodeId, std::any> available_data = init_available_data(mega_ag, input_handles);
 
     // Build output handle map for IMPORT_FROM_ABI get_other_args
-    std::unordered_map<NodeIndex, void*> output_handle_map = extract_output_handle_map(mega_ag, output_args);
+    std::unordered_map<NodeId, void*> output_handle_map = extract_output_handle_map(mega_ag, output_args);
 
     // Provide all output dest pointers to IMPORT_FROM_ABI nodes via get_other_args.
     auto get_other_args = [&output_handle_map](const CompoundComputeNode& node) -> std::vector<std::any> {
@@ -108,13 +109,8 @@ void _run_mega_ag(gsl::span<CArgument> input_args,
                   ProgressCallback progress_cb = nullptr,
                   const std::atomic<bool>* cancel_flag = nullptr) {
     if constexpr (SchemeType == HEScheme::CKKS) {
-        if (mega_ag.parameter.contains("btp_output_level")) {
-            using TContext = CkksBtpContext;
-            _run_mega_ag_impl<SchemeType, TContext>(input_args, output_args, mega_ag, progress_cb, cancel_flag);
-        } else {
-            using TContext = CkksContext;
-            _run_mega_ag_impl<SchemeType, TContext>(input_args, output_args, mega_ag, progress_cb, cancel_flag);
-        }
+        using TContext = CkksContext;
+        _run_mega_ag_impl<SchemeType, TContext>(input_args, output_args, mega_ag, progress_cb, cancel_flag);
     } else {
         using TContext = BfvContext;
         _run_mega_ag_impl<SchemeType, TContext>(input_args, output_args, mega_ag, progress_cb, cancel_flag);

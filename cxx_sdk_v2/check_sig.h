@@ -27,24 +27,14 @@ namespace lattisense {
 
 // Type mapping declarations
 inline std::map<CxxArgumentType, std::string> cxx_argument_type_str_map = {
-    {CxxArgumentType::RELIN_KEY, "rlk"},
-    {CxxArgumentType::GALOIS_KEY, "glk"},
-    {CxxArgumentType::PLAINTEXT_RINGT, "pt_ringt"},
-    {CxxArgumentType::PLAINTEXT_MUL, "pt_mul"},
-    {CxxArgumentType::PLAINTEXT, "pt"},
-    {CxxArgumentType::CIPHERTEXT, "ct"},
-    {CxxArgumentType::CIPHERTEXT3, "ct3"},
-    {CxxArgumentType::CUSTOM, "custom"},  // Generic name for custom types
+    {CxxArgumentType::RELIN_KEY, "rlk"},      {CxxArgumentType::GALOIS_KEY, "glk"},
+    {CxxArgumentType::EVALUATION_KEY, "evk"}, {CxxArgumentType::PLAINTEXT, "pt"},
+    {CxxArgumentType::CIPHERTEXT, "ct"},      {CxxArgumentType::CUSTOM, "custom"},  // Generic name for custom types
 };
 
 inline std::map<std::string, CxxArgumentType> str_cxx_argument_type_map = {
-    {"rlk", CxxArgumentType::RELIN_KEY},
-    {"glk", CxxArgumentType::GALOIS_KEY},
-    {"pt_ringt", CxxArgumentType::PLAINTEXT_RINGT},
-    {"pt_mul", CxxArgumentType::PLAINTEXT_MUL},
-    {"pt", CxxArgumentType::PLAINTEXT},
-    {"ct", CxxArgumentType::CIPHERTEXT},
-    {"ct3", CxxArgumentType::CIPHERTEXT3},
+    {"rlk", CxxArgumentType::RELIN_KEY}, {"glk", CxxArgumentType::GALOIS_KEY}, {"evk", CxxArgumentType::EVALUATION_KEY},
+    {"pt", CxxArgumentType::PLAINTEXT},  {"ct", CxxArgumentType::CIPHERTEXT},
 };
 
 /**
@@ -90,19 +80,42 @@ inline void check_with_sig(const CxxVectorArgument& cxx_arg,
  * @brief Check if context keys conform to signature requirements
  */
 inline void check_context_for_key_signatures(const FheContext& context, const nlohmann::json& key_signature) {
-    RelinKey rlk = context.extract_relin_key();
-    fhe_ops_lib::KeySwitchKey ksk = rlk.extract_key_switch_key();
     int rlk_level_sig = key_signature["rlk"].get<int>();
-    if (rlk_level_sig > ksk.get_level()) {
-        throw std::runtime_error("Level of relin key is smaller than the expected level.");
+    if (rlk_level_sig >= 0) {
+        const RelinKey& rlk = context.evaluation_key_set().relin_key();
+        if (rlk.is_empty()) {
+            throw std::runtime_error("Relinearization key is required by the task signature but is not set.");
+        }
+        if (rlk.level() < rlk_level_sig) {
+            throw std::runtime_error("Level of relin key is smaller than the expected level.");
+        }
     }
 
-    GaloisKey glk = context.extract_galois_key();
+    if (!key_signature["glk"].empty() && !key_signature.contains("glk_order")) {
+        throw std::runtime_error("GLK signature requires glk_order.");
+    }
+
+    if (key_signature.contains("glk_order") && key_signature["glk_order"].size() != key_signature["glk"].size()) {
+        throw std::runtime_error("GLK signature glk_order size does not match glk map size.");
+    }
+
+    if (key_signature.contains("glk_order")) {
+        for (auto& item : key_signature["glk_order"]) {
+            if (!key_signature["glk"].contains(std::to_string(item.get<uint64_t>()))) {
+                throw std::runtime_error("GLK signature glk_order contains an element missing from glk map.");
+            }
+        }
+    }
+
+    const auto& galois_keys = context.evaluation_key_set().galois_keys();
     for (auto& item : key_signature["glk"].items()) {
-        uint64_t gal_el = stoul(item.key());
+        uint64_t gal_el = std::stoull(item.key());
         int glk_level_sig = item.value().get<int>();
-        fhe_ops_lib::KeySwitchKey ksk = glk.extract_key_switch_key(gal_el);
-        if (glk_level_sig > ksk.get_level()) {
+        auto glk_it = galois_keys.find(gal_el);
+        if (glk_it == galois_keys.end() || glk_it->second.is_empty()) {
+            throw std::runtime_error("Galois key is required by the task signature but is not set.");
+        }
+        if (glk_it->second.level() < glk_level_sig) {
             throw std::runtime_error("Level of Galois key is smaller than the expected level.");
         }
     }
@@ -116,90 +129,95 @@ inline void check_context_for_key_signatures(const FheContext& context, const nl
  * @throws std::runtime_error When parameters do not match
  */
 inline void check_parameter(FheContext* context, const nlohmann::json& param_json) {
-    if (!param_json.contains("n")) {
-        throw std::runtime_error("Parameter JSON missing 'n' field");
+    if (!param_json.contains("log_n")) {
+        throw std::runtime_error("Parameter JSON missing 'log_n' field");
     }
     if (!param_json.contains("q")) {
         throw std::runtime_error("Parameter JSON missing 'q' field");
     }
 
-    int expected_n = param_json["n"].get<int>();
+    int expected_n = 1 << param_json["log_n"].get<int>();
     std::vector<uint64_t> expected_q = param_json["q"].get<std::vector<uint64_t>>();
 
     if (typeid(*context) == typeid(BfvContext)) {
         BfvContext* bfv_context = static_cast<BfvContext*>(context);
-        const BfvParameter& param = bfv_context->get_parameter();
+        const BfvParameter& param = bfv_context->parameter();
 
-        if (param.get_n() != expected_n) {
+        if (param.n() != expected_n) {
             throw std::runtime_error("BFV parameter N mismatch: expected " + std::to_string(expected_n) + ", got " +
-                                     std::to_string(param.get_n()));
+                                     std::to_string(param.n()));
         }
 
-        if (param_json.contains("t")) {
-            uint64_t expected_t = param_json["t"].get<uint64_t>();
-            if (param.get_t() != expected_t) {
-                throw std::runtime_error("BFV parameter t mismatch: expected " + std::to_string(expected_t) + ", got " +
-                                         std::to_string(param.get_t()));
-            }
+        if (!param_json.contains("t")) {
+            throw std::runtime_error("BFV parameter JSON missing 't' field");
+        }
+        uint64_t expected_t = param_json["t"].get<uint64_t>();
+        if (param.t() != expected_t) {
+            throw std::runtime_error("BFV parameter t mismatch: expected " + std::to_string(expected_t) + ", got " +
+                                     std::to_string(param.t()));
         }
 
-        if (param.get_q_count() != expected_q.size()) {
+        auto actual_q = param.q();
+        if (param.max_level() + 1 != expected_q.size()) {
             throw std::runtime_error("BFV parameter Q count mismatch: expected " + std::to_string(expected_q.size()) +
-                                     ", got " + std::to_string(param.get_q_count()));
+                                     ", got " + std::to_string(param.max_level() + 1));
         }
         for (int i = 0; i < expected_q.size(); i++) {
-            if (param.get_q(i) != expected_q[i]) {
+            if (actual_q[i] != expected_q[i]) {
                 throw std::runtime_error("BFV parameter Q[" + std::to_string(i) + "] mismatch: expected " +
-                                         std::to_string(expected_q[i]) + ", got " + std::to_string(param.get_q(i)));
+                                         std::to_string(expected_q[i]) + ", got " + std::to_string(actual_q[i]));
             }
         }
 
         if (param_json.contains("p")) {
             std::vector<uint64_t> expected_p = param_json["p"].get<std::vector<uint64_t>>();
-            if (param.get_p_count() != expected_p.size()) {
+            auto actual_p = param.p();
+            if (actual_p.size() != expected_p.size()) {
                 throw std::runtime_error("BFV parameter P count mismatch: expected " +
                                          std::to_string(expected_p.size()) + ", got " +
-                                         std::to_string(param.get_p_count()));
+                                         std::to_string(actual_p.size()));
             }
             for (int i = 0; i < expected_p.size(); i++) {
-                if (param.get_p(i) != expected_p[i]) {
+                if (actual_p[i] != expected_p[i]) {
                     throw std::runtime_error("BFV parameter P[" + std::to_string(i) + "] mismatch: expected " +
-                                             std::to_string(expected_p[i]) + ", got " + std::to_string(param.get_p(i)));
+                                             std::to_string(expected_p[i]) + ", got " + std::to_string(actual_p[i]));
                 }
             }
         }
-    } else if (typeid(*context) == typeid(CkksContext) || typeid(*context) == typeid(CkksBtpContext)) {
+    } else if (typeid(*context) == typeid(CkksContext)) {
         CkksContext* ckks_context = static_cast<CkksContext*>(context);
-        const CkksParameter& param = ckks_context->get_parameter();
+        const CkksParameter& param = ckks_context->parameter();
 
-        if (param.get_n() != expected_n) {
+        if (param.n() != expected_n) {
             throw std::runtime_error("CKKS parameter N mismatch: expected " + std::to_string(expected_n) + ", got " +
-                                     std::to_string(param.get_n()));
+                                     std::to_string(param.n()));
         }
 
-        int q_count = param.get_max_level() + 1;
+        auto actual_q = param.q();
+        int q_count = param.max_level() + 1;
         if (q_count != expected_q.size()) {
             throw std::runtime_error("CKKS parameter Q count mismatch: expected " + std::to_string(expected_q.size()) +
                                      ", got " + std::to_string(q_count));
         }
         for (int i = 0; i < expected_q.size(); i++) {
-            if (param.get_q(i) != expected_q[i]) {
+            if (actual_q[i] != expected_q[i]) {
                 throw std::runtime_error("CKKS parameter Q[" + std::to_string(i) + "] mismatch: expected " +
-                                         std::to_string(expected_q[i]) + ", got " + std::to_string(param.get_q(i)));
+                                         std::to_string(expected_q[i]) + ", got " + std::to_string(actual_q[i]));
             }
         }
 
         if (param_json.contains("p")) {
             std::vector<uint64_t> expected_p = param_json["p"].get<std::vector<uint64_t>>();
-            if (param.get_p_count() != expected_p.size()) {
+            auto actual_p = param.p();
+            if (actual_p.size() != expected_p.size()) {
                 throw std::runtime_error("CKKS parameter P count mismatch: expected " +
                                          std::to_string(expected_p.size()) + ", got " +
-                                         std::to_string(param.get_p_count()));
+                                         std::to_string(actual_p.size()));
             }
             for (int i = 0; i < expected_p.size(); i++) {
-                if (param.get_p(i) != expected_p[i]) {
+                if (actual_p[i] != expected_p[i]) {
                     throw std::runtime_error("CKKS parameter P[" + std::to_string(i) + "] mismatch: expected " +
-                                             std::to_string(expected_p[i]) + ", got " + std::to_string(param.get_p(i)));
+                                             std::to_string(expected_p[i]) + ", got " + std::to_string(actual_p[i]));
                 }
             }
         }
@@ -220,7 +238,7 @@ inline void check_parameter(FheContext* context, const nlohmann::json& param_jso
  * @param cxx_args      Array of task input/output arguments to validate
  * @param task_sig_json Task signature JSON object
  * @param expected_algo Expected algorithm (ALGO_BFV or ALGO_CKKS), must match the context type
- * @return Number of input arguments (phase == "in" or "offline") among cxx_args
+ * @return Number of input arguments (phase == "in") among cxx_args
  * @throws std::runtime_error if any check fails
  */
 inline int check_signatures(FheContext* context,
@@ -232,8 +250,8 @@ inline int check_signatures(FheContext* context,
             throw std::runtime_error("Algorithm is BFV but context is not BfvContext");
         }
     } else if (expected_algo == Algo::ALGO_CKKS) {
-        if (typeid(*context) != typeid(CkksContext) && typeid(*context) != typeid(CkksBtpContext)) {
-            throw std::runtime_error("Algorithm is CKKS but context is not CkksContext/CkksBtpContext");
+        if (typeid(*context) != typeid(CkksContext)) {
+            throw std::runtime_error("Algorithm is CKKS but context is not CkksContext");
         }
     } else {
         throw std::runtime_error("Unknown algorithm type");
@@ -241,9 +259,7 @@ inline int check_signatures(FheContext* context,
 
     check_context_for_key_signatures(*context, task_sig_json["key"]);
 
-    const auto& offline = task_sig_json["offline"];
-    auto data_sig_json = offline.empty() ? task_sig_json["online"].get<std::vector<nlohmann::json>>() :
-                                           offline.get<std::vector<nlohmann::json>>();
+    auto data_sig_json = task_sig_json["online"].get<std::vector<nlohmann::json>>();
 
     int n_in_args = 0;
 
@@ -268,7 +284,7 @@ inline int check_signatures(FheContext* context,
         check_with_sig(cxx_args[i], expected_id, expected_type, expected_shape, expected_level);
 
         std::string phase = data_sig_json[i]["phase"].get<std::string>();
-        if (phase == "in" or phase == "offline") {
+        if (phase == "in") {
             n_in_args++;
         }
     }

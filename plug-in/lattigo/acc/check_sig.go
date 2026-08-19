@@ -251,13 +251,7 @@ func check_signatures(param interface{}, rlk *rlwe.RelinearizationKey, glk *rlwe
 
 	check_key_signature(rlk, glk, task_signature["key"].(map[string]interface{}))
 
-	var data_signature []interface{}
-	offline := task_signature["offline"].([]interface{})
-	if len(offline) == 0 {
-		data_signature = task_signature["online"].([]interface{})
-	} else {
-		data_signature = offline
-	}
+	data_signature := task_signature["online"].([]interface{})
 
 	n_in_args := 0
 	for i, arg := range args {
@@ -268,7 +262,7 @@ func check_signatures(param interface{}, rlk *rlwe.RelinearizationKey, glk *rlwe
 		check_with_sig(arg, expected_id, expected_type, expected_shape, expected_level)
 
 		phase := data_signature[i].(map[string]interface{})["phase"].(string)
-		if phase == "in" || phase == "offline" {
+		if phase == "in" {
 			n_in_args++
 		}
 	}

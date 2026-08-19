@@ -51,25 +51,23 @@ class _TaskContext:
     algorithm: 'Algo'
 
     # Graph operation data — DataNode objects
-    inputs: list  # online inputs + offline inputs + key nodes
+    inputs: list  # online inputs + key nodes
     outputs: list
-    offline: list
 
     # Signature components (raw data, not JSON)
     rlk_sig: int  # -1 if no relinearization key
     glk_sig: dict  # galois_element -> level
-    ckks_btp_swk_sig: dict  # key_id -> (level, sp_level); empty if not BTP
+    glk_order: list[int]  # galois elements in graph input order
+    ckks_btp_evk_sig: dict  # key_id -> (level, sp_level); empty if not BTP
     input_sigdata: list  # list of sigdata dicts for online inputs
     output_sigdata: list  # list of sigdata dicts for outputs
-    offline_sigdata: list  # list of sigdata dicts for offline inputs
 
     @classmethod
     def build(
         cls,
         input_args,
         output_args,
-        offline_input_args,
-        swk_node_dict: dict,
+        evk_node_dict: dict,
         name: str,
         algorithm: 'Algo',
     ) -> _TaskContext:
@@ -78,8 +76,7 @@ class _TaskContext:
         Args:
             input_args:          Online input Argument list (or None).
             output_args:         Output Argument list (or None).
-            offline_input_args:  Offline input Argument list (or None).
-            swk_node_dict:       Global switch-key node dict (g_swk_node_dict).
+            evk_node_dict:       Global evaluation-key node dict.
             name:                Task name string.
             algorithm:           FHE algorithm enum.
         """
@@ -122,47 +119,49 @@ class _TaskContext:
                     'phase': phase,
                 }
                 if isinstance(nodes[0], FheDataNode):
-                    entry['level'] = nodes[0].level
+                    entry['level'] = nodes[0].metadata.level
                 node_list += nodes
                 sigdata_list.append(entry)
             return node_list, sigdata_list
 
         input_nodes, input_sigdata = _process_args(input_args, 'in')
         output_nodes, output_sigdata = _process_args(output_args, 'out')
-        offline_nodes, offline_sigdata = _process_args(offline_input_args, 'offline')
-        all_inputs = input_nodes + offline_nodes
+        all_inputs = input_nodes
 
         # Collect key nodes and build key signatures
         rlk_sig = -1
-        if 'rlk_ntt' in swk_node_dict:
-            rlk_sig = swk_node_dict['rlk_ntt'].level
-            all_inputs.append(swk_node_dict['rlk_ntt'])
+        if 'rlk_ntt' in evk_node_dict:
+            rlk_sig = evk_node_dict['rlk_ntt'].metadata.level
+            all_inputs.append(evk_node_dict['rlk_ntt'])
 
         glk_sig: dict = {}
-        for k, v in swk_node_dict.items():
+        glk_order: list[int] = []
+        for k, v in evk_node_dict.items():
             if 'col' in k:
-                glk_sig[int(k.split('_')[-1])] = v.level
+                galois_element = int(k.split('_')[-1])
+                glk_sig[galois_element] = v.metadata.level
+                glk_order.append(galois_element)
                 all_inputs.append(v)
             elif 'row' in k:
-                glk_sig[v.galois_element] = v.level
+                glk_sig[v.galois_element] = v.metadata.level
+                glk_order.append(v.galois_element)
                 all_inputs.append(v)
 
-        ckks_btp_swk_sig: dict = {}
-        for k, v in swk_node_dict.items():
-            if 'swk' in k:
-                ckks_btp_swk_sig[k] = (v.level, v.sp_level)
-                all_inputs.append(v)
+        ckks_btp_evk_sig: dict = {}
+        for k in sorted(k for k in evk_node_dict if k.startswith('evk_')):
+            v = evk_node_dict[k]
+            ckks_btp_evk_sig[k] = (v.metadata.level, v.sp_level)
+            all_inputs.append(v)
 
         return cls(
             name=name,
             algorithm=algorithm,
             inputs=all_inputs,
             outputs=output_nodes,
-            offline=offline_nodes,
             rlk_sig=rlk_sig,
             glk_sig=glk_sig,
-            ckks_btp_swk_sig=ckks_btp_swk_sig,
+            glk_order=glk_order,
+            ckks_btp_evk_sig=ckks_btp_evk_sig,
             input_sigdata=input_sigdata,
             output_sigdata=output_sigdata,
-            offline_sigdata=offline_sigdata,
         )

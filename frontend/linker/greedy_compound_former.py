@@ -24,7 +24,6 @@ from frontend.types import (
     BridgeComputeNode,
     ComputeNode,
     CustomComputeNode,
-    EncodeRingtComputeNode,
     FheComputeNode,
     OperationType,
     Processor,
@@ -48,15 +47,13 @@ class GreedyCompoundParams:
         {
             OperationType.Add,
             OperationType.Sub,
-            OperationType.Neg,
             OperationType.Mult,
             OperationType.Relin,
             OperationType.Rescale,
             OperationType.DropLevel,
-            OperationType.MultByi,
-            OperationType.DivByi,
             OperationType.RotateCol,
             OperationType.RotateRow,
+            OperationType.Conjugate,
             OperationType.CmpSum,
             OperationType.CmpacSum,
             # OperationType.Bootstrap,
@@ -75,19 +72,16 @@ class GreedyCompoundParams:
     op_costs = {
         OperationType.Add: 1,
         OperationType.Sub: 1,
-        OperationType.Neg: 1,
         OperationType.DropLevel: 1,
-        OperationType.MultByi: 1,
-        OperationType.DivByi: 1,
         OperationType.Rescale: 2,
         OperationType.Relin: 4,
         OperationType.RotateCol: 4,
         OperationType.RotateRow: 4,
+        OperationType.Conjugate: 4,
         OperationType.CmpSum: 3,
         OperationType.CmpacSum: 3,
         OperationType.Mult: 4,
         OperationType.Bootstrap: 32,
-        OperationType.EncodeRingt: 1,
         OperationType.ExportToAbi: 1,
         OperationType.ImportFromAbi: 1,
         OperationType.LoadToBackend: 1,
@@ -127,9 +121,8 @@ class GreedyCompoundFormer:
         heapq.heapify(available_heap)
 
         available_bridge_heaps: defaultdict[tuple, list] = defaultdict(list)
-        available_encode_ringt_heaps: defaultdict[tuple, list] = defaultdict(list)
         for node in available_computes:
-            self._push_available_batch_op(node, available_bridge_heaps, available_encode_ringt_heaps)
+            self._push_available_batch_op(node, available_bridge_heaps)
 
         pbar = tqdm(total=progress_total, desc='Greedy compound forming', unit='ops', colour='green')
 
@@ -151,13 +144,6 @@ class GreedyCompoundFormer:
                         available_bridge_heaps,
                     )
                     compound_groups.append(completed)
-                elif isinstance(node, EncodeRingtComputeNode):
-                    completed, _ = self._best_encode_ringt_batch_candidate(
-                        node,
-                        available_computes,
-                        available_encode_ringt_heaps,
-                    )
-                    compound_groups.append(completed)
                 elif not self._is_mergeable_op(node):
                     completed = [node]
                     compound_groups.append(completed)
@@ -173,7 +159,7 @@ class GreedyCompoundFormer:
                         continue
                     available_computes.add(new_compute)
                     heapq.heappush(available_heap, (self.topo_index[new_compute], new_compute))
-                    self._push_available_batch_op(new_compute, available_bridge_heaps, available_encode_ringt_heaps)
+                    self._push_available_batch_op(new_compute, available_bridge_heaps)
                 pbar.update(sum(self._is_mergeable_op(op) for op in completed))
         finally:
             pbar.close()
@@ -225,33 +211,27 @@ class GreedyCompoundFormer:
         self,
         node: ComputeNode,
         available_bridge_heaps: defaultdict[tuple, list],
-        available_encode_ringt_heaps: defaultdict[tuple, list],
     ) -> None:
         if isinstance(node, BridgeComputeNode):
             heapq.heappush(available_bridge_heaps[self._bridge_key(node)], (self.topo_index[node], node))
-        elif isinstance(node, EncodeRingtComputeNode):
-            heapq.heappush(available_encode_ringt_heaps[self._encode_ringt_key(node)], (self.topo_index[node], node))
 
     def _bridge_topology_key(self, node: BridgeComputeNode) -> tuple:
         consumers = []
         for data in self.op_outputs[node]:
-            consumers.extend(succ.index for succ in self.dag.successors(data) if isinstance(succ, ComputeNode))
+            consumers.extend(succ.id for succ in self.dag.successors(data) if isinstance(succ, ComputeNode))
         if consumers:
             return ('consumers', tuple(sorted(consumers)))
 
         producers = []
         for data in self.op_inputs[node]:
-            producers.extend(pred.index for pred in self.dag.predecessors(data) if isinstance(pred, ComputeNode))
+            producers.extend(pred.id for pred in self.dag.predecessors(data) if isinstance(pred, ComputeNode))
         if producers:
             return ('producers', tuple(sorted(producers)))
 
-        return ('self', node.index)
+        return ('self', node.id)
 
     def _bridge_key(self, node: BridgeComputeNode) -> tuple:
         return (node.type, self.runs_on_cpu[node], self._bridge_topology_key(node))
-
-    def _encode_ringt_key(self, node: ComputeNode) -> tuple:
-        return (node.type, self.runs_on_cpu[node])
 
     def _best_compute_candidate(
         self,
@@ -294,16 +274,6 @@ class GreedyCompoundFormer:
         available_bridge_heaps: defaultdict[tuple, list],
     ) -> tuple[list, int]:
         return self._best_batch_candidate(start, available_computes, available_bridge_heaps, self._bridge_key)
-
-    def _best_encode_ringt_batch_candidate(
-        self,
-        start: ComputeNode,
-        available_computes: set,
-        available_encode_ringt_heaps: defaultdict[tuple, list],
-    ) -> tuple[list, int]:
-        return self._best_batch_candidate(
-            start, available_computes, available_encode_ringt_heaps, self._encode_ringt_key
-        )
 
     def _best_batch_candidate(
         self,
@@ -453,14 +423,13 @@ class GreedyCompoundFormer:
             ext_outputs=compound_external_outputs(self.dag, ops, self.graph_output_set),
         )
         if len(ops) == 1:
-            task.index = ops[0].index
             task.id = ops[0].id
         else:
-            task.id = f'compound_{task.index}'
+            task.id = f'compound_{task.id}'
         return task
 
     def _is_batch_op(self, node: ComputeNode) -> bool:
-        return isinstance(node, (BridgeComputeNode, EncodeRingtComputeNode))
+        return isinstance(node, BridgeComputeNode)
 
     def _is_mergeable_op(self, node: ComputeNode) -> bool:
         if isinstance(node, FheComputeNode):

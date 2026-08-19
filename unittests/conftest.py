@@ -31,6 +31,10 @@ def pytest_generate_tests(metafunc):
     Test IDs will be formatted as: <param_tag>-lv<N>
     """
     module = metafunc.module
+    processors = getattr(module, 'PROCESSORS', None)
+    if processors is not None and 'processor' in metafunc.fixturenames:
+        metafunc.parametrize('processor', processors, ids=[p.value for p in processors])
+
     params_list = getattr(module, 'BFV_PARAMS', None) or getattr(module, 'CKKS_PARAMS', None)
     if params_list is None:
         return

@@ -38,11 +38,7 @@
 
 namespace {
 
-struct DummyContext {
-    DummyContext shallow_copy_context() const {
-        return {};
-    }
-};
+struct DummyContext {};
 
 struct Barrier {
     std::mutex mutex;
@@ -76,75 +72,74 @@ MegaAG make_chain_ag(Barrier* first_barrier, std::atomic<int>* executed) {
     ag.algo = ALGO_BFV;
     ag.processor = Processor::CPU;
 
-    ag.data.emplace(1, DatumNode{1, "input"});
-    ag.data.emplace(2, DatumNode{2, "mid"});
-    ag.data.emplace(3, DatumNode{3, "output"});
-    ag.data.at(1).is_input = true;
-    ag.data.at(3).is_output = true;
-    ag.inputs = {1};
-    ag.outputs = {3};
+    ag.data.emplace("input", DatumNode{"input"});
+    ag.data.emplace("mid", DatumNode{"mid"});
+    ag.data.emplace("output", DatumNode{"output"});
+    ag.data.at("input").is_input = true;
+    ag.data.at("output").is_output = true;
+    ag.inputs = {"input"};
+    ag.outputs = {"output"};
 
-    auto executor_1 = [first_barrier, executed](ExecutionContext&, std::unordered_map<NodeIndex, std::any>& data_cache,
+    auto executor_1 = [first_barrier, executed](ExecutionContext&, std::unordered_map<NodeId, std::any>& data_cache,
                                                 const ComputeNode& self) {
         executed->fetch_add(1);
         first_barrier->enter_and_wait();
-        data_cache[self.output_nodes.at(0)->index] = std::make_shared<int>(1);
+        data_cache[self.output_nodes.at(0)->id] = std::make_shared<int>(1);
     };
-    auto executor_2 = [executed](ExecutionContext&, std::unordered_map<NodeIndex, std::any>& data_cache,
+    auto executor_2 = [executed](ExecutionContext&, std::unordered_map<NodeId, std::any>& data_cache,
                                  const ComputeNode& self) {
         executed->fetch_add(1);
-        data_cache[self.output_nodes.at(0)->index] = std::make_shared<int>(2);
+        data_cache[self.output_nodes.at(0)->id] = std::make_shared<int>(2);
     };
 
-    ComputeNode first_op{10, "first_op"};
-    first_op.input_nodes = {&ag.data.at(1)};
-    first_op.output_nodes = {&ag.data.at(2)};
+    ComputeNode first_op{"first_op"};
+    first_op.input_nodes = {&ag.data.at("input")};
+    first_op.output_nodes = {&ag.data.at("mid")};
     first_op.executor = executor_1;
 
-    ComputeNode second_op{11, "second_op"};
-    second_op.input_nodes = {&ag.data.at(2)};
-    second_op.output_nodes = {&ag.data.at(3)};
+    ComputeNode second_op{"second_op"};
+    second_op.input_nodes = {&ag.data.at("mid")};
+    second_op.output_nodes = {&ag.data.at("output")};
     second_op.executor = executor_2;
 
-    CompoundComputeNode first{10, "first"};
-    first.input_nodes = {&ag.data.at(1)};
-    first.output_nodes = {&ag.data.at(2)};
+    CompoundComputeNode first{"first"};
+    first.input_nodes = {&ag.data.at("input")};
+    first.output_nodes = {&ag.data.at("mid")};
     first.ops = {std::move(first_op)};
     first.on_cpu = true;
     first.priority = 10;
 
-    CompoundComputeNode second{11, "second"};
-    second.input_nodes = {&ag.data.at(2)};
-    second.output_nodes = {&ag.data.at(3)};
+    CompoundComputeNode second{"second"};
+    second.input_nodes = {&ag.data.at("mid")};
+    second.output_nodes = {&ag.data.at("output")};
     second.ops = {std::move(second_op)};
     second.on_cpu = true;
     second.priority = 9;
 
-    ag.computes.emplace(10, std::move(first));
-    ag.computes.emplace(11, std::move(second));
+    ag.computes.emplace("first", std::move(first));
+    ag.computes.emplace("second", std::move(second));
 
-    ag.data.at(1).successors = {&ag.computes.at(10)};
-    ag.data.at(2).predecessors = {&ag.computes.at(10)};
-    ag.data.at(2).successors = {&ag.computes.at(11)};
-    ag.data.at(3).predecessors = {&ag.computes.at(11)};
+    ag.data.at("input").successors = {&ag.computes.at("first")};
+    ag.data.at("mid").predecessors = {&ag.computes.at("first")};
+    ag.data.at("mid").successors = {&ag.computes.at("second")};
+    ag.data.at("output").predecessors = {&ag.computes.at("second")};
 
     return ag;
 }
 
-template <typename Task>
-void require_real_bfv_poly_cancellation(Task& project, BfvContext& context, uint64_t plaintext_modulus) {
-    auto xv = new_bfv_test_ct(4, context, 3, plaintext_modulus);
-    auto av = new_bfv_test_ct(3, context, 3, plaintext_modulus);
+template <typename Task> void require_real_bfv_poly_cancellation(Task& project, BfvContext& context) {
+    auto xv = new_test_cts(4, context, 3);
+    auto av = new_test_cts(3, context, 3);
 
     std::vector<BfvCiphertext> z_list;
     z_list.reserve(4);
     for (int i = 0; i < 4; i++) {
-        z_list.push_back(context.new_ciphertext(3));
+        z_list.push_back(BfvCiphertext(context.parameter(), 3));
     }
 
     std::vector<CxxVectorArgument> args = {
-        {"in_x_list", &xv.ciphertexts},
-        {"in_a_list", &av.ciphertexts},
+        {"in_x_list", &xv.ciphertexts()},
+        {"in_a_list", &av.ciphertexts()},
         {"out_z_list", &z_list},
     };
 
@@ -173,7 +168,7 @@ TEST_CASE("FheTaskCpu cancels real BFV poly task", "[cancel][cpu][real]") {
     BfvContext context = BfvContext::create_random_context(parameter);
     lattisense::FheTaskCpu project(cpu_base_path + "/" + BfvTestDefaultParams::get_tag() + "/BFV_n_poly/level_3");
 
-    require_real_bfv_poly_cancellation(project, context, parameter.get_t());
+    require_real_bfv_poly_cancellation(project, context);
 }
 
 #ifdef LATTISENSE_ENABLE_GPU
@@ -182,7 +177,7 @@ TEST_CASE("FheTaskGpu cancels real BFV poly task", "[cancel][gpu][real]") {
     BfvContext context = BfvContext::create_random_context(parameter);
     lattisense::FheTaskGpu project(gpu_base_path + "/" + BfvTestDefaultParams::get_tag() + "/BFV_n_poly/level_3");
 
-    require_real_bfv_poly_cancellation(project, context, parameter.get_t());
+    require_real_bfv_poly_cancellation(project, context);
 }
 #endif
 
@@ -193,8 +188,8 @@ TEST_CASE("run_tasks throws cancellation after draining active CPU node", "[canc
     MegaAG ag = make_chain_ag(&barrier, &executed);
     BS::priority_thread_pool pool(2);
     auto context = std::make_unique<DummyContext>();
-    std::unordered_map<NodeIndex, std::any> available_data;
-    available_data[1] = std::make_shared<int>(0);
+    std::unordered_map<NodeId, std::any> available_data;
+    available_data["input"] = std::make_shared<int>(0);
 
     std::exception_ptr runner_exception;
     std::thread runner([&] {
@@ -213,7 +208,7 @@ TEST_CASE("run_tasks throws cancellation after draining active CPU node", "[canc
     REQUIRE(runner_exception != nullptr);
     REQUIRE_THROWS_AS(std::rethrow_exception(runner_exception), mega_ag_runner::TaskCancelled);
     REQUIRE(executed.load() == 1);
-    REQUIRE(available_data.find(3) == available_data.end());
+    REQUIRE(available_data.find("output") == available_data.end());
 }
 
 TEST_CASE("run_tasks skips completed-total wait after cancellation", "[cancel][cpu]") {
@@ -223,8 +218,8 @@ TEST_CASE("run_tasks skips completed-total wait after cancellation", "[cancel][c
     MegaAG ag = make_chain_ag(&barrier, &executed);
     BS::priority_thread_pool pool(1);
     auto context = std::make_unique<DummyContext>();
-    std::unordered_map<NodeIndex, std::any> available_data;
-    available_data[1] = std::make_shared<int>(0);
+    std::unordered_map<NodeId, std::any> available_data;
+    available_data["input"] = std::make_shared<int>(0);
 
     std::exception_ptr runner_exception;
     std::thread runner([&] {
@@ -253,8 +248,8 @@ TEST_CASE("cancelled run does not report completed equals total", "[cancel][cpu]
     MegaAG ag = make_chain_ag(&barrier, &executed);
     BS::priority_thread_pool pool(1);
     auto context = std::make_unique<DummyContext>();
-    std::unordered_map<NodeIndex, std::any> available_data;
-    available_data[1] = std::make_shared<int>(0);
+    std::unordered_map<NodeId, std::any> available_data;
+    available_data["input"] = std::make_shared<int>(0);
 
     ProgressCallback progress = [&](int completed, int total) {
         if (completed == total) {

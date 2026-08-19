@@ -26,9 +26,10 @@ using namespace lattisense;
 using namespace std;
 
 void bfv_mult_cpu() {
-    uint64_t n = 16384;
+    int log_n = 14;
+    uint64_t n = 1ULL << log_n;
     uint64_t t = 65537;
-    BfvParameter param = BfvParameter::create_parameter(n, t);
+    BfvParameter param = BfvParameter::create_parameter(log_n, t);
     BfvContext context = BfvContext::create_random_context(param);
     int level = 3;
 

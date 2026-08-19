@@ -24,6 +24,40 @@
 extern "C" {
 #endif
 
+#ifndef GO_SDK_ERROR_STATUS_DEFINED
+#    define GO_SDK_ERROR_STATUS_DEFINED
+typedef struct ErrorStatus {
+    int code;
+    char* message;
+} ErrorStatus;
+#endif
+
+#ifndef GO_SDK_METADATA_DEFINED
+#    define GO_SDK_METADATA_DEFINED
+typedef struct Metadata {
+    uint8_t is_ringt;
+    uint8_t is_batched;
+    int degree;
+    int level;
+    int log_slots;
+    double scale;
+    uint8_t is_ntt;
+    int mform_bits;
+
+#    ifdef __cplusplus
+    bool operator==(const Metadata& other) const {
+        return is_ringt == other.is_ringt && is_batched == other.is_batched && degree == other.degree &&
+               level == other.level && log_slots == other.log_slots && scale == other.scale && is_ntt == other.is_ntt &&
+               mform_bits == other.mform_bits;
+    }
+
+    bool operator!=(const Metadata& other) const {
+        return !(*this == other);
+    }
+#    endif
+} Metadata;
+#endif
+
 typedef struct {
     int level;
     int ring_degree;
@@ -42,15 +76,7 @@ typedef struct {
     int level_p;
     int ring_degree;
     uint64_t* data;  // [DecompRNS(level_q, level_p)][2][Q+P RNS limbs][ring_degree]
-} CSwitchingKey;
-
-typedef CSwitchingKey CRelinKey;
-
-typedef struct {
-    int n_switching_key;
-    uint64_t* galois_elements;      // [n_switching_key]
-    CSwitchingKey* switching_keys;  // [n_switching_key], one switching key per galois element
-} CGaloisKey;
+} CEvaluationKey;
 
 static inline int c_plaintext_rns_size(const CPlaintext* pt) {
     return pt->level + 1;
@@ -60,28 +86,12 @@ static inline int c_ciphertext_rns_size(const CCiphertext* ct) {
     return ct->level + 1;
 }
 
-static inline int c_switching_key_decomp_rns(const CSwitchingKey* swk) {
-    return (swk->level_q + swk->level_p + 1) / (swk->level_p + 1);
+static inline int c_evaluation_key_decomp_rns(const CEvaluationKey* evk) {
+    return (evk->level_q + evk->level_p + 1) / (evk->level_p + 1);
 }
 
-static inline int c_switching_key_rns_size(const CSwitchingKey* swk) {
-    return swk->level_q + swk->level_p + 2;
-}
-
-static inline int c_galois_key_decomp_rns(const CGaloisKey* glk) {
-    return c_switching_key_decomp_rns(&glk->switching_keys[0]);
-}
-
-static inline int c_galois_key_rns_size(const CGaloisKey* glk) {
-    return c_switching_key_rns_size(&glk->switching_keys[0]);
-}
-
-static inline int c_relin_key_decomp_rns(const CRelinKey* rlk) {
-    return c_switching_key_decomp_rns(rlk);
-}
-
-static inline int c_relin_key_rns_size(const CRelinKey* rlk) {
-    return c_switching_key_rns_size(rlk);
+static inline int c_evaluation_key_rns_size(const CEvaluationKey* evk) {
+    return evk->level_q + evk->level_p + 2;
 }
 
 static inline uint64_t* c_plaintext_rns_limb(CPlaintext* pt, int rns_idx) {
@@ -100,34 +110,15 @@ static inline const uint64_t* c_ciphertext_const_rns_limb(const CCiphertext* ct,
     return ct->data + ((size_t)poly_idx * c_ciphertext_rns_size(ct) + rns_idx) * ct->ring_degree;
 }
 
-static inline uint64_t* c_switching_key_rns_limb(CSwitchingKey* swk, int decomp_idx, int poly_idx, int rns_idx) {
-    return swk->data +
-           (((size_t)decomp_idx * 2 + poly_idx) * c_switching_key_rns_size(swk) + rns_idx) * swk->ring_degree;
+static inline uint64_t* c_evaluation_key_rns_limb(CEvaluationKey* evk, int decomp_idx, int poly_idx, int rns_idx) {
+    return evk->data +
+           (((size_t)decomp_idx * 2 + poly_idx) * c_evaluation_key_rns_size(evk) + rns_idx) * evk->ring_degree;
 }
 
 static inline const uint64_t*
-c_switching_key_const_rns_limb(const CSwitchingKey* swk, int decomp_idx, int poly_idx, int rns_idx) {
-    return swk->data +
-           (((size_t)decomp_idx * 2 + poly_idx) * c_switching_key_rns_size(swk) + rns_idx) * swk->ring_degree;
-}
-
-static inline uint64_t* c_relin_key_rns_limb(CRelinKey* rlk, int decomp_idx, int poly_idx, int rns_idx) {
-    return c_switching_key_rns_limb(rlk, decomp_idx, poly_idx, rns_idx);
-}
-
-static inline const uint64_t*
-c_relin_key_const_rns_limb(const CRelinKey* rlk, int decomp_idx, int poly_idx, int rns_idx) {
-    return c_switching_key_const_rns_limb(rlk, decomp_idx, poly_idx, rns_idx);
-}
-
-static inline uint64_t*
-c_galois_key_rns_limb(CGaloisKey* glk, int switching_key_idx, int decomp_idx, int poly_idx, int rns_idx) {
-    return c_switching_key_rns_limb(&glk->switching_keys[switching_key_idx], decomp_idx, poly_idx, rns_idx);
-}
-
-static inline const uint64_t*
-c_galois_key_const_rns_limb(const CGaloisKey* glk, int switching_key_idx, int decomp_idx, int poly_idx, int rns_idx) {
-    return c_switching_key_const_rns_limb(&glk->switching_keys[switching_key_idx], decomp_idx, poly_idx, rns_idx);
+c_evaluation_key_const_rns_limb(const CEvaluationKey* evk, int decomp_idx, int poly_idx, int rns_idx) {
+    return evk->data +
+           (((size_t)decomp_idx * 2 + poly_idx) * c_evaluation_key_rns_size(evk) + rns_idx) * evk->ring_degree;
 }
 
 #ifdef __cplusplus

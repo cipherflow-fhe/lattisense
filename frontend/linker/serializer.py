@@ -20,7 +20,7 @@ serializer.py — Serialization of g_dag and task signature to JSON-ready dicts.
 
 Two entry points:
 
-    serialize_dag(dag, inputs, outputs, offline_inputs, meta) -> dict
+    serialize_dag(dag, inputs, outputs, meta) -> dict
         Converts a networkx DiGraph of Python node objects to the
         mega_ag.json / compiled_mega_ag.json dict format.
         Works on both the original g_dag and the linker-processed DAG;
@@ -28,7 +28,7 @@ Two entry points:
 
     serialize_signature(ctx: _TaskContext) -> dict
         Builds the task_signature.json dict from a resolved _TaskContext.
-        ckks_btp_swk field is only written when non-empty.
+        ckks_btp_evk field is only written when non-empty.
 """
 
 import networkx as nx
@@ -46,7 +46,6 @@ def serialize_dag(
     dag: nx.DiGraph,
     inputs: list,
     outputs: list,
-    offline_inputs: list,
     meta: dict,
     data_serializer=None,
     use_ops: bool = False,
@@ -57,9 +56,8 @@ def serialize_dag(
         dag:            DiGraph whose nodes are DataNode / ComputeNode objects
                         (or their bridge/compound variants from the linker).
         inputs:         DataNode objects listed as graph inputs
-                        (online inputs + offline inputs + keys).
+                        (online inputs + keys).
         outputs:        DataNode objects listed as graph outputs.
-        offline_inputs: DataNode objects listed as offline inputs.
         meta:           Dict with keys 'name', 'algorithm'.
         data_serializer: Optional callable used to serialize each data node.
                          Defaults to node.to_json_dict().
@@ -74,9 +72,8 @@ def serialize_dag(
     result: dict = {
         'name': meta['name'],
         'algorithm': meta['algorithm'],
-        'inputs': [n.index for n in inputs],
-        'outputs': [n.index for n in outputs],
-        'offline_inputs': [n.index for n in offline_inputs],
+        'inputs': [n.id for n in inputs],
+        'outputs': [n.id for n in outputs],
         'data': {},
         'compute': {},
     }
@@ -84,7 +81,7 @@ def serialize_dag(
 
     for node in dag.nodes():
         if is_data_node(node):
-            result['data'][node.index] = data_serializer(node)
+            result['data'][node.id] = data_serializer(node)
         elif is_compute_node(node):
             d = _serialize_ops_task(dag, node) if use_ops else node.to_json_dict(dag)
             on_cpu = getattr(node, 'on_cpu', None)
@@ -92,7 +89,7 @@ def serialize_dag(
                 d['on_cpu'] = on_cpu
             if hasattr(node, 'priority'):
                 d['priority'] = node.priority
-            result['compute'][node.index] = d
+            result['compute'][node.id] = d
 
     return result
 
@@ -103,8 +100,7 @@ def _serialize_ops_task(dag: nx.DiGraph, node) -> dict:
 
     op_json = node.to_json_dict(dag)
     return {
-        'id': op_json['id'],
-        'ops': [{'index': node.index, **op_json}],
+        'ops': [op_json],
         'inputs': op_json['inputs'],
         'outputs': op_json['outputs'],
     }
@@ -123,7 +119,7 @@ def serialize_signature(ctx: _TaskContext) -> dict:
 
     Returns:
         Dict suitable for json.dump as task_signature.json.
-        The ckks_btp_swk field is only written when ctx.ckks_btp_swk_sig
+        The ckks_btp_evk field is only written when ctx.ckks_btp_evk_sig
         is non-empty.
     """
     signature: dict = {
@@ -131,10 +127,10 @@ def serialize_signature(ctx: _TaskContext) -> dict:
         'key': {
             'rlk': ctx.rlk_sig,
             'glk': ctx.glk_sig,
+            'glk_order': ctx.glk_order,
         },
         'online': ctx.input_sigdata + ctx.output_sigdata,
-        'offline': ctx.offline_sigdata,
     }
-    if ctx.ckks_btp_swk_sig:
-        signature['key']['ckks_btp_swk'] = ctx.ckks_btp_swk_sig
+    if ctx.ckks_btp_evk_sig:
+        signature['key']['ckks_btp_evk'] = ctx.ckks_btp_evk_sig
     return signature

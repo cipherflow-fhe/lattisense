@@ -21,33 +21,21 @@ import math
 import os
 import random
 import string
+from dataclasses import dataclass
 from enum import Enum
 from typing import List
 
 import networkx as nx
 
-from frontend.bootstrap_params import (
-    LinearTransformType,
-    SineType,
-    EncodingMatrixParams,
-    EvalModParams,
-)
-
 
 class Processor(Enum):
     CPU = 'cpu'
-    FPGA = 'fpga'
     GPU = 'gpu'
 
 
-DEFAULT_LEVEL = -1
-
 random_ids = set()
-data_node_count = 0
-compute_node_count = 0
 
 GALOIS_GEN = 5
-SEAL_GALOIS_GEN = 3
 
 
 class Algo(Enum):
@@ -57,11 +45,8 @@ class Algo(Enum):
 
 class DataType(Enum):
     Plaintext = 'pt'
-    PlaintextRingt = 'pt_ringt'
-    PlaintextMul = 'pt_mul'
     Ciphertext = 'ct'
-    Ciphertext3 = 'ct3'
-    SwitchKey = 'swk'
+    EvaluationKey = 'evk'
     RelinKey = 'rlk'
     GaloisKey = 'glk'
 
@@ -69,53 +54,62 @@ class DataType(Enum):
 class OperationType(Enum):
     Add = 'add'
     Sub = 'sub'
-    Neg = 'neg'
     Mult = 'mult'
     Relin = 'relin'
     Rescale = 'rescale'
     DropLevel = 'drop_level'
-    MultByi = 'mult_by_i'
-    DivByi = 'div_by_i'
-    RnsSpDecomp = 'rns_sp_decomp'
     RotateCol = 'rotate_col'
     RotateRow = 'rotate_row'
-    ToNtt = 'to_ntt'
-    ToMForm = 'to_mf'
-    ToMul = 'to_mul'
-    ToInvNtt = 'to_inv_ntt'
+    Conjugate = 'conjugate'
     CmpacSum = 'cmpac_sum'
     CmpSum = 'cmp_sum'
     Bootstrap = 'bootstrap'
     EncodeRingt = 'encode_ringt'
-    FpgaKernel = 'fpga_kernel'
     ExportToAbi = 'export_to_abi'
     ImportFromAbi = 'import_from_abi'
     LoadToBackend = 'load_to_backend'
     StoreFromBackend = 'store_from_backend'
 
 
-class Lib(Enum):
-    Lattigo = 'lattigo'
-    SEAL = 'seal'
+@dataclass
+class Metadata:
+    is_ringt: bool = False
+    is_batched: bool = True
+    degree: int = 0
+    level: int = 0
+    log_slots: int = -1
+    scale: float = 1.0
+    is_ntt: bool = True
+    mform_bits: int = 0
 
+    def copy(self) -> 'Metadata':
+        return Metadata(
+            is_ringt=self.is_ringt,
+            is_batched=self.is_batched,
+            degree=self.degree,
+            level=self.level,
+            log_slots=self.log_slots,
+            scale=self.scale,
+            is_ntt=self.is_ntt,
+            mform_bits=self.mform_bits,
+        )
 
-def gen_data_node_index() -> int:
-    global data_node_count
-    data_node_count += 1
-    return data_node_count - 1
-
-
-def gen_compute_node_index() -> int:
-    global compute_node_count
-    compute_node_count += 1
-    return compute_node_count - 1
+    def to_json_dict(self) -> dict:
+        return {
+            'is_ringt': self.is_ringt,
+            'is_batched': self.is_batched,
+            'degree': self.degree,
+            'level': self.level,
+            'log_slots': self.log_slots,
+            'scale': self.scale,
+            'is_ntt': self.is_ntt,
+            'mform_bits': self.mform_bits,
+        }
 
 
 def reset_node_state() -> None:
-    global random_ids, data_node_count, compute_node_count
+    global random_ids
     random_ids = set()
-    data_node_count = 0
-    compute_node_count = 0
 
 
 def random_id():
@@ -128,9 +122,10 @@ def random_id():
 
 
 class Param:
-    def __init__(self, algo: Algo, n: int = 8192):
+    def __init__(self, algo: Algo, log_n: int):
         self.algo: Algo = algo
-        self.n: int = n
+        self.log_n: int = log_n
+        self.n: int = 1 << log_n
         self.p: list[int] = []
         self.q: list[int] = []
         self.max_level: int = -1
@@ -139,7 +134,7 @@ class Param:
         return len(self.p) - 1
 
     def to_json_dict(self) -> dict:
-        return {'n': self.n, 'max_level': self.max_level, 'q': self.q, 'p': self.p}
+        return {'log_n': self.log_n, 'max_level': self.max_level, 'q': self.q, 'p': self.p}
 
     def _load_parameter(self):
         parameter_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'parameter.json')
@@ -151,20 +146,20 @@ class Param:
             raise ValueError(f'Unsupported algorithm type: {self.algo.value}')
 
         algo_params = parameters[self.algo.value]
-        if str(self.n) not in algo_params:
-            raise ValueError(f'Unsupported n value for algorithm {self.algo.value}: {self.n}')
+        if str(self.log_n) not in algo_params:
+            raise ValueError(f'Unsupported log_n value for algorithm {self.algo.value}: {self.log_n}')
 
-        return algo_params[str(self.n)]
+        return algo_params[str(self.log_n)]
 
 
 class BfvParam(Param):
-    def __init__(self, n: int = 8192):
-        super().__init__(Algo.BFV, n)
+    def __init__(self, log_n: int):
+        super().__init__(Algo.BFV, log_n)
         self.t: int = -1
 
     @classmethod
-    def create_default_param(cls, n: int):
-        instance = cls(n)
+    def create_default_param(cls, log_n: int):
+        instance = cls(log_n)
 
         param_json = instance._load_parameter()
 
@@ -179,21 +174,12 @@ class BfvParam(Param):
         return instance
 
     @classmethod
-    def create_custom_param(cls, n: int, q: List[int], p: List[int], t: int):
-        instance = cls(n)
+    def create_custom_param(cls, log_n: int, q: List[int], p: List[int], t: int):
+        instance = cls(log_n)
         instance.q = q
         instance.p = p
         instance.t = t
         instance.max_level = len(q) - 1
-        return instance
-
-    @classmethod
-    def create_fpga_param(cls, t: int = 0x1B4001):
-        instance = cls(n=8192)
-        instance.q = [0x7F4E0001, 0x7FB40001, 0x7FD20001, 0x7FEA0001, 0x7FF80001, 0x7FFE0001]
-        instance.p = [0xFF5A0001]
-        instance.t = t
-        instance.max_level = len(instance.q) - 1
         return instance
 
     def to_json_dict(self) -> dict:
@@ -203,31 +189,18 @@ class BfvParam(Param):
 
 
 class CkksParam(Param):
-    def __init__(self, n: int = 8192, slots: int = 0, scale: float = 0.0):
-        super().__init__(Algo.CKKS, n)
-        if slots == 0:
-            self.slots: int = n // 2
-        else:
-            self._validate_slots(slots)
-            self.slots: int = slots
-        self.scale: float = scale
+    def __init__(self, log_n: int, log_scale: int = 0):
+        super().__init__(Algo.CKKS, log_n)
+        self.log_default_scale: int = log_scale
+        self.default_scale: float = 1 << log_scale
 
-    def _validate_slots(self, slots: int):
-        if slots % 2 != 0:
-            raise ValueError(f'slots must be a multiple of 2, got {slots}')
-        if slots <= 0 or slots > self.n // 2:
-            raise ValueError(f'slots must be in range (0, {self.n // 2}], got {slots}')
-
-    def set_slots(self, slots: int):
-        self._validate_slots(slots)
-        self.slots = slots
-
-    def set_scale(self, scale: float):
-        self.scale = scale
+    def set_log_scale(self, log_scale: int):
+        self.log_default_scale = log_scale
+        self.default_scale = 1 << log_scale
 
     @classmethod
-    def create_default_param(cls, n: int):
-        instance = cls(n)
+    def create_default_param(cls, log_n: int):
+        instance = cls(log_n)
 
         param_json = instance._load_parameter()
 
@@ -237,260 +210,23 @@ class CkksParam(Param):
             instance.q.append(q)
 
         instance.max_level = param_json['max_level']
-        instance.slots = param_json['slots']
-        instance.scale = param_json['scale']
+        instance.log_default_scale = param_json['log_default_scale']
+        instance.default_scale = 1 << instance.log_default_scale
 
         return instance
 
     @classmethod
-    def create_custom_param(cls, n: int, q: List[int], p: List[int], slots: int = 0, scale: float = 0.0):
-        instance = cls(n, slots, scale)
+    def create_custom_param(cls, log_n: int, q: List[int], p: List[int], log_scale: int = 0):
+        instance = cls(log_n, log_scale)
         instance.q = q
         instance.p = p
         instance.max_level = len(q) - 1
         return instance
 
-    @classmethod
-    def create_fpga_param(cls):
-        instance = cls(n=8192)
-        instance.q = [0x7F4E0001, 0x7FB40001, 0x7FD20001, 0x7FEA0001, 0x7FF80001, 0x7FFE0001]
-        instance.p = [0xFF5A0001]
-        instance.max_level = len(instance.q) - 1
-        instance.scale = 1 << 31
-        return instance
-
     def to_json_dict(self) -> dict:
         d = super().to_json_dict()
-        d['slots'] = self.slots
-        d['scale'] = self.scale
+        d['log_default_scale'] = self.log_default_scale
         return d
-
-
-class CkksBtpParam(CkksParam):
-    """
-    @class CkksBtpParam
-    @brief CKKS Bootstrap parameter class.
-
-    Contains additional parameters required for CKKS bootstrapping.
-    """
-
-    def __init__(self, n: int = 1 << 16):
-        super().__init__(n)
-        self.cts_params: EncodingMatrixParams = None
-        self.stc_params: EncodingMatrixParams = None
-        self.eval_mod_params: EvalModParams = None
-        self.btp_output_level: int = -1
-
-    @classmethod
-    def create_toy_param(cls):
-        """Create CKKS Toy Bootstrap parameters (N16QP1546H192H32 with n=8192)."""
-        instance = cls(n=8192)
-
-        instance.q = [
-            0x10000000006E0001,  # 60 Q0
-            0x10000140001,  # 40
-            0xFFFFE80001,  # 40
-            0xFFFFC40001,  # 40
-            0x100003E0001,  # 40
-            0xFFFFB20001,  # 40
-            0x10000500001,  # 40
-            0xFFFF940001,  # 40
-            0xFFFF8A0001,  # 40
-            0xFFFF820001,  # 40
-            0x7FFFE60001,  # 39 StC
-            0x7FFFE40001,  # 39 StC
-            0x7FFFE00001,  # 39 StC
-            0xFFFFFFFFF840001,  # 60 Sine (double angle)
-            0x1000000000860001,  # 60 Sine (double angle)
-            0xFFFFFFFFF6A0001,  # 60 Sine
-            0x1000000000980001,  # 60 Sine
-            0xFFFFFFFFF5A0001,  # 60 Sine
-            0x1000000000B00001,  # 60 Sine
-            0x1000000000CE0001,  # 60 Sine
-            0xFFFFFFFFF2A0001,  # 60 Sine
-            0x100000000060001,  # 56 CtS
-            0xFFFFFFFFF00001,  # 56 CtS
-            0xFFFFFFFFD80001,  # 56 CtS
-            0x1000000002A0001,  # 56 CtS
-        ]
-        instance.p = [
-            0x1FFFFFFFFFE00001,  # 61
-            0x1FFFFFFFFFC80001,  # 61
-            0x1FFFFFFFFFB40001,  # 61
-            0x1FFFFFFFFF500001,  # 61
-            0x1FFFFFFFFF420001,  # 61
-        ]
-        instance.max_level = len(instance.q) - 1
-        instance.scale = 1 << 40
-
-        instance.stc_params = EncodingMatrixParams(
-            linear_transform_type=LinearTransformType.SlotsToCoeffs,
-            repack_imag_2_real=True,
-            level_start=12,
-            bsgs_ratio=2.0,
-            bit_reversed=False,
-            scaling_factor=[
-                [0x7FFFE60001],
-                [0x7FFFE40001],
-                [0x7FFFE00001],
-            ],
-        )
-
-        instance.eval_mod_params = EvalModParams(
-            q=0x10000000006E0001,
-            level_start=20,
-            sine_type=SineType.Cos1,
-            message_ratio=256.0,
-            k=16,
-            sine_deg=30,
-            double_angle=3,
-            arcsine_deg=0,
-            scaling_factor=1 << 60,
-        )
-
-        instance.cts_params = EncodingMatrixParams(
-            linear_transform_type=LinearTransformType.CoeffsToSlots,
-            repack_imag_2_real=True,
-            level_start=24,
-            bsgs_ratio=2.0,
-            bit_reversed=False,
-            scaling_factor=[
-                [0x100000000060001],
-                [0xFFFFFFFFF00001],
-                [0xFFFFFFFFD80001],
-                [0x1000000002A0001],
-            ],
-        )
-
-        instance.btp_output_level = 9
-
-        return instance
-
-    @classmethod
-    def create_default_param(cls):
-        """Create CKKS Bootstrap parameters (N16QP1546H192H32 with n=65536)."""
-        instance = cls(n=1 << 16)
-
-        instance.q = [
-            0x10000000006E0001,  # 60 Q0
-            0x10000140001,  # 40
-            0xFFFFE80001,  # 40
-            0xFFFFC40001,  # 40
-            0x100003E0001,  # 40
-            0xFFFFB20001,  # 40
-            0x10000500001,  # 40
-            0xFFFF940001,  # 40
-            0xFFFF8A0001,  # 40
-            0xFFFF820001,  # 40
-            0x7FFFE60001,  # 39 StC
-            0x7FFFE40001,  # 39 StC
-            0x7FFFE00001,  # 39 StC
-            0xFFFFFFFFF840001,  # 60 Sine (double angle)
-            0x1000000000860001,  # 60 Sine (double angle)
-            0xFFFFFFFFF6A0001,  # 60 Sine
-            0x1000000000980001,  # 60 Sine
-            0xFFFFFFFFF5A0001,  # 60 Sine
-            0x1000000000B00001,  # 60 Sine
-            0x1000000000CE0001,  # 60 Sine
-            0xFFFFFFFFF2A0001,  # 60 Sine
-            0x100000000060001,  # 56 CtS
-            0xFFFFFFFFF00001,  # 56 CtS
-            0xFFFFFFFFD80001,  # 56 CtS
-            0x1000000002A0001,  # 56 CtS
-        ]
-        instance.p = [
-            0x1FFFFFFFFFE00001,  # 61
-            0x1FFFFFFFFFC80001,  # 61
-            0x1FFFFFFFFFB40001,  # 61
-            0x1FFFFFFFFF500001,  # 61
-            0x1FFFFFFFFF420001,  # 61
-        ]
-        instance.max_level = len(instance.q) - 1
-        instance.scale = 1 << 40
-
-        instance.stc_params = EncodingMatrixParams(
-            linear_transform_type=LinearTransformType.SlotsToCoeffs,
-            repack_imag_2_real=True,
-            level_start=12,
-            bsgs_ratio=2.0,
-            bit_reversed=False,
-            scaling_factor=[
-                [0x7FFFE60001],
-                [0x7FFFE40001],
-                [0x7FFFE00001],
-            ],
-        )
-
-        instance.eval_mod_params = EvalModParams(
-            q=0x10000000006E0001,
-            level_start=20,
-            sine_type=SineType.Cos1,
-            message_ratio=256.0,
-            k=16,
-            sine_deg=30,
-            double_angle=3,
-            arcsine_deg=0,
-            scaling_factor=1 << 60,
-        )
-
-        instance.cts_params = EncodingMatrixParams(
-            linear_transform_type=LinearTransformType.CoeffsToSlots,
-            repack_imag_2_real=True,
-            level_start=24,
-            bsgs_ratio=2.0,
-            bit_reversed=False,
-            scaling_factor=[
-                [0x100000000060001],
-                [0xFFFFFFFFF00001],
-                [0xFFFFFFFFD80001],
-                [0x1000000002A0001],
-            ],
-        )
-
-        instance.btp_output_level = 9
-
-        return instance
-
-    def to_json_dict(self) -> dict:
-        d = super().to_json_dict()
-        d['btp_cts_start_level'] = self.cts_params.level_start
-        d['btp_cts_depth'] = self.cts_params.depth()
-        d['btp_cts_bsgs_ratio'] = self.cts_params.bsgs_ratio
-        d['btp_eval_mod_q'] = self.eval_mod_params.q
-        d['btp_eval_mod_start_level'] = self.eval_mod_params.level_start
-        d['btp_eval_mod_scaling_factor'] = self.eval_mod_params.scaling_factor
-        d['btp_eval_mod_sine_type'] = self.eval_mod_params.sine_type.name
-        d['btp_eval_mod_message_ratio'] = self.eval_mod_params.message_ratio
-        d['btp_eval_mod_k'] = self.eval_mod_params.k
-        d['btp_eval_mod_sine_deg'] = self.eval_mod_params.sine_deg
-        d['btp_eval_mod_double_angle'] = self.eval_mod_params.double_angle
-        d['btp_eval_mod_arcsine_deg'] = self.eval_mod_params.arcsine_deg
-        d['btp_stc_start_level'] = self.stc_params.level_start
-        d['btp_stc_depth'] = self.stc_params.depth()
-        d['btp_stc_bsgs_ratio'] = self.stc_params.bsgs_ratio
-        d['btp_output_level'] = self.btp_output_level
-        return d
-
-    def rotations_for_bootstrapping(self) -> list[int]:
-        log_n = int(math.log2(self.n))
-        log_slots = int(math.log2(self.slots))
-
-        self.cts_params.log_n = log_n
-        self.cts_params.log_slots = log_slots
-        self.stc_params.log_n = log_n
-        self.stc_params.log_slots = log_slots
-
-        rots: list[int] = []
-
-        # SubSum rotations: needed when using sparse encoding (log_slots < log_n - 1)
-        for i in range(log_slots, log_n - 1):
-            if (1 << i) not in rots:
-                rots.append(1 << i)
-
-        rots += self.cts_params.rotations()
-        rots += self.stc_params.rotations()
-
-        return list(set(rots))
 
 
 class Argument:
@@ -523,7 +259,7 @@ class DataNode:
     @class DataNode
     @brief Data node base class.
 
-    Base class for all data nodes, containing only basic attributes: type, id, index.
+    Base class for all data nodes, containing only basic attributes: type and id.
     """
 
     def __init__(self, type, id='') -> None:
@@ -536,7 +272,6 @@ class DataNode:
         self.id: str = id
         if self.id == '':
             self.id = random_id()
-        self.index: int = gen_data_node_index()
 
     def __repr__(self) -> str:
         return self.id
@@ -546,47 +281,21 @@ class FheDataNode(DataNode):
     """
     @class FheDataNode
     @brief FHE data node type; use its subclasses in practice.
-
-    Contains FHE data types such as plaintext, ciphertext, keys, etc.
-    Has FHE-related attributes like level, degree, is_ntt.
     """
 
-    def __init__(
-        self,
-        type: DataType,
-        id='',
-        degree=-1,
-        level=DEFAULT_LEVEL,
-    ) -> None:
-        """
-        @brief Constructor.
-        @param type: DataType enum value.
-        @param id: Custom node ID.
-        @param degree: Polynomial degree.
-        @param level: Data level.
-        """
+    def __init__(self, type: DataType, metadata: Metadata, id='') -> None:
         super().__init__(type=type, id=id)
-        self.level: int = level
-        self.degree: int = degree
-        self.is_ntt = False
-        self.is_mform = False
-        self.sp_level: int | None = None
+        self.metadata = metadata
 
     def to_json_dict(self) -> dict:
         d = {
-            'id': self.id,
             'type': self.type.value,
-            'level': self.level,
-            'degree': self.degree,
-            'is_ntt': self.is_ntt,
-            'is_mform': self.is_mform,
         }
-        if self.sp_level is not None:
+        d.update(self.metadata.to_json_dict())
+        if hasattr(self, 'sp_level'):
             d['sp_level'] = self.sp_level
-        if isinstance(self, BfvCompressedPlaintextRingtNode):
-            d['is_compressed'] = self.is_compressed
-        if isinstance(self, CiphertextNode):
-            d['poly1_rns_sp_decomped'] = self.poly1_rns_sp_decomped
+        if hasattr(self, 'key_role'):
+            d['key_role'] = self.key_role
         if isinstance(self, GaloisKeyNode):
             d['galois_element'] = self.galois_element
         return d
@@ -615,7 +324,6 @@ class CustomDataNode(DataNode):
 
     def to_json_dict(self) -> dict:
         d = {
-            'id': self.id,
             'type': self.type,
             'is_custom': True,
         }
@@ -630,8 +338,18 @@ class PlaintextNode(FheDataNode):
     @brief Plaintext type.
     """
 
-    def __init__(self, type, id='', level=DEFAULT_LEVEL) -> None:
-        super().__init__(type, id, 0, level)
+    def __init__(self, type, id='', level=0, is_ringt=True, is_batched=True) -> None:
+        if is_ringt and level != 0:
+            raise ValueError('ring-t plaintext level must be 0')
+        metadata = Metadata(
+            is_ringt=is_ringt,
+            is_batched=is_batched,
+            degree=0,
+            level=level,
+            is_ntt=not is_ringt,
+            mform_bits=0,
+        )
+        super().__init__(type=type, metadata=metadata, id=id)
 
 
 class BfvPlaintextNode(PlaintextNode):
@@ -640,43 +358,25 @@ class BfvPlaintextNode(PlaintextNode):
     @brief BFV plaintext type.
     """
 
-    def __init__(self, id='', level=DEFAULT_LEVEL) -> None:
-        super().__init__(DataType.Plaintext, id, level)
+    @staticmethod
+    def _validate_log_slots(log_slots: int, param: BfvParam) -> None:
+        if log_slots < 0:
+            raise ValueError(f'log_slots must be non-negative, got {log_slots}')
+        slots = 1 << log_slots
+        if slots > param.n:
+            raise ValueError(f'slots must be in range (0, {param.n}], got {slots}')
 
-
-class BfvPlaintextRingtNode(PlaintextNode):
-    """
-    @class BfvPlaintextRingtNode
-    @brief Plaintext in ring-t representation, used for ciphertext-plaintext multiplication.
-    """
-
-    def __init__(self, id='') -> None:
-        super().__init__(DataType.PlaintextRingt, id, 0)
-
-
-class BfvCompressedPlaintextRingtNode(BfvPlaintextRingtNode):
-    """
-    @class BfvCompressedPlaintextRingtNode
-    @brief Compressed plaintext in ring-t representation, used for ciphertext-plaintext multiplication.
-    """
-
-    def __init__(self, id='', compressed_block_info: list | None = None) -> None:
-        super().__init__(id)
-        assert compressed_block_info is not None
-        self.compressed_block_info = compressed_block_info
-        self.is_compressed = True
-
-
-class BfvPlaintextMulNode(PlaintextNode):
-    """
-    @class BfvPlaintextMulNode
-    @brief Plaintext type for ciphertext-plaintext multiplication.
-    """
-
-    def __init__(self, id='', level=DEFAULT_LEVEL) -> None:
-        super().__init__(DataType.PlaintextMul, id, level)
-        self.is_ntt = True
-        self.is_mform = True
+    def __init__(self, id='', level=0, is_ringt=True, is_batched=True, log_slots: int = -1) -> None:
+        param = _current_param()
+        if param is None:
+            raise RuntimeError('Please call set_fhe_param() before creating BFV plaintext.')
+        if not isinstance(param, BfvParam):
+            raise ValueError('BFV plaintext requires BFV parameters.')
+        if log_slots == -1:
+            log_slots = int(math.log2(param.n))
+        self._validate_log_slots(log_slots, param)
+        super().__init__(DataType.Plaintext, id, level, is_ringt, is_batched)
+        self.metadata.log_slots = log_slots
 
 
 class CkksPlaintextNode(PlaintextNode):
@@ -685,32 +385,36 @@ class CkksPlaintextNode(PlaintextNode):
     @brief CKKS plaintext type.
     """
 
-    def __init__(self, id='', level=DEFAULT_LEVEL) -> None:
-        super().__init__(DataType.Plaintext, id, level)
-        self.is_ntt = True
+    @staticmethod
+    def _validate_log_slots(log_slots: int, param: CkksParam) -> None:
+        if log_slots < 0:
+            raise ValueError(f'log_slots must be non-negative, got {log_slots}')
+        slots = 1 << log_slots
+        if slots > param.n // 2:
+            raise ValueError(f'slots must be in range (0, {param.n // 2}], got {slots}')
 
-
-class CkksPlaintextRingtNode(PlaintextNode):
-    """
-    @class CkksPlaintextRingtNode
-    @brief CKKS plaintext in ring-t representation, used for ciphertext-plaintext multiplication.
-    """
-
-    def __init__(self, id='') -> None:
-        super().__init__(DataType.PlaintextRingt, id, 0)
-        self.is_ntt = False
-
-
-class CkksPlaintextMulNode(PlaintextNode):
-    """
-    @class CkksPlaintextMulNode
-    @brief CKKS plaintext type for ciphertext-plaintext multiplication.
-    """
-
-    def __init__(self, id='', level=DEFAULT_LEVEL) -> None:
-        super().__init__(DataType.PlaintextMul, id, level)
-        self.is_ntt = True
-        self.is_mform = True
+    def __init__(
+        self,
+        id='',
+        level=0,
+        is_ringt=True,
+        is_batched=True,
+        log_slots: int = -1,
+        scale: float = 0.0,
+    ) -> None:
+        param = _current_param()
+        if param is None:
+            raise RuntimeError('Please call set_fhe_param() before creating CKKS plaintext.')
+        if not isinstance(param, CkksParam):
+            raise ValueError('CKKS plaintext requires CKKS parameters.')
+        if log_slots == -1:
+            log_slots = int(math.log2(param.n // 2))
+        if scale == 0.0:
+            scale = param.default_scale
+        self._validate_log_slots(log_slots, param)
+        super().__init__(DataType.Plaintext, id, level, is_ringt, is_batched)
+        self.metadata.log_slots = log_slots
+        self.metadata.scale = scale
 
 
 class CiphertextNode(FheDataNode):
@@ -719,9 +423,9 @@ class CiphertextNode(FheDataNode):
     @brief Ciphertext type.
     """
 
-    def __init__(self, type=DataType.Ciphertext, id='', degree=1, level=DEFAULT_LEVEL) -> None:
-        super().__init__(type, id, degree, level)
-        self.poly1_rns_sp_decomped: bool = False
+    def __init__(self, level, type=DataType.Ciphertext, id='', degree=1) -> None:
+        metadata = Metadata(is_ringt=False, is_batched=True, degree=degree, level=level)
+        super().__init__(type=type, metadata=metadata, id=id)
 
 
 class BfvCiphertextNode(CiphertextNode):
@@ -730,18 +434,17 @@ class BfvCiphertextNode(CiphertextNode):
     @brief BFV ciphertext type, containing 2 polynomials.
     """
 
-    def __init__(self, id='', level=DEFAULT_LEVEL) -> None:
-        super().__init__(DataType.Ciphertext, id, 1, level)
-
-
-class BfvCiphertext3Node(CiphertextNode):
-    """
-    @class BfvCiphertext3Node
-    @brief BFV ciphertext type, containing 3 polynomials.
-    """
-
-    def __init__(self, id='', level=DEFAULT_LEVEL) -> None:
-        super().__init__(DataType.Ciphertext3, id, 2, level)
+    def __init__(self, level, id='', degree=1, log_slots: int = -1) -> None:
+        param = _current_param()
+        if param is None:
+            raise RuntimeError('Please call set_fhe_param() before creating BFV ciphertext.')
+        if not isinstance(param, BfvParam):
+            raise ValueError('BFV ciphertext requires BFV parameters.')
+        if log_slots == -1:
+            log_slots = int(math.log2(param.n))
+        BfvPlaintextNode._validate_log_slots(log_slots, param)
+        super().__init__(level=level, type=DataType.Ciphertext, id=id, degree=degree)
+        self.metadata.log_slots = log_slots
 
 
 class CkksCiphertextNode(CiphertextNode):
@@ -750,33 +453,20 @@ class CkksCiphertextNode(CiphertextNode):
     @brief CKKS ciphertext type, containing 2 polynomials.
     """
 
-    def __init__(self, id='', level=DEFAULT_LEVEL) -> None:
-        super().__init__(DataType.Ciphertext, id, 1, level)
-        self.is_ntt = True
-
-
-class CkksCiphertext3Node(CiphertextNode):
-    """
-    @class CkksCiphertext3Node
-    @brief CKKS ciphertext type, containing 3 polynomials.
-    """
-
-    def __init__(self, id='', level=DEFAULT_LEVEL) -> None:
-        super().__init__(DataType.Ciphertext3, id, 2, level)
-        self.is_ntt = True
-
-
-class SwitchKeyNode(FheDataNode):
-    """
-    @class SwitchKeyNode
-    @brief Switch key type.
-    """
-
-    def __init__(self, id='', level=DEFAULT_LEVEL, sp_level=DEFAULT_LEVEL, type=DataType.SwitchKey) -> None:
-        super().__init__(type=type, id=id, degree=1, level=level)
-        self.is_ntt = True
-        self.is_mform = True
-        self.sp_level = sp_level
+    def __init__(self, level, id='', degree=1, log_slots: int = -1, scale: float = 0.0) -> None:
+        param = _current_param()
+        if param is None:
+            raise RuntimeError('Please call set_fhe_param() before creating CKKS ciphertext.')
+        if not isinstance(param, CkksParam):
+            raise ValueError('CKKS ciphertext requires CKKS parameters.')
+        if log_slots == -1:
+            log_slots = int(math.log2(param.n // 2))
+        if scale == 0.0:
+            scale = param.default_scale
+        CkksPlaintextNode._validate_log_slots(log_slots, param)
+        super().__init__(level=level, type=DataType.Ciphertext, id=id, degree=degree)
+        self.metadata.log_slots = log_slots
+        self.metadata.scale = scale
 
 
 def _current_param():
@@ -787,28 +477,44 @@ def _current_param():
     return custom_task.g_param
 
 
-class RelinKeyNode(SwitchKeyNode):
+class EvaluationKeyNode(FheDataNode):
+    """
+    @class EvaluationKeyNode
+    @brief Evaluation key type.
+    """
+
+    def __init__(self, level, id='', type=DataType.EvaluationKey, key_role: str = '') -> None:
+        param = _current_param()
+        assert param is not None
+        metadata = Metadata(is_ringt=False, is_batched=True, degree=1, level=level, mform_bits=64)
+        super().__init__(type=type, metadata=metadata, id=id)
+        self.sp_level = param.get_max_sp_level()
+        if key_role:
+            self.key_role = key_role
+
+
+class RelinKeyNode(EvaluationKeyNode):
     """
     @class RelinKeyNode
     @brief Relinearization key type.
     """
 
-    def __init__(self, level=DEFAULT_LEVEL) -> None:
+    def __init__(self, level, id='rlk_ntt', key_role: str = '') -> None:
         param = _current_param()
         assert param is not None
-        super().__init__(id='rlk_ntt', level=level, sp_level=param.get_max_sp_level(), type=DataType.RelinKey)
+        super().__init__(id=id, level=level, type=DataType.RelinKey, key_role=key_role)
 
 
-class GaloisKeyNode(SwitchKeyNode):
+class GaloisKeyNode(EvaluationKeyNode):
     """
     @class GaloisKeyNode
     @brief Galois key type.
     """
 
-    def __init__(self, id, level=DEFAULT_LEVEL) -> None:
+    def __init__(self, id, level, key_role: str = '') -> None:
         param = _current_param()
         assert param is not None
-        super().__init__(id=id, level=level, sp_level=param.get_max_sp_level(), type=DataType.GaloisKey)
+        super().__init__(id=id, level=level, type=DataType.GaloisKey, key_role=key_role)
         self.galois_element = int(self.id.split('_')[-1]) if 'col' in self.id else (param.n << 1) - 1
 
 
@@ -817,7 +523,7 @@ class ComputeNode:
     @class ComputeNode
     @brief Compute node base class.
 
-    Base class for all compute nodes, containing only basic attributes: type, id, index.
+    Base class for all compute nodes, containing only basic attributes: type and id.
     """
 
     def __init__(self, type) -> None:
@@ -827,7 +533,6 @@ class ComputeNode:
         """
         self.type = type
         self.id = random_id()
-        self.index: int = gen_compute_node_index()
 
     def __repr__(self):
         return f'({self.type}, {self.id})'
@@ -835,8 +540,7 @@ class ComputeNode:
 
 class _CompoundComputeNode:
     def __init__(self, on_cpu: bool, ops: list[dict], ext_inputs: list, ext_outputs: list) -> None:
-        self.index = gen_compute_node_index()
-        self.id = f'compound_compute_{self.index}'
+        self.id = random_id()
         self.ops = ops
         self._ext_inputs = ext_inputs
         self._ext_outputs = ext_outputs
@@ -848,10 +552,9 @@ class _CompoundComputeNode:
 
     def to_json_dict(self, dag: nx.DiGraph) -> dict:
         return {
-            'id': self.id,
             'ops': self.ops,
-            'inputs': [d.index for d in self._ext_inputs],
-            'outputs': [d.index for d in self._ext_outputs],
+            'inputs': [d.id for d in self._ext_inputs],
+            'outputs': [d.id for d in self._ext_outputs],
         }
 
 
@@ -869,30 +572,25 @@ class FheComputeNode(ComputeNode):
         @param type: OperationType enum value.
         """
         super().__init__(type=type)
-        self.compressed_block_info: list | None = None
 
     def __repr__(self):
         return f'({self.type.value}, {self.id})'
 
     def to_json_dict(self, dag: nx.DiGraph) -> dict:
         d = {
-            'id': self.id,
             'type': self.type.value,
-            'inputs': [y.index for y in dag.predecessors(self)],
-            'outputs': [s.index for s in dag.successors(self)],
+            'inputs': [y.id for y in dag.predecessors(self)],
+            'outputs': [s.id for s in dag.successors(self)],
         }
-        if isinstance(self, RotateColUnitNode):
-            d['step'] = self.step
-            if self.lib != Lib.Lattigo:
-                d['lib'] = self.lib.value
-        elif isinstance(self, RotateRowUnitNode):
-            if self.lib != Lib.Lattigo:
-                d['lib'] = self.lib.value
+        if isinstance(self, RotateColNode):
+            d['steps'] = self.steps
+            d['use_default_rotation_keys'] = self.use_default_rotation_keys
+        elif isinstance(self, DropLevelNode):
+            d['drop_level'] = self.drop_level
         elif isinstance(self, (CmpSumComputeNode, CmpacSumComputeNode)):
             d['sum_cnt'] = self.sum_cnt
-            d['pt_type'] = self.pt_type.value if isinstance(self.pt_type, DataType) else self.pt_type
-        if self.compressed_block_info is not None:
-            d['compressed_block_info'] = self.compressed_block_info
+        if hasattr(self, 'scalar'):
+            d['scalar'] = [self.scalar.real, self.scalar.imag] if isinstance(self.scalar, complex) else self.scalar
         return d
 
 
@@ -919,30 +617,13 @@ class CustomComputeNode(ComputeNode):
 
     def to_json_dict(self, dag: nx.DiGraph) -> dict:
         d = {
-            'id': self.id,
             'type': self.type,
             'is_custom': True,
-            'inputs': [y.index for y in dag.predecessors(self)],
-            'outputs': [s.index for s in dag.successors(self)],
+            'inputs': [y.id for y in dag.predecessors(self)],
+            'outputs': [s.id for s in dag.successors(self)],
         }
         if self.attributes:
             d['attributes'] = self.attributes
-        return d
-
-
-class EncodeRingtComputeNode(FheComputeNode):
-    """
-    @class EncodeRingtComputeNode
-    @brief CKKS encode_ringt op with custom-data input.
-    """
-
-    def __init__(self, scale: float) -> None:
-        super().__init__(type=OperationType.EncodeRingt)
-        self.scale = scale
-
-    def to_json_dict(self, dag: nx.DiGraph) -> dict:
-        d = super().to_json_dict(dag)
-        d['scale'] = self.scale
         return d
 
 
@@ -955,7 +636,6 @@ class CmpSumComputeNode(FheComputeNode):
     def __init__(self, sum_cnt) -> None:
         super().__init__(type=OperationType.CmpSum)
         self.sum_cnt = sum_cnt
-        self.pt_type: DataType | str = ''
 
 
 class CmpacSumComputeNode(FheComputeNode):
@@ -967,50 +647,56 @@ class CmpacSumComputeNode(FheComputeNode):
     def __init__(self, sum_cnt) -> None:
         super().__init__(type=OperationType.CmpacSum)
         self.sum_cnt = sum_cnt
-        self.pt_type: DataType | str = ''
 
 
-class RotateColUnitNode(FheComputeNode):
+class RotateColNode(FheComputeNode):
     """
-    @class RotateColUnitNode
-    @brief Column rotation unit type.
+    @class RotateColNode
+    @brief Column rotation node type.
     """
 
-    def __init__(self, step: int, lib=Lib.Lattigo) -> None:
+    def __init__(self, steps: list[int] | int, use_default_rotation_keys: bool = True) -> None:
         super().__init__(type=OperationType.RotateCol)
-        self.step = step
-        self.lib = lib
+        self.steps = [steps] if isinstance(steps, int) else steps
+        self.use_default_rotation_keys = use_default_rotation_keys
 
 
-class RotateRowUnitNode(FheComputeNode):
+class RotateRowNode(FheComputeNode):
     """
-    @class RotateRowUnitNode
-    @brief Row rotation unit type.
-    """
-
-    def __init__(self, lib=Lib.Lattigo) -> None:
-        super().__init__(type=OperationType.RotateRow)
-        self.lib = lib
-
-
-class FpgaKernelNode(FheComputeNode):
-    """
-    @class FpgaKernelComputeNode
-    @brief FPGA kernel composite compute node type.
-
-    Represents a composite FPGA sub-project operator in a heterogeneous computation graph.
-    Used in the top-level mega_ag to encapsulate one FPGA sub-project partition.
+    @class RotateRowNode
+    @brief Row rotation node type.
     """
 
     def __init__(self) -> None:
-        super().__init__(type=OperationType.FpgaKernel)
+        super().__init__(type=OperationType.RotateRow)
+
+
+class DropLevelNode(FheComputeNode):
+    """
+    @class DropLevelNode
+    @brief Drop-level node type.
+    """
+
+    def __init__(self, drop_level: int = 1) -> None:
+        super().__init__(type=OperationType.DropLevel)
+        self.drop_level = drop_level
+
+
+class ConjugateNode(FheComputeNode):
+    """
+    @class ConjugateNode
+    @brief Conjugate node type.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(type=OperationType.Conjugate)
 
 
 KEY_DATA_TYPES: frozenset[DataType] = frozenset(
     {
         DataType.RelinKey,
         DataType.GaloisKey,
-        DataType.SwitchKey,
+        DataType.EvaluationKey,
     }
 )
 BRIDGE_OP_TYPES: frozenset[OperationType] = frozenset(
@@ -1057,12 +743,8 @@ class BridgeDataNode(DataNode):
 
     def __init__(self, node_type: DataType | str) -> None:
         super().__init__(type=node_type)
-        self.level: int = -1
-        self.degree: int = -1
-        self.is_ntt: bool = False
-        self.is_mform: bool = False
+        self.metadata = Metadata(degree=-1, level=-1)
         self.sp_level: int | None = None
-        self.poly1_rns_sp_decomped: bool = False
         self.galois_element: int | None = None
 
     def __repr__(self) -> str:
@@ -1071,7 +753,6 @@ class BridgeDataNode(DataNode):
     def to_json_dict(self) -> dict:
         if self.is_custom:
             d = {
-                'id': self.id,
                 'type': _type_str(self),
                 'is_custom': True,
             }
@@ -1080,17 +761,11 @@ class BridgeDataNode(DataNode):
                 d['attributes'] = attributes
         else:
             d = {
-                'id': self.id,
                 'type': _type_str(self),
-                'level': self.level,
-                'degree': self.degree,
-                'is_ntt': self.is_ntt,
-                'is_mform': self.is_mform,
             }
+            d.update(self.metadata.to_json_dict())
             if self.sp_level is not None:
                 d['sp_level'] = self.sp_level
-            if self.type in (DataType.Ciphertext, DataType.Ciphertext3):
-                d['poly1_rns_sp_decomped'] = self.poly1_rns_sp_decomped
             if self.galois_element is not None:
                 d['galois_element'] = self.galois_element
         return d
@@ -1098,36 +773,32 @@ class BridgeDataNode(DataNode):
 
 class ABIDataNode(BridgeDataNode):
     @classmethod
-    def create_from(cls, src: DataNode) -> 'ABIDataNode':
+    def create_from(cls, src: DataNode, metadata: Metadata | None = None) -> 'ABIDataNode':
         node = cls(src.type)
-        _copy_bridge_data_attrs(node, src)
+        _copy_bridge_data_attrs(node, src, metadata)
         return node
 
 
 class BackendDataNode(BridgeDataNode):
     def __init__(self, node_type: DataType | str, processor: Processor) -> None:
-        assert processor in (Processor.GPU, Processor.FPGA)
+        assert processor == Processor.GPU
         super().__init__(node_type)
         self.processor = processor
 
     @classmethod
-    def create_from(cls, src: DataNode, processor: Processor) -> 'BackendDataNode':
+    def create_from(cls, src: DataNode, processor: Processor, metadata: Metadata | None = None) -> 'BackendDataNode':
         node = cls(src.type, processor)
-        _copy_bridge_data_attrs(node, src)
+        _copy_bridge_data_attrs(node, src, metadata)
         return node
 
 
-def _copy_bridge_data_attrs(dst: BridgeDataNode, src: DataNode) -> None:
+def _copy_bridge_data_attrs(dst: BridgeDataNode, src: DataNode, metadata: Metadata | None = None) -> None:
     if is_custom_data_node(src):
         dst.is_custom = True
         dst.attributes = dict(getattr(src, 'attributes', {}))
     else:
-        dst.level = getattr(src, 'level', -1)
-        dst.degree = getattr(src, 'degree', -1)
-        dst.is_ntt = getattr(src, 'is_ntt', False)
-        dst.is_mform = getattr(src, 'is_mform', False)
+        dst.metadata = metadata.copy() if metadata is not None else src.metadata.copy()
         dst.sp_level = getattr(src, 'sp_level', None)
-        dst.poly1_rns_sp_decomped = getattr(src, 'poly1_rns_sp_decomped', False)
         dst.galois_element = getattr(src, 'galois_element', None)
 
 
@@ -1141,10 +812,9 @@ class BridgeComputeNode(ComputeNode):
 
     def to_json_dict(self, dag) -> dict:
         return {
-            'id': self.id,
             'type': self.type.value,
-            'inputs': [p.index for p in dag.predecessors(self)],
-            'outputs': [s.index for s in dag.successors(self)],
+            'inputs': [p.id for p in dag.predecessors(self)],
+            'outputs': [s.id for s in dag.successors(self)],
         }
 
 
