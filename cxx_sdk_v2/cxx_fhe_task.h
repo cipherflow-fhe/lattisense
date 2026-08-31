@@ -23,7 +23,8 @@
 #include <unordered_map>
 #include <vector>
 #include "nlohmann/json.hpp"
-#include "../fhe_ops_lib/fhe_lib_v2.h"
+#include "../fhe_ops_lib/schemes/bfv/bfv.h"
+#include "../fhe_ops_lib/schemes/ckks/ckks.h"
 
 extern "C" {
 #include "../mega_ag_runners/wrapper.h"
@@ -64,7 +65,6 @@ public:
         std::swap(task_handle, other.task_handle);
         std::swap(input_args, other.input_args);
         std::swap(output_args, other.output_args);
-        std::swap(_key_storage, other._key_storage);
     }
 
     void operator=(const FheTask& other) = delete;
@@ -77,7 +77,6 @@ public:
         std::swap(task_handle, other.task_handle);
         std::swap(input_args, other.input_args);
         std::swap(output_args, other.output_args);
-        std::swap(_key_storage, other._key_storage);
     }
 
     ~FheTask();
@@ -107,7 +106,6 @@ protected:
 
     std::vector<CArgument> input_args;
     std::vector<CArgument> output_args;
-    PublicKeyStorage _key_storage;
 
     void new_args(int n_in_args, int n_out_args);
     void free_args();

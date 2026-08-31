@@ -10,7 +10,7 @@ RUN apt-get update && apt-get install -y \
     docker.io \
     && rm -rf /var/lib/apt/lists/*
 
-# CMake 3.28 (HEonGPU requires >= 3.26.4)
+# CMake 3.28 (lattisense-gpu-core requires >= 3.26.4)
 RUN wget -q https://ghfast.top/https://github.com/Kitware/CMake/releases/download/v3.28.3/cmake-3.28.3-linux-x86_64.tar.gz \
     && tar -C /usr/local --strip-components=1 -xzf cmake-3.28.3-linux-x86_64.tar.gz \
     && rm cmake-3.28.3-linux-x86_64.tar.gz

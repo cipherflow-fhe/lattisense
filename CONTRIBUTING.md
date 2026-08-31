@@ -42,12 +42,12 @@ make -j$(nproc)
 
 # Run tests
 cd ../unittests
-python3 test_cpu_bfv.py
-python3 test_cpu_ckks.py
+python3 test_bfv.py
+python3 test_ckks.py
 cd ../build/unittests
 ./test_lattigo
-./test_cpu_bfv
-./test_cpu_ckks
+./test_bfv
+./test_ckks
 ```
 
 ## Coding Standards

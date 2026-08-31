@@ -488,7 +488,6 @@ Define a CKKS bootstrapping computation step.
 def process_custom_task(
     input_args: list[Argument] = None,
     output_args: list[Argument] = None,
-    offline_input_args: list[Argument] = None,
     output_instruction_path: str = None,
     fpga_acc: bool = False,
 ) -> dict

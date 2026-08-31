@@ -18,13 +18,13 @@
 
 #pragma once
 
+#include <complex>
 #include <cstdint>
 #include <random>
 #include <string>
 #include <vector>
 
-#include "fhe_lib_v2.h"
-#include "../fhe_ops_lib/utils.h"  // rand_values, print_message, vec_mod_*, etc.
+#include "../fhe_ops_lib/unittests/test_utils.h"
 
 using namespace fhe_ops_lib;
 
@@ -36,89 +36,96 @@ double sigmoid(double x);
 double step_function(double x);
 
 // ---------------------------------------------------------------------------
-// BFV test std::vector helpers
+// Batched wrappers over fhe_ops_lib/unittests/test_utils.h samples
 // ---------------------------------------------------------------------------
 
-// Each struct holds n_data test std::vectors; values[i] is a full length-n plaintext message.
+struct BfvTestCtBatch {
+    std::vector<BfvTestCt> samples;
 
-struct BfvTestCt {
-    std::vector<std::vector<uint64_t>> values;
-    std::vector<BfvCiphertext> ciphertexts;
+    const std::vector<std::vector<uint64_t>>& messages();
+    std::vector<BfvCiphertext>& ciphertexts();
+
+private:
+    std::vector<std::vector<uint64_t>> _messages;
+    std::vector<BfvCiphertext> _ciphertexts;
 };
 
-struct BfvTestPt {
-    std::vector<std::vector<uint64_t>> values;
-    std::vector<BfvPlaintext> plaintexts;
+struct BfvTestPtBatch {
+    std::vector<BfvTestPt> samples;
+
+    const std::vector<std::vector<uint64_t>>& messages();
+    std::vector<BfvPlaintext>& plaintexts();
+
+private:
+    std::vector<std::vector<uint64_t>> _messages;
+    std::vector<BfvPlaintext> _plaintexts;
 };
 
-struct BfvTestPtRingt {
-    std::vector<std::vector<uint64_t>> values;
-    std::vector<BfvPlaintextRingt> plaintexts;
+struct CkksRealTestCtBatch {
+    std::vector<CkksRealTestCt> samples;
+
+    const std::vector<std::vector<double>>& messages();
+    std::vector<CkksCiphertext>& ciphertexts();
+
+private:
+    std::vector<std::vector<double>> _messages;
+    std::vector<CkksCiphertext> _ciphertexts;
 };
 
-struct BfvTestPtMul {
-    std::vector<std::vector<uint64_t>> values;
-    std::vector<BfvPlaintextMul> plaintexts;
+struct CkksComplexTestCtBatch {
+    std::vector<CkksComplexTestCt> samples;
+
+    const std::vector<std::vector<std::complex<double>>>& messages();
+    std::vector<CkksCiphertext>& ciphertexts();
+
+private:
+    std::vector<std::vector<std::complex<double>>> _messages;
+    std::vector<CkksCiphertext> _ciphertexts;
 };
 
-BfvTestCt new_bfv_test_ct(int n_data, BfvContext& ctx, int level, uint64_t t);
-BfvTestPt new_bfv_test_pt(int n_data, BfvContext& ctx, int level, uint64_t t);
-BfvTestPtRingt new_bfv_test_pt_ringt(int n_data, BfvContext& ctx, uint64_t t);
-BfvTestPtMul new_bfv_test_pt_mul(int n_data, BfvContext& ctx, int level, uint64_t t);
+struct CkksRealTestPtBatch {
+    std::vector<CkksRealTestPt> samples;
 
-// Coeffs-domain variants (in_coeffs_domain = true).
-BfvTestCt new_bfv_test_ct_coeffs(int n_data, BfvContext& ctx, int level, uint64_t t);
-BfvTestPt new_bfv_test_pt_coeffs(int n_data, BfvContext& ctx, int level, uint64_t t);
-BfvTestPtRingt new_bfv_test_pt_ringt_coeffs(int n_data, BfvContext& ctx, uint64_t t);
-BfvTestPtMul new_bfv_test_pt_mul_coeffs(int n_data, BfvContext& ctx, int level, uint64_t t);
+    const std::vector<std::vector<double>>& messages();
+    std::vector<CkksPlaintext>& plaintexts();
 
-std::vector<std::vector<uint64_t>> decrypt_and_decode(BfvContext& ctx, const std::vector<BfvCiphertext>& cts);
-std::vector<std::vector<uint64_t>> decrypt_and_decode(BfvContext& ctx, const std::vector<BfvCiphertext3>& cts);
-std::vector<uint64_t> decrypt_and_decode(BfvContext& ctx, const BfvCiphertext& ct);
-
-std::vector<std::vector<uint64_t>> decrypt_and_decode_coeffs(BfvContext& ctx, const std::vector<BfvCiphertext>& cts);
-std::vector<uint64_t> decrypt_and_decode_coeffs(BfvContext& ctx, const BfvCiphertext& ct);
-
-// ---------------------------------------------------------------------------
-// CKKS test std::vector helpers
-// ---------------------------------------------------------------------------
-
-// Each struct holds n_data test std::vectors; values[i] is a full length-n_slot message.
-
-struct CkksTestCt {
-    std::vector<std::vector<double>> values;
-    std::vector<CkksCiphertext> ciphertexts;
+private:
+    std::vector<std::vector<double>> _messages;
+    std::vector<CkksPlaintext> _plaintexts;
 };
 
-struct CkksTestPt {
-    std::vector<std::vector<double>> values;
-    std::vector<CkksPlaintext> plaintexts;
+struct CkksComplexTestPtBatch {
+    std::vector<CkksComplexTestPt> samples;
+
+    const std::vector<std::vector<std::complex<double>>>& messages();
+    std::vector<CkksPlaintext>& plaintexts();
+
+private:
+    std::vector<std::vector<std::complex<double>>> _messages;
+    std::vector<CkksPlaintext> _plaintexts;
 };
 
-struct CkksTestPtRingt {
-    std::vector<std::vector<double>> values;
-    std::vector<CkksPlaintextRingt> plaintexts;
-};
+BfvTestPtBatch new_test_pts(int n_samples, BfvContext& ctx, int level, bool is_ringt, bool is_batched);
 
-struct CkksTestPtMul {
-    std::vector<std::vector<double>> values;
-    std::vector<CkksPlaintextMul> plaintexts;
-};
+BfvTestCtBatch new_test_cts(int n_samples, BfvContext& ctx, int level, bool is_batched = true);
 
-CkksTestCt new_ckks_test_ct(int n_data, CkksContext& ctx, int level, double scale);
-CkksTestPt new_ckks_test_pt(int n_data, CkksContext& ctx, int level, double scale);
-CkksTestPtRingt new_ckks_test_pt_ringt(int n_data, CkksContext& ctx, double scale);
-CkksTestPtMul new_ckks_test_pt_mul(int n_data, CkksContext& ctx, int level, double scale);
+CkksRealTestPtBatch
+new_test_real_pts(int n_samples, CkksContext& ctx, int level, bool is_ringt, bool is_batched, int log_slots = -1);
 
-CkksTestCt new_ckks_test_ct_coeffs(int n_data, CkksContext& ctx, int level, double scale);
-CkksTestPt new_ckks_test_pt_coeffs(int n_data, CkksContext& ctx, int level, double scale);
-CkksTestPtRingt new_ckks_test_pt_ringt_coeffs(int n_data, CkksContext& ctx, double scale);
-CkksTestPtMul new_ckks_test_pt_mul_coeffs(int n_data, CkksContext& ctx, int level, double scale);
+CkksComplexTestPtBatch
+new_test_complex_pts(int n_samples, CkksContext& ctx, int level, bool is_ringt, int log_slots = -1);
 
-std::vector<std::vector<double>> decrypt_and_decode_ckks(CkksContext& ctx, const std::vector<CkksCiphertext>& cts);
-std::vector<std::vector<double>> decrypt_and_decode_ckks(CkksContext& ctx, const std::vector<CkksCiphertext3>& cts);
-std::vector<double> decrypt_and_decode_ckks(CkksContext& ctx, const CkksCiphertext& ct);
+CkksRealTestCtBatch
+new_test_real_cts(int n_samples, CkksContext& ctx, int level, bool is_batched = true, int log_slots = -1);
 
-std::vector<std::vector<double>> decrypt_and_decode_ckks_coeffs(CkksContext& ctx,
-                                                                const std::vector<CkksCiphertext>& cts);
-std::vector<double> decrypt_and_decode_ckks_coeffs(CkksContext& ctx, const CkksCiphertext& ct);
+CkksComplexTestCtBatch new_test_complex_cts(int n_samples, CkksContext& ctx, int level, int log_slots = -1);
+
+std::vector<uint64_t> decrypt_and_decode(BfvContext& ctx, const BfvCiphertext& ciphertext);
+std::vector<std::vector<uint64_t>> decrypt_and_decode(BfvContext& ctx, const std::vector<BfvCiphertext>& ciphertexts);
+
+std::vector<double> decrypt_and_decode_real(CkksContext& ctx, const CkksCiphertext& ciphertext);
+std::vector<std::vector<double>> decrypt_and_decode_real(CkksContext& ctx,
+                                                         const std::vector<CkksCiphertext>& ciphertexts);
+std::vector<std::complex<double>> decrypt_and_decode_complex(CkksContext& ctx, const CkksCiphertext& ciphertext);
+std::vector<std::vector<std::complex<double>>>
+decrypt_and_decode_complex(CkksContext& ctx, const std::vector<CkksCiphertext>& ciphertexts);

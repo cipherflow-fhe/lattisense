@@ -26,6 +26,49 @@ using namespace std;
 
 namespace fhe_ops_lib {
 
+void append_u8(std::vector<uint8_t>& data, uint8_t value) {
+    data.push_back(value);
+}
+
+void append_u64(std::vector<uint8_t>& data, uint64_t value) {
+    for (int i = 0; i < 8; ++i) {
+        data.push_back(static_cast<uint8_t>((value >> (8 * i)) & 0xff));
+    }
+}
+
+void append_bytes(std::vector<uint8_t>& data, const std::vector<uint8_t>& bytes) {
+    append_u64(data, static_cast<uint64_t>(bytes.size()));
+    data.insert(data.end(), bytes.begin(), bytes.end());
+}
+
+uint8_t read_u8(gsl::span<const uint8_t> data, size_t& offset, const char* field) {
+    if (offset >= data.size()) {
+        throw std::runtime_error(std::string("binary data missing ") + field);
+    }
+    return data[offset++];
+}
+
+uint64_t read_u64(gsl::span<const uint8_t> data, size_t& offset, const char* field) {
+    if (data.size() - offset < 8) {
+        throw std::runtime_error(std::string("binary data missing ") + field);
+    }
+    uint64_t value = 0;
+    for (int i = 0; i < 8; ++i) {
+        value |= static_cast<uint64_t>(data[offset++]) << (8 * i);
+    }
+    return value;
+}
+
+gsl::span<const uint8_t> read_bytes(gsl::span<const uint8_t> data, size_t& offset, const char* field) {
+    uint64_t length = read_u64(data, offset, field);
+    if (length > static_cast<uint64_t>(data.size() - offset)) {
+        throw std::runtime_error(std::string("binary data has truncated ") + field);
+    }
+    gsl::span<const uint8_t> result(data.data() + offset, static_cast<size_t>(length));
+    offset += static_cast<size_t>(length);
+    return result;
+}
+
 long long get_current_us() {
     auto now = std::chrono::high_resolution_clock::now();
     auto us = std::chrono::duration_cast<std::chrono::microseconds>(now.time_since_epoch());
@@ -122,6 +165,20 @@ vector<double> rand_double_values(int n, double range) {
     return vals;
 }
 
+vector<double> rand_real_values(int n, double range) {
+    return rand_double_values(n, range);
+}
+
+vector<complex<double>> rand_complex_values(int n, double range) {
+    vector<double> real_values = rand_real_values(n, range);
+    vector<double> imag_values = rand_real_values(n, range);
+    vector<complex<double>> values(n);
+    for (int i = 0; i < n; i++) {
+        values[i] = complex<double>(real_values[i], imag_values[i]);
+    }
+    return values;
+}
+
 uint64_t mod_exp(uint64_t x, int power, uint64_t mod) {
     if (power == 0)
         return 1;
@@ -198,6 +255,13 @@ vector<double> vec_add(const vector<double>& a, const vector<double>& b) {
     return r;
 }
 
+vector<double> vec_add(const vector<double>& a, double b) {
+    vector<double> r(a.size());
+    for (size_t i = 0; i < a.size(); i++)
+        r[i] = a[i] + b;
+    return r;
+}
+
 vector<double> vec_sub(const vector<double>& a, const vector<double>& b) {
     assert(a.size() == b.size());
     vector<double> r(a.size());
@@ -206,11 +270,25 @@ vector<double> vec_sub(const vector<double>& a, const vector<double>& b) {
     return r;
 }
 
+vector<double> vec_sub(const vector<double>& a, double b) {
+    vector<double> r(a.size());
+    for (size_t i = 0; i < a.size(); i++)
+        r[i] = a[i] - b;
+    return r;
+}
+
 vector<double> vec_mul(const vector<double>& a, const vector<double>& b) {
     assert(a.size() == b.size());
     vector<double> r(a.size());
     for (size_t i = 0; i < a.size(); i++)
         r[i] = a[i] * b[i];
+    return r;
+}
+
+vector<double> vec_mul(const vector<double>& a, double b) {
+    vector<double> r(a.size());
+    for (size_t i = 0; i < a.size(); i++)
+        r[i] = a[i] * b;
     return r;
 }
 
@@ -231,6 +309,66 @@ vector<double> vec_exp(const vector<double>& a, int power) {
 vector<double> vec_rotate(const vector<double>& a, int step) {
     int n = (int)a.size();
     vector<double> r(n);
+    for (int i = 0; i < n; i++)
+        r[i] = a[((i + step) % n + n) % n];
+    return r;
+}
+
+vector<complex<double>> vec_add(const vector<complex<double>>& a, const vector<complex<double>>& b) {
+    assert(a.size() == b.size());
+    vector<complex<double>> r(a.size());
+    for (size_t i = 0; i < a.size(); i++)
+        r[i] = a[i] + b[i];
+    return r;
+}
+
+vector<complex<double>> vec_add(const vector<complex<double>>& a, complex<double> b) {
+    vector<complex<double>> r(a.size());
+    for (size_t i = 0; i < a.size(); i++)
+        r[i] = a[i] + b;
+    return r;
+}
+
+vector<complex<double>> vec_sub(const vector<complex<double>>& a, const vector<complex<double>>& b) {
+    assert(a.size() == b.size());
+    vector<complex<double>> r(a.size());
+    for (size_t i = 0; i < a.size(); i++)
+        r[i] = a[i] - b[i];
+    return r;
+}
+
+vector<complex<double>> vec_sub(const vector<complex<double>>& a, complex<double> b) {
+    vector<complex<double>> r(a.size());
+    for (size_t i = 0; i < a.size(); i++)
+        r[i] = a[i] - b;
+    return r;
+}
+
+vector<complex<double>> vec_mul(const vector<complex<double>>& a, const vector<complex<double>>& b) {
+    assert(a.size() == b.size());
+    vector<complex<double>> r(a.size());
+    for (size_t i = 0; i < a.size(); i++)
+        r[i] = a[i] * b[i];
+    return r;
+}
+
+vector<complex<double>> vec_mul(const vector<complex<double>>& a, complex<double> b) {
+    vector<complex<double>> r(a.size());
+    for (size_t i = 0; i < a.size(); i++)
+        r[i] = a[i] * b;
+    return r;
+}
+
+vector<complex<double>> vec_conj(const vector<complex<double>>& a) {
+    vector<complex<double>> r(a.size());
+    for (size_t i = 0; i < a.size(); i++)
+        r[i] = std::conj(a[i]);
+    return r;
+}
+
+vector<complex<double>> vec_rotate(const vector<complex<double>>& a, int step) {
+    int n = (int)a.size();
+    vector<complex<double>> r(n);
     for (int i = 0; i < n; i++)
         r[i] = a[((i + step) % n + n) % n];
     return r;
