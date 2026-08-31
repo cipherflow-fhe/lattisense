@@ -31,6 +31,13 @@ add_executable(test_fhe_task_param test_fhe_task_param.cpp utils.cpp)
 include_directories(test_fhe_task_param ${CMAKE_CURRENT_SOURCE_DIR}/../cxx_sdk_v2 ${CMAKE_CURRENT_SOURCE_DIR}/../fhe_ops_lib ${CMAKE_CURRENT_BINARY_DIR})
 target_link_libraries(test_fhe_task_param cxx_sdk_v2)
 
+add_executable(test_task_cancellation test_task_cancellation.cpp utils.cpp)
+include_directories(test_task_cancellation ${CMAKE_CURRENT_SOURCE_DIR}/../cxx_sdk_v2 ${CMAKE_CURRENT_SOURCE_DIR}/../fhe_ops_lib ${CMAKE_CURRENT_BINARY_DIR})
+target_link_libraries(test_task_cancellation cxx_sdk_v2)
+if(LATTISENSE_ENABLE_GPU)
+    target_compile_definitions(test_task_cancellation PRIVATE LATTISENSE_ENABLE_GPU)
+endif()
+
 add_executable(test_cpu_ckks test_cpu_ckks.cpp utils.cpp)
 include_directories(test_cpu_ckks ${CMAKE_CURRENT_SOURCE_DIR}/../cxx_sdk_v2 ${CMAKE_CURRENT_SOURCE_DIR}/../fhe_ops_lib ${CMAKE_CURRENT_BINARY_DIR})
 target_link_libraries(test_cpu_ckks cxx_sdk_v2)

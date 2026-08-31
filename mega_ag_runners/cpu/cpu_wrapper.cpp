@@ -37,7 +37,9 @@ extern "C" {
 #include <chrono>
 #include <iostream>
 #include <any>
+#include <atomic>
 #include <memory>
+#include <mutex>
 #include <thread>
 
 namespace cpu_wrapper {
@@ -48,7 +50,8 @@ template <HEScheme SchemeType, typename TContext>
 void _run_mega_ag_impl(gsl::span<CArgument> input_args,
                        gsl::span<CArgument> output_args,
                        const MegaAG& mega_ag,
-                       ProgressCallback progress_cb = nullptr) {
+                       ProgressCallback progress_cb = nullptr,
+                       const std::atomic<bool>* cancel_flag = nullptr) {
     std::unique_ptr<TContext> context;
     init_context<SchemeType, TContext>(mega_ag.parameter, input_args, context);
 
@@ -76,13 +79,22 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
         return {};
     };
 
-    // Run CPU tasks in thread pool
+    RunTasksOptions options;
+    options.get_other_args = get_other_args;
+    options.progress_callback = progress_cb;
+    options.cancel_flag = cancel_flag;
+
 #ifdef LATTISENSE_DEV
     MemoryMonitor mem_monitor(100);  // sample every 100 ms
-    mem_monitor.start(MemoryMonitor::next_csv_path("mem_usage_cpu"));
+    mem_monitor.start(MemoryMonitor::next_csv_path(".", "mem_usage_cpu"));
+    try {
 #endif
-    run_tasks(mega_ag, pool, context, available_data, get_other_args, nullptr, nullptr, progress_cb);
+        run_tasks(mega_ag, pool, context, available_data, options);
 #ifdef LATTISENSE_DEV
+    } catch (...) {
+        mem_monitor.stop();
+        throw;
+    }
     mem_monitor.stop();
 #endif
 
@@ -97,23 +109,19 @@ template <HEScheme SchemeType>
 void _run_mega_ag(gsl::span<CArgument> input_args,
                   gsl::span<CArgument> output_args,
                   const MegaAG& mega_ag,
-                  ProgressCallback progress_cb = nullptr) {
-    // Determine TContext based on SchemeType and bootstrap parameters
+                  ProgressCallback progress_cb = nullptr,
+                  const std::atomic<bool>* cancel_flag = nullptr) {
     if constexpr (SchemeType == HEScheme::CKKS) {
-        // Check if bootstrap parameters exist
         if (mega_ag.parameter.contains("btp_output_level")) {
-            // Use CkksBtpContext for bootstrap
             using TContext = CkksBtpContext;
-            _run_mega_ag_impl<SchemeType, TContext>(input_args, output_args, mega_ag, progress_cb);
+            _run_mega_ag_impl<SchemeType, TContext>(input_args, output_args, mega_ag, progress_cb, cancel_flag);
         } else {
-            // Use regular CkksContext
             using TContext = CkksContext;
-            _run_mega_ag_impl<SchemeType, TContext>(input_args, output_args, mega_ag, progress_cb);
+            _run_mega_ag_impl<SchemeType, TContext>(input_args, output_args, mega_ag, progress_cb, cancel_flag);
         }
     } else {
-        // BFV always uses BfvContext
         using TContext = BfvContext;
-        _run_mega_ag_impl<SchemeType, TContext>(input_args, output_args, mega_ag, progress_cb);
+        _run_mega_ag_impl<SchemeType, TContext>(input_args, output_args, mega_ag, progress_cb, cancel_flag);
     }
 }
 
@@ -132,18 +140,55 @@ public:
         mega_ag_.bind_abi_bridge_executors(abi_export, abi_import);
     }
 
+    void request_cancel() noexcept {
+        std::lock_guard<std::mutex> lock(cancel_mutex_);
+        if (cancel_flag_) {
+            cancel_flag_->store(true);
+        }
+    }
+
     int run(gsl::span<CArgument> input_args, gsl::span<CArgument> output_args, ProgressCallback progress_cb = nullptr) {
-        switch (mega_ag_.algo) {
-            case Algo::ALGO_BFV: _run_mega_ag<HEScheme::BFV>(input_args, output_args, mega_ag_, progress_cb); break;
-            case Algo::ALGO_CKKS: _run_mega_ag<HEScheme::CKKS>(input_args, output_args, mega_ag_, progress_cb); break;
-            default: throw std::invalid_argument("algo not supported"); break;
+        std::lock_guard<std::mutex> run_lock(run_mutex_);
+        auto cancel_flag = std::make_shared<std::atomic<bool>>(false);
+        {
+            std::lock_guard<std::mutex> lock(cancel_mutex_);
+            cancel_flag_ = cancel_flag;
         }
 
-        return 0;
+        try {
+            switch (mega_ag_.algo) {
+                case Algo::ALGO_BFV:
+                    _run_mega_ag<HEScheme::BFV>(input_args, output_args, mega_ag_, progress_cb, cancel_flag.get());
+                    break;
+                case Algo::ALGO_CKKS:
+                    _run_mega_ag<HEScheme::CKKS>(input_args, output_args, mega_ag_, progress_cb, cancel_flag.get());
+                    break;
+                default: throw std::invalid_argument("algo not supported"); break;
+            }
+        } catch (const mega_ag_runner::TaskCancelled&) {
+            clear_cancel_flag(cancel_flag);
+            return FHE_TASK_CANCELLED;
+        } catch (...) {
+            clear_cancel_flag(cancel_flag);
+            throw;
+        }
+
+        clear_cancel_flag(cancel_flag);
+        return FHE_TASK_OK;
     }
 
 protected:
+    void clear_cancel_flag(const std::shared_ptr<std::atomic<bool>>& cancel_flag) noexcept {
+        std::lock_guard<std::mutex> lock(cancel_mutex_);
+        if (cancel_flag_ == cancel_flag) {
+            cancel_flag_.reset();
+        }
+    }
+
     MegaAG mega_ag_;
+    std::shared_ptr<std::atomic<bool>> cancel_flag_;
+    std::mutex cancel_mutex_;
+    std::mutex run_mutex_;
 };
 };  // namespace cpu_wrapper
 
@@ -156,6 +201,13 @@ fhe_task_handle create_fhe_cpu_task(const char* project_path) {
 void release_fhe_cpu_task(fhe_task_handle handle) {
     cpu_wrapper::FheCpuTask* task = (cpu_wrapper::FheCpuTask*)handle;
     delete task;
+}
+
+void cancel_fhe_cpu_task(fhe_task_handle handle) {
+    cpu_wrapper::FheCpuTask* task = (cpu_wrapper::FheCpuTask*)handle;
+    if (task) {
+        task->request_cancel();
+    }
 }
 
 void bind_cpu_task_custom_executors(fhe_task_handle handle,

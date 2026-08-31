@@ -312,7 +312,10 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
             });
         };
 
-    run_tasks(mega_ag, pool, context, available_data, get_other_args, submit_fpga_task);
+    RunTasksOptions options;
+    options.get_other_args = get_other_args;
+    options.submit_backend_task = submit_fpga_task;
+    run_tasks(mega_ag, pool, context, available_data, options);
 }
 
 template <HEScheme SchemeType>

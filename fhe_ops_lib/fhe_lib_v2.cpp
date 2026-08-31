@@ -17,7 +17,6 @@
  */
 
 #include <stdio.h>
-#include <sys/time.h>
 #include <functional>
 #include <stdexcept>
 #include "fhe_lib_v2.h"
@@ -557,6 +556,14 @@ BfvCiphertext BfvCiphertext::deserialize(BytesView data) {
 
 BfvCompressedCiphertext BfvCompressedCiphertext::deserialize(BytesView data) {
     return BfvCompressedCiphertext(DeserializeBfvCompressedCiphertext((uint8_t*)data.data(), data.size()));
+}
+
+Bytes BfvPlaintextRingt::serialize() const {
+    return export_raw_data<uint8_t>(std::bind(SerializeBfvPlaintextRingt, this->get(), _1, _2));
+}
+
+BfvPlaintextRingt BfvPlaintextRingt::deserialize(BytesView data) {
+    return BfvPlaintextRingt(DeserializeBfvPlaintextRingt((uint8_t*)data.data(), data.size()));
 }
 
 BfvCiphertext BfvCiphertext::copy() const {

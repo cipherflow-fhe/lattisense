@@ -19,6 +19,7 @@
 #ifndef CXX_FHE_TASK_H
 #define CXX_FHE_TASK_H
 
+#include <stdexcept>
 #include <unordered_map>
 #include <vector>
 #include "nlohmann/json.hpp"
@@ -41,6 +42,11 @@ using namespace fhe_ops_lib;
 /// @param total Total number of compute nodes.
 /// @note Called from worker threads. Throttled to at most once per 100ms internally.
 using ProgressCallback = std::function<void(int completed, int total)>;
+
+class TaskCancelledException : public std::runtime_error {
+public:
+    TaskCancelledException() : std::runtime_error("FHE task was cancelled") {}
+};
 
 class FheTask {
 public:
@@ -122,6 +128,7 @@ public:
     ~FheTaskCpu();
 
     void bind_custom_executors(const std::unordered_map<std::string, ExecutorFunc>& custom_executors) override;
+    void request_cancel() noexcept;
     uint64_t
     run(FheContext* context, const std::vector<CxxVectorArgument>& cxx_args, ProgressCallback progress_cb = nullptr);
 
@@ -138,6 +145,7 @@ public:
     ~FheTaskGpu();
 
     void bind_custom_executors(const std::unordered_map<std::string, ExecutorFunc>& custom_executors) override;
+    void request_cancel() noexcept;
     uint64_t run(FheContext* context,
                  const std::vector<CxxVectorArgument>& cxx_args,
                  ProgressCallback progress_cb = nullptr,

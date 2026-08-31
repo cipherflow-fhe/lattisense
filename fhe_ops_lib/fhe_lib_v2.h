@@ -1229,6 +1229,10 @@ public:
      * @return The plaintext level.
      */
     int get_level() const;
+
+    Bytes serialize() const;
+
+    static BfvPlaintextRingt deserialize(BytesView data);
 };
 
 /**
