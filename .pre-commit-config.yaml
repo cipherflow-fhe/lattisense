@@ -5,7 +5,7 @@ repos:
       - id: clang-format
         stages: [pre-commit]
         types_or: [c, c++, cuda]
-        exclude: ^(HEonGPU/|build/|venv/|lib/)
+        exclude: ^(backends/lattisense-gpu-core/|build/|venv/|lib/)
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.9.10
@@ -13,10 +13,10 @@ repos:
       - id: ruff
         stages: [pre-commit]
         args: [--fix]
-        exclude: ^(HEonGPU/|build/|venv/|lib/)
+        exclude: ^(backends/lattisense-gpu-core/|build/|venv/|lib/)
       - id: ruff-format
         stages: [pre-commit]
-        exclude: ^(HEonGPU/|build/|venv/|lib/)
+        exclude: ^(backends/lattisense-gpu-core/|build/|venv/|lib/)
 
   - repo: https://github.com/alessandrojcm/commitlint-pre-commit-hook
     rev: v9.18.0

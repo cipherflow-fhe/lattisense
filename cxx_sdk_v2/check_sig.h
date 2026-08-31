@@ -119,6 +119,80 @@ inline void check_context_for_key_signatures(const FheContext& context, const nl
             throw std::runtime_error("Level of Galois key is smaller than the expected level.");
         }
     }
+
+    // Bootstrap-specific keys.
+    if (key_signature.contains("ckks_btp_evk") && !key_signature["ckks_btp_evk"].empty()) {
+        const auto* ckks_context = dynamic_cast<const CkksContext*>(&context);
+        if (ckks_context == nullptr) {
+            throw std::runtime_error("CKKS bootstrapping evaluation keys require CkksContext.");
+        }
+        const auto& btp_keys = ckks_context->bootstrapping_evaluation_keys();
+        const auto& btp_key_set = btp_keys.evaluation_key_set();
+        const auto& btp_evk = key_signature["ckks_btp_evk"];
+
+        // Bootstrap relinearization key.
+        if (btp_evk.contains("evk_rlk")) {
+            const RelinKey& btp_rlk = btp_key_set.relin_key();
+            if (btp_rlk.is_empty()) {
+                throw std::runtime_error(
+                    "Bootstrap relinearization key is required by the task signature but is not set.");
+            }
+            if (btp_rlk.level() < btp_evk["evk_rlk"].get<int>()) {
+                throw std::runtime_error("Level of bootstrap relin key is smaller than the expected level.");
+            }
+        }
+
+        // Bootstrap-specific galois keys, mirroring the normal glk validation.
+        if (key_signature.contains("ckks_btp_glk_order") && !key_signature["ckks_btp_glk_order"].empty()) {
+            const auto& btp_glk_order = key_signature["ckks_btp_glk_order"];
+
+            size_t btp_glk_count = 0;
+            for (auto& item : btp_evk.items()) {
+                if (item.key().rfind("evk_glk_", 0) == 0) {
+                    btp_glk_count++;
+                }
+            }
+            if (btp_glk_order.size() != btp_glk_count) {
+                throw std::runtime_error("ckks_btp_glk_order size does not match the number of evk_glk_* entries.");
+            }
+            for (auto& item : btp_glk_order) {
+                std::string glk_id = "evk_glk_" + std::to_string(item.get<uint64_t>());
+                if (!btp_evk.contains(glk_id)) {
+                    throw std::runtime_error("ckks_btp_glk_order contains an element missing from ckks_btp_evk.");
+                }
+            }
+
+            const auto& btp_galois_keys = btp_key_set.galois_keys();
+            for (auto& item : btp_glk_order) {
+                uint64_t gal_el = item.get<uint64_t>();
+                std::string glk_id = "evk_glk_" + std::to_string(gal_el);
+                int level_sig = btp_evk[glk_id].get<int>();
+                auto glk_it = btp_galois_keys.find(gal_el);
+                if (glk_it == btp_galois_keys.end() || glk_it->second.is_empty()) {
+                    throw std::runtime_error("Bootstrap Galois key is required by the task signature but is not set.");
+                }
+                if (glk_it->second.level() < level_sig) {
+                    throw std::runtime_error("Level of bootstrap Galois key is smaller than the expected level.");
+                }
+            }
+        }
+
+        // Ring-switching / switch keys.
+        if (btp_evk.contains("evk_n1_to_n2") && btp_keys.evk_n1_to_n2().is_empty()) {
+            throw std::runtime_error("Bootstrap key evk_n1_to_n2 is required by the task signature but is not set.");
+        }
+        if (btp_evk.contains("evk_n2_to_n1") && btp_keys.evk_n2_to_n1().is_empty()) {
+            throw std::runtime_error("Bootstrap key evk_n2_to_n1 is required by the task signature but is not set.");
+        }
+        if (btp_evk.contains("evk_dense_to_sparse") && btp_keys.evk_dense_to_sparse().is_empty()) {
+            throw std::runtime_error(
+                "Bootstrap key evk_dense_to_sparse is required by the task signature but is not set.");
+        }
+        if (btp_evk.contains("evk_sparse_to_dense") && btp_keys.evk_sparse_to_dense().is_empty()) {
+            throw std::runtime_error(
+                "Bootstrap key evk_sparse_to_dense is required by the task signature but is not set.");
+        }
+    }
 }
 
 /**
@@ -219,6 +293,15 @@ inline void check_parameter(FheContext* context, const nlohmann::json& param_jso
                     throw std::runtime_error("CKKS parameter P[" + std::to_string(i) + "] mismatch: expected " +
                                              std::to_string(expected_p[i]) + ", got " + std::to_string(actual_p[i]));
                 }
+            }
+        }
+
+        // When the task signature requires bootstrapping, verify that the
+        // context actually has it enabled.
+        if (param_json.value("enable_bootstrapping", false)) {
+            if (!ckks_context->enable_bootstrapping()) {
+                throw std::runtime_error(
+                    "Parameter JSON requires CKKS bootstrapping but CkksContext bootstrapping is not enabled.");
             }
         }
     } else {

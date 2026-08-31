@@ -605,14 +605,60 @@ template <heongpu::Scheme S> void bind_gpu_bootstrap(ComputeNode& node) {
     if constexpr (S == heongpu::Scheme::CKKS) {
         node.executor = [](ExecutionContext& ctx, std::unordered_map<NodeId, std::any>& local_data,
                            const ComputeNode& self) -> void {
-            auto [operators, stream_option] = _get_operator_and_stream_option<S>(ctx);
-            auto& input0 = _get_input_data<Ct<S>>(local_data, *self.input_nodes[0]);
-            auto& rlk = _get_input_data<Rlk<S>>(local_data, *self.input_nodes[1]);
-            auto& glk = _get_input_data<Glk<S>>(local_data, *self.input_nodes[2]);
-            auto& swk0 = _get_input_data<Swk<S>>(local_data, *self.input_nodes[self.input_nodes.size() - 2]);
-            auto& swk1 = _get_input_data<Swk<S>>(local_data, *self.input_nodes[self.input_nodes.size() - 1]);
-            auto& output0 = _create_output_data<S>(ctx, local_data, *self.output_nodes[0]);
-            output0 = operators.regular_bootstrapping_v2(input0, glk, rlk, &swk0, &swk1, stream_option);
+            auto* boot_operators = ctx.get_other_arg<heongpu::HEArithmeticOperator<S>>(2);
+            if (!boot_operators) {
+                throw std::runtime_error("GPU BOOTSTRAP requires the bootstrapping operator");
+            }
+            auto* stream_option = ctx.get_other_arg<heongpu::ExecutionOptions>(0);
+            if (!stream_option) {
+                throw std::runtime_error("Stream Options not provided in Execution context");
+            }
+            // Collect all ciphertext inputs (they precede the key inputs in the
+            // frontend wiring). Each is moved (not copied) so no cross-stream
+            // D2D memcpy races with the boot kernels.
+            std::vector<Ct<S>> inputs;
+            size_t key_idx = self.input_nodes.size();
+            for (size_t i = 0; i < self.input_nodes.size(); i++) {
+                if (self.input_nodes[i]->datum_type == DataType::TYPE_CIPHERTEXT) {
+                    inputs.push_back(std::move(_get_input_data<Ct<S>>(local_data, *self.input_nodes[i])));
+                } else {
+                    key_idx = i;
+                    break;
+                }
+            }
+            if (inputs.empty()) {
+                throw std::runtime_error("GPU BOOTSTRAP requires at least one ciphertext input");
+            }
+
+            heongpu::BootstrappingEvaluationKeys boot_keys;
+            boot_keys.relin_key_ = _get_input_data<Rlk<S>>(local_data, *self.input_nodes[key_idx++]);
+
+            // EvkN1ToN2 / EvkN2ToN1 are only generated when N1 != N2; detect
+            // their presence from the number of evaluation-key inputs remaining.
+            size_t eval_key_count = 0;
+            for (size_t i = key_idx; i < self.input_nodes.size(); i++) {
+                if (self.input_nodes[i]->datum_type == DataType::TYPE_EVALUATION_KEY) {
+                    eval_key_count++;
+                }
+            }
+            if (eval_key_count >= 4) {
+                boot_keys.evk_n1_to_n2_ = _get_input_data<Swk<S>>(local_data, *self.input_nodes[key_idx++]);
+                boot_keys.evk_n2_to_n1_ = _get_input_data<Swk<S>>(local_data, *self.input_nodes[key_idx++]);
+            }
+            boot_keys.swk_dense_to_sparse_ = _get_input_data<Swk<S>>(local_data, *self.input_nodes[key_idx++]);
+            boot_keys.swk_sparse_to_dense_ = _get_input_data<Swk<S>>(local_data, *self.input_nodes[key_idx++]);
+            boot_keys.galois_key_ = _get_input_data<Glk<S>>(local_data, *self.input_nodes[key_idx]);
+
+            auto outputs = boot_operators->bootstrap_many(inputs, boot_keys, *stream_option);
+
+            if (outputs.size() != self.output_nodes.size()) {
+                throw std::runtime_error("GPU BOOTSTRAP output count mismatch: got " + std::to_string(outputs.size()) +
+                                         " outputs, expected " + std::to_string(self.output_nodes.size()));
+            }
+            for (size_t i = 0; i < self.output_nodes.size(); i++) {
+                auto& out = _create_output_data<S>(ctx, local_data, *self.output_nodes[i]);
+                out = std::move(outputs[i]);
+            }
         };
     } else {
         throw std::runtime_error("BOOTSTRAP only supported for CKKS scheme");

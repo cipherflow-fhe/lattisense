@@ -131,6 +131,9 @@ def serialize_signature(ctx: _TaskContext) -> dict:
         },
         'online': ctx.input_sigdata + ctx.output_sigdata,
     }
-    if ctx.ckks_btp_evk_sig:
-        signature['key']['ckks_btp_evk'] = ctx.ckks_btp_evk_sig
+    if ctx.ckks_btp_evk_sig or ctx.ckks_btp_glk_order:
+        if ctx.ckks_btp_evk_sig:
+            signature['key']['ckks_btp_evk'] = ctx.ckks_btp_evk_sig
+        if ctx.ckks_btp_glk_order:
+            signature['key']['ckks_btp_glk_order'] = ctx.ckks_btp_glk_order
     return signature

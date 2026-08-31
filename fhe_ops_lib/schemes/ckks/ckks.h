@@ -220,6 +220,8 @@ public:
 
     const CkksParameter& parameter() override;
 
+    const CkksParameter& bootstrapping_parameter();
+
     const SecretKey& secret_key() const override;
 
     const PublicKey& public_key() const override;
@@ -233,6 +235,10 @@ public:
     void create_bootstrapper();
 
     void set_enable_bootstrapping(bool enable_bootstrapping = true);
+
+    bool enable_bootstrapping() const {
+        return _enable_bootstrapping;
+    }
 
     const BootstrappingEvaluationKeys& bootstrapping_evaluation_keys() const;
 
@@ -418,6 +424,7 @@ protected:
 
     bool _enable_bootstrapping = false;
     Handle _btp_parameter;
+    CkksParameter _btp_parameter_n2;  // bootstrapping (N2) ckks.Parameters, cached
     BootstrappingEvaluationKeys _bootstrapping_evaluation_keys;
     Handle _btp_evaluator;
 };

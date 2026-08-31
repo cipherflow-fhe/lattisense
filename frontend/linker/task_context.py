@@ -58,7 +58,8 @@ class _TaskContext:
     rlk_sig: int  # -1 if no relinearization key
     glk_sig: dict  # galois_element -> level
     glk_order: list[int]  # galois elements in graph input order
-    ckks_btp_evk_sig: dict  # key_id -> (level, sp_level); empty if not BTP
+    ckks_btp_evk_sig: dict  # key_id -> level; empty if not BTP
+    ckks_btp_glk_order: list[int]  # bootstrap galois elements in graph input order
     input_sigdata: list  # list of sigdata dicts for online inputs
     output_sigdata: list  # list of sigdata dicts for outputs
 
@@ -148,9 +149,20 @@ class _TaskContext:
                 all_inputs.append(v)
 
         ckks_btp_evk_sig: dict = {}
-        for k in sorted(k for k in evk_node_dict if k.startswith('evk_')):
+        ckks_btp_glk_order: list[int] = []
+        # Bootstrap galois keys first, in graph insertion order, so the host can
+        # aggregate them into a single GALOIS_KEY arg in ckks_btp_glk_order
+        # (mirroring the normal glk_ntt handling) while keeping the flattened
+        # handle order aligned with mega_ag.inputs.
+        for k, v in evk_node_dict.items():
+            if k.startswith('evk_glk_'):
+                ckks_btp_glk_order.append(v.galois_element)
+                ckks_btp_evk_sig[k] = v.metadata.level
+                all_inputs.append(v)
+        # Non-glk bootstrap keys (sorted for determinism).
+        for k in sorted(k for k in evk_node_dict if k.startswith('evk_') and not k.startswith('evk_glk_')):
             v = evk_node_dict[k]
-            ckks_btp_evk_sig[k] = (v.metadata.level, v.sp_level)
+            ckks_btp_evk_sig[k] = v.metadata.level
             all_inputs.append(v)
 
         return cls(
@@ -162,6 +174,7 @@ class _TaskContext:
             glk_sig=glk_sig,
             glk_order=glk_order,
             ckks_btp_evk_sig=ckks_btp_evk_sig,
+            ckks_btp_glk_order=ckks_btp_glk_order,
             input_sigdata=input_sigdata,
             output_sigdata=output_sigdata,
         )

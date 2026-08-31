@@ -262,6 +262,18 @@ const BootstrappingEvaluationKeys& CkksContext::bootstrapping_evaluation_keys() 
     return _bootstrapping_evaluation_keys;
 }
 
+const CkksParameter& CkksContext::bootstrapping_parameter() {
+    if (_btp_parameter.is_empty()) {
+        throw std::runtime_error("CKKS bootstrapping parameter is not set");
+    }
+    if (_btp_parameter_n2.is_empty()) {
+        uint64_t handle = 0;
+        CHECK(GetCkksBootstrappingParameterFromBtpParameter(_btp_parameter.get(), &handle));
+        _btp_parameter_n2 = CkksParameter(std::move(handle));
+    }
+    return _btp_parameter_n2;
+}
+
 CkksCiphertext CkksContext::bootstrap(const CkksCiphertext& op0) {
     std::vector<CkksCiphertext> ops;
     ops.emplace_back(keep_handle<CkksCiphertext>(op0.get()));

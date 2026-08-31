@@ -83,26 +83,14 @@ void init_context(const nlohmann::json& param_json, std::unique_ptr<TContext>& c
 
     if constexpr (SchemeType == HEScheme::CKKS) {
         auto log_default_scale = param_json["log_default_scale"].get<int>();
-
-        // if constexpr (std::is_same_v<TContext, CkksBtpContext>) {
-        //     // Create CkksBtpContext for bootstrap
-        //     int cts_start_level = param_json["btp_cts_start_level"].get<int>();
-        //     int eval_mod_start_level = param_json["btp_eval_mod_start_level"].get<int>();
-        //     int stc_start_level = param_json["btp_stc_start_level"].get<int>();
-        //     double scale = param_json["scale"].get<double>();
-
-        //     if (n == 1 << 13) {
-        //         CkksBtpParameter btp_param = CkksBtpParameter::create_toy_parameter();
-        //         context = std::make_unique<TContext>(CkksBtpContext::create_empty_context(btp_param));
-        //     } else if (n == 1 << 16) {
-        //         CkksBtpParameter btp_param = CkksBtpParameter::create_parameter();
-        //         context = std::make_unique<TContext>(CkksBtpContext::create_empty_context(btp_param));
-        //     }
-        // } else {
-        // Create regular CkksContext
         CkksParameter param = CkksParameter::create_custom_parameter(log_n, log_default_scale, q, p);
         context = std::make_unique<TContext>(CkksContext::create_empty_context(param));
-        // }
+
+        if (param_json.value("enable_bootstrapping", false)) {
+            context->set_enable_bootstrapping(true);
+            context->bootstrapping_parameter();
+        }
+
     } else if constexpr (SchemeType == HEScheme::BFV) {
         auto t = param_json["t"].get<uint64_t>();
         BfvParameter param = BfvParameter::create_custom_parameter(log_n, t, q, p);

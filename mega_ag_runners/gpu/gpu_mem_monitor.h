@@ -27,7 +27,7 @@
 #include <heongpu/util/memorypool.cuh>
 
 // ---------------------------------------------------------------------------
-// GpuMemoryMonitor: background thread that samples HEonGPU RMM MemoryPool
+// GpuMemoryMonitor: background thread that samples lattisense-gpu-core RMM MemoryPool
 // usage every `interval_ms` milliseconds.
 //
 // Each sample is flushed to the CSV file immediately, so data is preserved

@@ -714,23 +714,41 @@ def _default_ckks_bootstrap_extra_levels() -> int:
     return 3 + 8 + 4
 
 
-def bootstrap(x: CkksCiphertextNode, output_id: Optional[str] = None) -> CkksCiphertextNode:
+def bootstrap(
+    x: CkksCiphertextNode | list[CkksCiphertextNode], output_id: Optional[str] = None
+) -> CkksCiphertextNode | list[CkksCiphertextNode]:
+    """!Create a CKKS bootstrap node.
+
+    Accepts either a single CkksCiphertextNode (returns a single output node)
+    or a list of them (returns a list of output nodes). In the list form, all
+    inputs share a single Bootstrap compute node and its evaluation keys, so the
+    backend can evaluate them together.
+    """
     global g_dag, g_param
     if g_param is None:
         raise RuntimeError('Please call set_fhe_param() before using bootstrap operation.')
     if not isinstance(g_param, CkksParam):
         raise ValueError('CKKS bootstrap requires CKKS parameters.')
-    if x.type != DataType.Ciphertext:
-        raise ValueError(f'Unsupported input type "{x.type.value}" for bootstrap.')
-    if x.metadata.level != 0:
-        raise ValueError(f'Unsupported input level "{x.metadata.level}" for bootstrap.')
+
+    single = isinstance(x, CkksCiphertextNode)
+    xs = [x] if single else list(x)
+    if not xs or any(not isinstance(xi, CkksCiphertextNode) for xi in xs):
+        raise ValueError('bootstrap expects a CkksCiphertextNode or a list of them.')
+    first_log_slots = xs[0].metadata.log_slots
+    for xi in xs:
+        if xi.type != DataType.Ciphertext:
+            raise ValueError(f'Unsupported input type "{xi.type.value}" for bootstrap.')
+        if xi.metadata.level != 0:
+            raise ValueError(f'Unsupported input level "{xi.metadata.level}" for bootstrap.')
+        if xi.metadata.log_slots != first_log_slots:
+            raise ValueError('bootstrap inputs must all have the same log_slots.')
+
+    g_param.enable_bootstrapping = True
 
     op = FheComputeNode(OperationType.Bootstrap)
-    g_dag.add_edge(x, op)
+    for xi in xs:
+        g_dag.add_edge(xi, op)
 
-    # Lattigo v6 GenEvaluationKeys creates a bootstrap-specific key set.
-    # These keys are generated under the bootstrapping parameters/skN2 and
-    # must not be confused with the normal task rlk_ntt/glk_ntt keys.
     global g_evk_node_dict
     btp_key_level = g_param.max_level + _default_ckks_bootstrap_extra_levels()
 
@@ -742,13 +760,17 @@ def bootstrap(x: CkksCiphertextNode, output_id: Optional[str] = None) -> CkksCip
         g_evk_node_dict[evk_rlk].key_role = 'bootstrap'
     g_dag.add_edge(g_evk_node_dict[evk_rlk], op)
 
-    for evk_id in ('evk_n1_to_n2', 'evk_n2_to_n1'):
-        if evk_id not in g_evk_node_dict:
-            g_evk_node_dict[evk_id] = EvaluationKeyNode(id=evk_id, level=btp_key_level, key_role='bootstrap')
-        else:
-            g_evk_node_dict[evk_id].metadata.level = btp_key_level
-            g_evk_node_dict[evk_id].key_role = 'bootstrap'
-        g_dag.add_edge(g_evk_node_dict[evk_id], op)
+    from frontend.bootstrap_params import DEFAULT_BTP_LOG_N as _btp_log_n
+
+    if g_param.log_n != _btp_log_n:
+        for evk_id in ('evk_n1_to_n2', 'evk_n2_to_n1'):
+            evk_level = 0 if evk_id == 'evk_n1_to_n2' else g_param.max_level
+            if evk_id not in g_evk_node_dict:
+                g_evk_node_dict[evk_id] = EvaluationKeyNode(id=evk_id, level=evk_level, key_role='bootstrap')
+            else:
+                g_evk_node_dict[evk_id].metadata.level = evk_level
+                g_evk_node_dict[evk_id].key_role = 'bootstrap'
+            g_dag.add_edge(g_evk_node_dict[evk_id], op)
 
     evk_dense_to_sparse = 'evk_dense_to_sparse'
     if evk_dense_to_sparse not in g_evk_node_dict:
@@ -768,7 +790,10 @@ def bootstrap(x: CkksCiphertextNode, output_id: Optional[str] = None) -> CkksCip
         g_evk_node_dict[evk_sparse_to_dense].key_role = 'bootstrap'
     g_dag.add_edge(g_evk_node_dict[evk_sparse_to_dense], op)
 
-    for gal_elem in bootstrapping_galois_elements(g_param.log_n):
+    from frontend.bootstrap_params import bootstrapping_galois_elements as _bge
+
+    _gals = _bge(g_param.log_n)
+    for gal_elem in _gals:
         evk_glk = f'evk_glk_{gal_elem}'
         if evk_glk not in g_evk_node_dict:
             g_evk_node_dict[evk_glk] = GaloisKeyNode(id=evk_glk, level=btp_key_level, key_role='bootstrap')
@@ -778,18 +803,24 @@ def bootstrap(x: CkksCiphertextNode, output_id: Optional[str] = None) -> CkksCip
         g_evk_node_dict[evk_glk].galois_element = gal_elem
         g_dag.add_edge(g_evk_node_dict[evk_glk], op)
 
-    z = CkksCiphertextNode(
-        id=random_id() if output_id is None else output_id,
-        level=g_param.max_level,
-        degree=x.metadata.degree,
-        log_slots=x.metadata.log_slots,
-        scale=x.metadata.scale,
-    )
-    z.metadata = x.metadata.copy()
-    z.metadata.level = g_param.max_level
-    g_dag.add_edge(op, z)
-
-    return z
+    zs = []
+    for idx, xi in enumerate(xs):
+        if single:
+            z_id = random_id() if output_id is None else output_id
+        else:
+            z_id = random_id() if output_id is None else f'{output_id}_{idx}'
+        z = CkksCiphertextNode(
+            id=z_id,
+            level=g_param.max_level,
+            degree=xi.metadata.degree,
+            log_slots=xi.metadata.log_slots,
+            scale=xi.metadata.scale,
+        )
+        z.metadata = xi.metadata.copy()
+        z.metadata.level = g_param.max_level
+        g_dag.add_edge(op, z)
+        zs.append(z)
+    return zs[0] if single else zs
 
 
 def custom_compute(

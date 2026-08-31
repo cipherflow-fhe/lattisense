@@ -660,8 +660,6 @@ class TestTask:
 
     @pytest.mark.at_level(0)
     def test_bootstrap(self, param, lv, processor):
-        if processor == Processor.GPU:
-            pytest.skip('GPU bootstrap is temporarily disabled')
         if param is not _p1:
             pytest.skip('only runs for default param (n=16384)')
         set_fhe_param(param)
@@ -680,10 +678,28 @@ class TestTask:
                 processor=processor,
             )
 
+    @pytest.mark.at_level(0)
+    def test_bootstrap_multi(self, param, lv, processor):
+        if param is not _p1:
+            pytest.skip('only runs for default param (n=16384)')
+        set_fhe_param(param)
+        param_tag = _param_tag(param)
+        output_base_dir = CPU_OUTPUT_BASE_DIR if processor == Processor.CPU else GPU_OUTPUT_BASE_DIR
+        slot_cases = [param.log_n - 1, SPARSE_LOG_SLOTS]
+        for log_slots in slot_cases:
+            slot_tag = f'lslots{log_slots}'
+            task_dir = os.path.join(output_base_dir, param_tag, f'CKKS_{N_OP}_bootstrap_multi', slot_tag, f'level_{lv}')
+            x_list = [CkksCiphertextNode(level=lv, id=f'x_{i}', log_slots=log_slots) for i in range(N_OP)]
+            y_list = bootstrap(x_list, 'y')
+            process_custom_task(
+                input_args=[Argument('in_x_list', x_list)],
+                output_args=[Argument('out_y_list', y_list)],
+                output_instruction_path=task_dir,
+                processor=processor,
+            )
+
     @pytest.mark.at_level(3)
     def test_cmc_relin_rescale_bootstrap(self, param, lv, processor):
-        if processor == Processor.GPU:
-            pytest.skip('GPU bootstrap is temporarily disabled')
         if param is not _p1:
             pytest.skip('only runs for default param (n=16384)')
         set_fhe_param(param)
@@ -701,12 +717,13 @@ class TestTask:
             )
             x_list = [CkksCiphertextNode(level=lv, id=f'x_{i}', log_slots=lhs_log_slots) for i in range(N_OP)]
             y_list = [CkksCiphertextNode(level=lv, id=f'y_{i}', log_slots=rhs_log_slots) for i in range(N_OP)]
-            z_list = []
+            z_dropped_list = []
             for i in range(N_OP):
                 z = mult_relin(x_list[i], y_list[i], f'z_relin_{i}')
                 z_rescaled = rescale(z, f'z_rescaled_{i}')
-                z_dropped = drop_level(z_rescaled, drop_level=2, output_id=f'z_dropped_{i}')
-                z_list.append(bootstrap(z_dropped, f'z_{i}'))
+                z_dropped_list.append(drop_level(z_rescaled, drop_level=2, output_id=f'z_dropped_{i}'))
+            # All dropped ciphertexts are bootstrapped together through one node.
+            z_list = bootstrap(z_dropped_list, 'z')
             process_custom_task(
                 input_args=[Argument('in_x_list', x_list), Argument('in_y_list', y_list)],
                 output_args=[Argument('out_z_list', z_list)],

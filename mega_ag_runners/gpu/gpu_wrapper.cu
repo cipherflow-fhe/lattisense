@@ -55,7 +55,10 @@ template <heongpu::Scheme SchemeType>
 void init_gpu_context(const nlohmann::json& param_json,
                       heongpu::HEContext<SchemeType>& context,
                       std::unique_ptr<heongpu::HEEncoder<SchemeType>>& encoder,
-                      std::unique_ptr<heongpu::HEArithmeticOperator<SchemeType>>& operators) {
+                      std::unique_ptr<heongpu::HEArithmeticOperator<SchemeType>>& operators,
+                      heongpu::HEContext<SchemeType>& boot_context,
+                      std::unique_ptr<heongpu::HEEncoder<SchemeType>>& boot_encoder,
+                      std::unique_ptr<heongpu::HEArithmeticOperator<SchemeType>>& boot_operators) {
     auto log_n = param_json["log_n"].get<int>();
     auto n = 1 << log_n;
 
@@ -66,11 +69,12 @@ void init_gpu_context(const nlohmann::json& param_json,
     heongpu::MemoryPoolConfig pool_config = heongpu::MemoryPoolConfig::Defaults();
 
     if constexpr (SchemeType == heongpu::Scheme::CKKS) {
+        // The parameter carries the default scale as a log2 value.
+        double scale = std::ldexp(1.0, param_json["log_default_scale"].get<int>());
+
         context = heongpu::GenHEContext<SchemeType>(heongpu::sec_level_type::none);
         context->set_poly_modulus_degree(n);
-
-        int slots = n >> 1;
-        context->set_slot_count(slots);
+        context->set_default_scale(scale);
 
         std::vector<Data64> Q, P;
         for (int i = 0; i <= max_level; i++) {
@@ -86,37 +90,20 @@ void init_gpu_context(const nlohmann::json& param_json,
         encoder = std::make_unique<heongpu::HEEncoder<SchemeType>>(context);
         operators = std::make_unique<heongpu::HEArithmeticOperator<SchemeType>>(context, *encoder);
 
-        if (param_json.contains("btp_output_level")) {
-            int cts_start_level = param_json["btp_cts_start_level"].get<int>();
-            int cts_depth = param_json["btp_cts_depth"].get<int>();
-            double cts_bsgs_ratio = param_json["btp_cts_bsgs_ratio"].get<double>();
+        if (param_json.value("enable_bootstrapping", false)) {
+            heongpu::BootstrappingParamConfig param_config;
+            heongpu::BootstrappingConfigV3 boot_config_v3 = operators->generate_bootstrapping_config_v3(param_config);
 
-            uint64_t eval_mod_q = param_json["btp_eval_mod_q"].get<uint64_t>();
-            int eval_mod_start_level = param_json["btp_eval_mod_start_level"].get<int>();
-            double eval_mod_scaling_factor = param_json["btp_eval_mod_scaling_factor"].get<double>();
-            double eval_mod_message_ratio = param_json["btp_eval_mod_message_ratio"].get<double>();
-            int eval_mod_k = param_json["btp_eval_mod_k"].get<int>();
-            int eval_mod_sine_deg = param_json["btp_eval_mod_sine_deg"].get<int>();
-            int eval_mod_double_angle = param_json["btp_eval_mod_double_angle"].get<int>();
-            int eval_mod_arcsine_deg = param_json["btp_eval_mod_arcsine_deg"].get<int>();
+            boot_context = heongpu::GenHEContext<SchemeType>(heongpu::sec_level_type::none);
+            boot_context->set_poly_modulus_degree(std::size_t(1) << boot_config_v3.log_n_);
+            boot_context->set_default_scale(scale);
+            boot_context->set_coeff_modulus_values(boot_config_v3.q_, boot_config_v3.p_);
+            boot_context->generate();
 
-            int stc_start_level = param_json["btp_stc_start_level"].get<int>();
-            int stc_depth = param_json["btp_stc_depth"].get<int>();
-            double stc_bsgs_ratio = param_json["btp_stc_bsgs_ratio"].get<double>();
-
-            double scale = param_json["scale"].get<double>();
-
-            heongpu::EncodingMatrixConfig cts_config(heongpu::LinearTransformType::COEFFS_TO_SLOTS, cts_start_level,
-                                                     cts_bsgs_ratio, cts_depth);
-            heongpu::EvalModConfig eval_mod_config(eval_mod_q, eval_mod_start_level, eval_mod_message_ratio, eval_mod_k,
-                                                   eval_mod_sine_deg, eval_mod_double_angle, eval_mod_arcsine_deg,
-                                                   eval_mod_scaling_factor);
-            heongpu::EncodingMatrixConfig stc_config(heongpu::LinearTransformType::SLOTS_TO_COEFFS, stc_start_level,
-                                                     stc_bsgs_ratio, stc_depth);
-
-            heongpu::BootstrappingConfigV2 boot_config(stc_config, eval_mod_config, cts_config);
-
-            operators->generate_bootstrapping_params_v2(scale, boot_config);
+            boot_encoder = std::make_unique<heongpu::HEEncoder<SchemeType>>(boot_context);
+            boot_operators = std::make_unique<heongpu::HEArithmeticOperator<SchemeType>>(boot_context, *boot_encoder);
+            boot_operators->set_residual_context(context);
+            boot_operators->generate_bootstrapping_params_v3(boot_config_v3);
         }
 
     } else {
@@ -156,8 +143,12 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
     heongpu::HEContext<SchemeType> context;
     std::unique_ptr<heongpu::HEEncoder<SchemeType>> encoder;
     std::unique_ptr<heongpu::HEArithmeticOperator<SchemeType>> operators;
+    heongpu::HEContext<SchemeType> boot_context;
+    std::unique_ptr<heongpu::HEEncoder<SchemeType>> boot_encoder;
+    std::unique_ptr<heongpu::HEArithmeticOperator<SchemeType>> boot_operators;
 
-    init_gpu_context<SchemeType>(mega_ag.parameter, context, encoder, operators);
+    init_gpu_context<SchemeType>(mega_ag.parameter, context, encoder, operators, boot_context, boot_encoder,
+                                 boot_operators);
 
     // GPU streams for FHE computations
     const int num_streams = 2;
@@ -219,8 +210,8 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
             gpu_pool.detach_task(
                 [task_id, pool_priority, device, &gpu_pool, &mega_ag, &m_mutex, &task_queue, &queued_computes,
                  &completed_tasks, &total_tasks, &completion_cv, &completion_mutex, &available_data, &operators,
-                 &encoder, &data_ready_events, &stream_options, &streams, &context, &galois_key, &galois_key_mutex,
-                 &data_ref_counts, &all_galois_elts, &galois_key_level, cancel_flag]() {
+                 &encoder, &boot_operators, &boot_context, &data_ready_events, &stream_options, &streams, &context,
+                 &galois_key, &galois_key_mutex, &data_ref_counts, &all_galois_elts, &galois_key_level, cancel_flag]() {
                     CHECK(cudaSetDevice(device));
                     if (cancel_flag && cancel_flag->load()) {
                         return;
@@ -275,30 +266,30 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
                     }
 
                     // Execute computation using unified executor
-                    H2DBatch h2d_batch;
-                    D2HBatch d2h_batch;
                     ExecutionContext exec_ctx;
                     exec_ctx.context = operators.get();
                     exec_ctx.other_args.push_back(&stream_options[stream_id]);
                     exec_ctx.other_args.push_back(&context);
+
+                    // The bootstrapping operator is passed as an other_arg to the
+                    // BOOTSTRAP nodes (which have no LOAD_TO_BACKEND, so index 2).
+                    if (compute_contains_operation(compute_node, OperationType::BOOTSTRAP)) {
+                        exec_ctx.other_args.push_back(boot_operators.get());
+                    }
 
                     if (has_load_to_backend) {
                         exec_ctx.other_args.push_back(&galois_key);
                         exec_ctx.other_args.push_back(&galois_key_mutex);
                         exec_ctx.other_args.push_back(&all_galois_elts);
                         exec_ctx.other_args.push_back(&galois_key_level);
-                        exec_ctx.other_args.push_back(&h2d_batch);
-                    }
-                    if (has_store_from_backend) {
-                        exec_ctx.other_args.push_back(&d2h_batch);
+                        exec_ctx.other_args.push_back(&boot_context);
                     }
 
-                    compute_node.execute(exec_ctx, thread_data_cache);
-                    if (has_load_to_backend) {
-                        h2d_batch.submit(streams[stream_id]);
-                    }
-                    if (has_store_from_backend) {
-                        d2h_batch.submit(streams[stream_id]);
+                    try {
+                        compute_node.execute(exec_ctx, thread_data_cache);
+                    } catch (const std::exception& e) {
+                        fprintf(stderr, ">>> GPU task %s threw: %s\n", task_id.c_str(), e.what());
+                        throw;
                     }
 
                     // Create events for GPU backend outputs (not STORE_FROM_BACKEND which outputs to C struct)

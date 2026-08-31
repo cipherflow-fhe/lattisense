@@ -54,8 +54,8 @@ find_package(Threads REQUIRED)
 
 set(LATTISENSE_CUDA_ARCH "" CACHE STRING
     "CUDA architecture (e.g., 80 for A100, 86 for RTX 30xx, 89 for RTX 40xx, 90 for H100). Required when LATTISENSE_ENABLE_GPU=ON")
-set(HEONGPU_CCCL_GIT_URL "" CACHE STRING "Optional CCCL mirror URL for HEonGPU dependency fetch")
-set(HEONGPU_SPDLOG_GIT_URL "" CACHE STRING "Optional spdlog mirror URL for HEonGPU dependency fetch")
+set(GPU_CORE_CCCL_GIT_URL "" CACHE STRING "Optional CCCL mirror URL for lattisense-gpu-core dependency fetch")
+set(GPU_CORE_SPDLOG_GIT_URL "" CACHE STRING "Optional spdlog mirror URL for lattisense-gpu-core dependency fetch")
 
 find_package(CUDAToolkit QUIET)
 
@@ -103,40 +103,40 @@ if(LATTISENSE_ENABLE_GPU)
         DESCRIPTION "FHE SDK Version 2.0"
     )
 
-    # ── HEonGPU integration ──────────────────────────────────────────────
-    set(HEONGPU_SOURCE_DIR "${LATTISENSE_ROOT_DIR}/backends/HEonGPU")
-    set(HEONGPU_BUILD_DIR  "${HEONGPU_SOURCE_DIR}/build")
-    set(HEONGPU_INSTALL_DIR "${HEONGPU_SOURCE_DIR}/install")
-    set(HEONGPU_CACHE_MARKER ".heongpu_cache_key")
+    # ── lattisense-gpu-core integration ──────────────────────────────────
+    set(GPU_CORE_SOURCE_DIR "${LATTISENSE_ROOT_DIR}/backends/lattisense-gpu-core")
+    set(GPU_CORE_BUILD_DIR  "${GPU_CORE_SOURCE_DIR}/build")
+    set(GPU_CORE_INSTALL_DIR "${GPU_CORE_SOURCE_DIR}/install")
+    set(GPU_CORE_CACHE_MARKER ".gpu_core_cache_key")
 
     execute_process(
-        COMMAND git -C ${HEONGPU_SOURCE_DIR} rev-parse HEAD
-        OUTPUT_VARIABLE HEONGPU_COMMIT
+        COMMAND git -C ${GPU_CORE_SOURCE_DIR} rev-parse HEAD
+        OUTPUT_VARIABLE GPU_CORE_COMMIT
         OUTPUT_STRIP_TRAILING_WHITESPACE
-        RESULT_VARIABLE heongpu_commit_result
+        RESULT_VARIABLE gpu_core_commit_result
         ERROR_QUIET
     )
-    if(NOT heongpu_commit_result EQUAL 0 OR HEONGPU_COMMIT STREQUAL "")
-        message(FATAL_ERROR "Failed to determine HEonGPU commit for cache validation")
+    if(NOT gpu_core_commit_result EQUAL 0 OR GPU_CORE_COMMIT STREQUAL "")
+        message(FATAL_ERROR "Failed to determine lattisense-gpu-core commit for cache validation")
     endif()
-    set(HEONGPU_CACHE_KEY "${HEONGPU_COMMIT}-arch${LATTISENSE_CUDA_ARCH}")
-    set(HEONGPU_INSTALL_CURRENT OFF)
+    set(GPU_CORE_CACHE_KEY "${GPU_CORE_COMMIT}-arch${LATTISENSE_CUDA_ARCH}")
+    set(GPU_CORE_INSTALL_CURRENT OFF)
 
-    if(EXISTS "${HEONGPU_INSTALL_DIR}/lib" AND EXISTS "${HEONGPU_INSTALL_DIR}/${HEONGPU_CACHE_MARKER}")
-        file(READ "${HEONGPU_INSTALL_DIR}/${HEONGPU_CACHE_MARKER}" HEONGPU_INSTALLED_CACHE_KEY)
-        string(STRIP "${HEONGPU_INSTALLED_CACHE_KEY}" HEONGPU_INSTALLED_CACHE_KEY)
-        if(HEONGPU_INSTALLED_CACHE_KEY STREQUAL HEONGPU_CACHE_KEY)
-            set(HEONGPU_INSTALL_CURRENT ON)
+    if(EXISTS "${GPU_CORE_INSTALL_DIR}/lib" AND EXISTS "${GPU_CORE_INSTALL_DIR}/${GPU_CORE_CACHE_MARKER}")
+        file(READ "${GPU_CORE_INSTALL_DIR}/${GPU_CORE_CACHE_MARKER}" GPU_CORE_INSTALLED_CACHE_KEY)
+        string(STRIP "${GPU_CORE_INSTALLED_CACHE_KEY}" GPU_CORE_INSTALLED_CACHE_KEY)
+        if(GPU_CORE_INSTALLED_CACHE_KEY STREQUAL GPU_CORE_CACHE_KEY)
+            set(GPU_CORE_INSTALL_CURRENT ON)
         endif()
     endif()
 
-    if(EXISTS "${HEONGPU_INSTALL_DIR}/lib" AND NOT HEONGPU_INSTALL_CURRENT)
-        message(STATUS "HEonGPU install cache key mismatch; reinstalling ${HEONGPU_CACHE_KEY}")
-        file(REMOVE_RECURSE "${HEONGPU_INSTALL_DIR}")
+    if(EXISTS "${GPU_CORE_INSTALL_DIR}/lib" AND NOT GPU_CORE_INSTALL_CURRENT)
+        message(STATUS "lattisense-gpu-core install cache key mismatch; reinstalling ${GPU_CORE_CACHE_KEY}")
+        file(REMOVE_RECURSE "${GPU_CORE_INSTALL_DIR}")
     endif()
 
-    if(NOT HEONGPU_INSTALL_CURRENT)
-        message(STATUS "HEonGPU not found for ${HEONGPU_CACHE_KEY}, building automatically...")
+    if(NOT GPU_CORE_INSTALL_CURRENT)
+        message(STATUS "lattisense-gpu-core not found for ${GPU_CORE_CACHE_KEY}, building automatically...")
 
         # Determine parallel jobs
         include(ProcessorCount)
@@ -146,104 +146,104 @@ if(LATTISENSE_ENABLE_GPU)
         endif()
 
         # Step 1: configure
-        # Forward CPM_SOURCE_CACHE so HEonGPU's dependencies (CCCL, etc.)
+        # Forward CPM_SOURCE_CACHE so lattisense-gpu-core's dependencies (CCCL, etc.)
         # are cached across rebuilds.
-        set(_heongpu_extra_args)
+        set(_gpu_core_extra_args)
         if(DEFINED ENV{CPM_SOURCE_CACHE})
-            list(APPEND _heongpu_extra_args "-DCPM_SOURCE_CACHE=$ENV{CPM_SOURCE_CACHE}")
+            list(APPEND _gpu_core_extra_args "-DCPM_SOURCE_CACHE=$ENV{CPM_SOURCE_CACHE}")
         elseif(DEFINED CPM_SOURCE_CACHE)
-            list(APPEND _heongpu_extra_args "-DCPM_SOURCE_CACHE=${CPM_SOURCE_CACHE}")
+            list(APPEND _gpu_core_extra_args "-DCPM_SOURCE_CACHE=${CPM_SOURCE_CACHE}")
         endif()
 
         # Generate a rapids-cmake override file to use dependency mirrors if specified.
         set(_override_packages)
-        if(HEONGPU_CCCL_GIT_URL)
-            list(APPEND _override_packages [=["CCCL":{"git_url":"@HEONGPU_CCCL_GIT_URL@"}]=])
-            message(STATUS "[HEonGPU] Using CCCL mirror: ${HEONGPU_CCCL_GIT_URL}")
+        if(GPU_CORE_CCCL_GIT_URL)
+            list(APPEND _override_packages [=["CCCL":{"git_url":"@GPU_CORE_CCCL_GIT_URL@"}]=])
+            message(STATUS "[lattisense-gpu-core] Using CCCL mirror: ${GPU_CORE_CCCL_GIT_URL}")
         endif()
-        if(HEONGPU_SPDLOG_GIT_URL)
-            list(APPEND _override_packages [=["spdlog":{"git_url":"@HEONGPU_SPDLOG_GIT_URL@"}]=])
-            message(STATUS "[HEonGPU] Using spdlog mirror: ${HEONGPU_SPDLOG_GIT_URL}")
+        if(GPU_CORE_SPDLOG_GIT_URL)
+            list(APPEND _override_packages [=["spdlog":{"git_url":"@GPU_CORE_SPDLOG_GIT_URL@"}]=])
+            message(STATUS "[lattisense-gpu-core] Using spdlog mirror: ${GPU_CORE_SPDLOG_GIT_URL}")
         endif()
         if(_override_packages)
             list(JOIN _override_packages "," _override_packages_json)
             set(_override_json "{\"packages\":{${_override_packages_json}}}")
-            string(REPLACE "@HEONGPU_CCCL_GIT_URL@" "${HEONGPU_CCCL_GIT_URL}" _override_json "${_override_json}")
-            string(REPLACE "@HEONGPU_SPDLOG_GIT_URL@" "${HEONGPU_SPDLOG_GIT_URL}" _override_json "${_override_json}")
-            set(_override_file "${HEONGPU_BUILD_DIR}/dependency_overrides.json")
+            string(REPLACE "@GPU_CORE_CCCL_GIT_URL@" "${GPU_CORE_CCCL_GIT_URL}" _override_json "${_override_json}")
+            string(REPLACE "@GPU_CORE_SPDLOG_GIT_URL@" "${GPU_CORE_SPDLOG_GIT_URL}" _override_json "${_override_json}")
+            set(_override_file "${GPU_CORE_BUILD_DIR}/dependency_overrides.json")
             file(WRITE "${_override_file}" "${_override_json}")
-            list(APPEND _heongpu_extra_args "-DRAPIDS_CMAKE_CPM_OVERRIDE_VERSION_FILE=${_override_file}")
+            list(APPEND _gpu_core_extra_args "-DRAPIDS_CMAKE_CPM_OVERRIDE_VERSION_FILE=${_override_file}")
         endif()
 
-        message(STATUS "[HEonGPU] Configuring...")
+        message(STATUS "[lattisense-gpu-core] Configuring...")
         execute_process(
             COMMAND ${CMAKE_COMMAND}
-                -S ${HEONGPU_SOURCE_DIR}
-                -B ${HEONGPU_BUILD_DIR}
+                -S ${GPU_CORE_SOURCE_DIR}
+                -B ${GPU_CORE_BUILD_DIR}
                 -DCMAKE_CUDA_ARCHITECTURES=${LATTISENSE_CUDA_ARCH}
                 -DCMAKE_CUDA_COMPILER=${CMAKE_CUDA_COMPILER}
                 -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
                 -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
-                -DCMAKE_INSTALL_PREFIX=${HEONGPU_INSTALL_DIR}
+                -DCMAKE_INSTALL_PREFIX=${GPU_CORE_INSTALL_DIR}
                 -DCMAKE_BUILD_TYPE=Release
                 -DHEonGPU_BUILD_TESTS=OFF
                 -DHEonGPU_BUILD_EXAMPLES=OFF
                 -DHEonGPU_BUILD_BENCHMARKS=OFF
                 -Wno-dev
-                ${_heongpu_extra_args}
-            RESULT_VARIABLE heongpu_config_result
+                ${_gpu_core_extra_args}
+            RESULT_VARIABLE gpu_core_config_result
             COMMAND_ECHO STDOUT
         )
-        if(NOT heongpu_config_result EQUAL 0)
-            message(FATAL_ERROR "[HEonGPU] Configure failed (exit ${heongpu_config_result})")
+        if(NOT gpu_core_config_result EQUAL 0)
+            message(FATAL_ERROR "[lattisense-gpu-core] Configure failed (exit ${gpu_core_config_result})")
         endif()
-        message(STATUS "[HEonGPU] Configure done.")
+        message(STATUS "[lattisense-gpu-core] Configure done.")
 
         # Step 2: build
-        message(STATUS "[HEonGPU] Building (parallel ${NPROC})...")
+        message(STATUS "[lattisense-gpu-core] Building (parallel ${NPROC})...")
         execute_process(
             COMMAND ${CMAKE_COMMAND}
-                --build ${HEONGPU_BUILD_DIR}
+                --build ${GPU_CORE_BUILD_DIR}
                 --parallel ${NPROC}
-            RESULT_VARIABLE heongpu_build_result
+            RESULT_VARIABLE gpu_core_build_result
             COMMAND_ECHO STDOUT
         )
-        if(NOT heongpu_build_result EQUAL 0)
-            message(FATAL_ERROR "[HEonGPU] Build failed (exit ${heongpu_build_result})")
+        if(NOT gpu_core_build_result EQUAL 0)
+            message(FATAL_ERROR "[lattisense-gpu-core] Build failed (exit ${gpu_core_build_result})")
         endif()
-        message(STATUS "[HEonGPU] Build done.")
+        message(STATUS "[lattisense-gpu-core] Build done.")
 
         # Step 3: install
-        message(STATUS "[HEonGPU] Installing to ${HEONGPU_INSTALL_DIR}...")
+        message(STATUS "[lattisense-gpu-core] Installing to ${GPU_CORE_INSTALL_DIR}...")
         execute_process(
             COMMAND ${CMAKE_COMMAND}
-                --install ${HEONGPU_BUILD_DIR}
-            RESULT_VARIABLE heongpu_install_result
+                --install ${GPU_CORE_BUILD_DIR}
+            RESULT_VARIABLE gpu_core_install_result
             COMMAND_ECHO STDOUT
         )
-        if(NOT heongpu_install_result EQUAL 0)
-            message(FATAL_ERROR "[HEonGPU] Install failed (exit ${heongpu_install_result})")
+        if(NOT gpu_core_install_result EQUAL 0)
+            message(FATAL_ERROR "[lattisense-gpu-core] Install failed (exit ${gpu_core_install_result})")
         endif()
-        file(WRITE "${HEONGPU_INSTALL_DIR}/${HEONGPU_CACHE_MARKER}" "${HEONGPU_CACHE_KEY}\n")
-        message(STATUS "[HEonGPU] Install done.")
+        file(WRITE "${GPU_CORE_INSTALL_DIR}/${GPU_CORE_CACHE_MARKER}" "${GPU_CORE_CACHE_KEY}\n")
+        message(STATUS "[lattisense-gpu-core] Install done.")
     else()
-        message(STATUS "Found existing HEonGPU installation at ${HEONGPU_INSTALL_DIR} (${HEONGPU_CACHE_KEY})")
+        message(STATUS "Found existing lattisense-gpu-core installation at ${GPU_CORE_INSTALL_DIR} (${GPU_CORE_CACHE_KEY})")
     endif()
 
-    # ── find HEonGPU and its dependencies ────────────────────────────────
-    list(APPEND CMAKE_PREFIX_PATH "${HEONGPU_INSTALL_DIR}")
-    # Add CCCL from HEonGPU build directory
-    if(EXISTS "${HEONGPU_BUILD_DIR}/_deps/cccl-src/lib/cmake/cccl")
-        list(APPEND CMAKE_PREFIX_PATH "${HEONGPU_BUILD_DIR}/_deps/cccl-src/lib/cmake/cccl")
+    # ── find lattisense-gpu-core and its dependencies ────────────────────
+    list(APPEND CMAKE_PREFIX_PATH "${GPU_CORE_INSTALL_DIR}")
+    # Add CCCL from lattisense-gpu-core build directory
+    if(EXISTS "${GPU_CORE_BUILD_DIR}/_deps/cccl-src/lib/cmake/cccl")
+        list(APPEND CMAKE_PREFIX_PATH "${GPU_CORE_BUILD_DIR}/_deps/cccl-src/lib/cmake/cccl")
     endif()
-    include_directories("${HEONGPU_INSTALL_DIR}/include")
-    link_directories("${HEONGPU_INSTALL_DIR}/lib")
+    include_directories("${GPU_CORE_INSTALL_DIR}/include")
+    link_directories("${GPU_CORE_INSTALL_DIR}/lib")
     find_package(CUDAToolkit REQUIRED)
     find_package(HEonGPU REQUIRED)
     set(CMAKE_CUDA_FLAGS_DEBUG "${CMAKE_CUDA_FLAGS_DEBUG} -g")
     set(CMAKE_CUDA_FLAGS_RELEASE "${CMAKE_CUDA_FLAGS_RELEASE} -O3")
 
-    message(STATUS "GPU support enabled with HEonGPU (CUDA arch: ${LATTISENSE_CUDA_ARCH})")
+    message(STATUS "GPU support enabled with lattisense-gpu-core (CUDA arch: ${LATTISENSE_CUDA_ARCH})")
 endif()
 
 # standard

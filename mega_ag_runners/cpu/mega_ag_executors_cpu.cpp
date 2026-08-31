@@ -409,8 +409,24 @@ template <HEScheme SchemeType> void bind_cpu_bootstrap(ComputeNode& node) {
         node.executor = [](ExecutionContext& ctx, std::unordered_map<NodeId, std::any>& local_data,
                            const ComputeNode& self) -> void {
             auto& context = _get_context<SchemeType>(ctx);
-            auto& input0 = _get_input_data<CiphertextType>(local_data, *self.input_nodes[0]);
-            local_data[self.output_nodes[0]->id] = std::make_shared<CiphertextType>(context.bootstrap(input0));
+
+            std::vector<CiphertextType> inputs;
+            for (const auto* in : self.input_nodes) {
+                if (in->datum_type == DataType::TYPE_CIPHERTEXT) {
+                    inputs.push_back(std::move(_get_input_data<CiphertextType>(local_data, *in)));
+                }
+            }
+            if (inputs.empty()) {
+                throw std::runtime_error("CPU BOOTSTRAP requires at least one ciphertext input");
+            }
+            auto outputs = context.bootstrap(inputs);
+            if (outputs.size() != self.output_nodes.size()) {
+                throw std::runtime_error("CPU BOOTSTRAP output count mismatch: got " + std::to_string(outputs.size()) +
+                                         " outputs, expected " + std::to_string(self.output_nodes.size()));
+            }
+            for (size_t i = 0; i < self.output_nodes.size(); i++) {
+                local_data[self.output_nodes[i]->id] = std::make_shared<CiphertextType>(std::move(outputs[i]));
+            }
         };
     } else {
         throw std::runtime_error("BOOTSTRAP only supported for CKKS scheme");

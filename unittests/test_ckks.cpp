@@ -826,23 +826,57 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS bootstrap", "[.]", CkksTestDefaultP
     for (int log_slots : unary_slot_cases(this->param)) {
         string slot_tag = unary_slot_tag(log_slots);
         SECTION(slot_tag + " lv=0") {
-            auto xv = new_test_complex_cts(this->n_op, this->ctx, 0, log_slots);
-            vector<CkksCiphertext> y_list;
-            y_list.reserve(this->n_op);
-            for (int _i = 0; _i < this->n_op; _i++)
-                y_list.push_back(CkksCiphertext(this->param, this->max_level));
-            string path = cpu_base_path + "/" + this->tag + "/CKKS_" + to_string(this->n_op) + "_bootstrap/" +
-                          slot_tag + "/level_0";
-            FheTaskCpu proj(path);
-            vector<CxxVectorArgument> args = {
-                {"in_x_list", &xv.ciphertexts()},
-                {"out_y_list", &y_list},
-            };
-            proj.run(&this->ctx, args);
+            string relative_path = this->tag + "/CKKS_" + to_string(this->n_op) + "_bootstrap/" + slot_tag + "/level_0";
+            run_ckks_backends("", relative_path, [&](auto& proj) {
+                auto xv = new_test_complex_cts(this->n_op, this->ctx, 0, log_slots);
+                vector<CkksCiphertext> y_list;
+                y_list.reserve(this->n_op);
+                for (int _i = 0; _i < this->n_op; _i++)
+                    y_list.push_back(
+                        CkksCiphertext(this->param, this->max_level));  // full bootstrap refreshes to max level
+                vector<CxxVectorArgument> args = {
+                    {"in_x_list", &xv.ciphertexts()},
+                    {"out_y_list", &y_list},
+                };
+                proj.run(&this->ctx, args);
 
-            const int bootstrap_log2_min_prec = std::max(this->param.log_default_scale() - this->param.log_n() - 12, 0);
-            for (int i = 0; i < this->n_op; i++)
-                verify_ckks_precision(this->ctx, xv.messages()[i], y_list[i], bootstrap_log2_min_prec);
+                const int bootstrap_log2_min_prec =
+                    std::max(this->param.log_default_scale() - this->param.log_n() - 12, 0);
+                for (int i = 0; i < this->n_op; i++)
+                    verify_ckks_precision(this->ctx, xv.messages()[i], y_list[i], bootstrap_log2_min_prec,
+                                          /*print_precision_stats=*/true);
+            });
+        }
+    }
+}
+
+// Multiple ciphertexts bootstrapped together through a single node
+// (frontend list form; the backend evaluates them in one bootstrap_many call).
+TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS bootstrap_multi", "[.]", CkksTestDefaultParams) {
+    this->ctx.create_bootstrapper();
+    for (int log_slots : unary_slot_cases(this->param)) {
+        string slot_tag = unary_slot_tag(log_slots);
+        SECTION(slot_tag + " lv=0") {
+            string relative_path =
+                this->tag + "/CKKS_" + to_string(this->n_op) + "_bootstrap_multi/" + slot_tag + "/level_0";
+            run_ckks_backends("", relative_path, [&](auto& proj) {
+                auto xv = new_test_complex_cts(this->n_op, this->ctx, 0, log_slots);
+                vector<CkksCiphertext> y_list;
+                y_list.reserve(this->n_op);
+                for (int _i = 0; _i < this->n_op; _i++)
+                    y_list.push_back(CkksCiphertext(this->param, this->max_level));
+                vector<CxxVectorArgument> args = {
+                    {"in_x_list", &xv.ciphertexts()},
+                    {"out_y_list", &y_list},
+                };
+                proj.run(&this->ctx, args);
+
+                const int bootstrap_log2_min_prec =
+                    std::max(this->param.log_default_scale() - this->param.log_n() - 12, 0);
+                for (int i = 0; i < this->n_op; i++)
+                    verify_ckks_precision(this->ctx, xv.messages()[i], y_list[i], bootstrap_log2_min_prec,
+                                          /*print_precision_stats=*/true);
+            });
         }
     }
 }
@@ -853,29 +887,33 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS cmc_relin_rescale_bootstrap", "[.]"
         string slot_tag = binary_slot_tag(lhs_log_slots, rhs_log_slots);
         SECTION(slot_tag + " lv=3") {
             int level = 3;
-            auto xv = new_test_complex_cts(this->n_op, this->ctx, level, lhs_log_slots);
-            auto yv = new_test_complex_cts(this->n_op, this->ctx, level, rhs_log_slots);
-            vector<CkksCiphertext> z_list;
-            z_list.reserve(this->n_op);
-            for (int _i = 0; _i < this->n_op; _i++)
-                z_list.push_back(CkksCiphertext(this->param, this->max_level));
-            string path = cpu_base_path + "/" + this->tag + "/CKKS_" + to_string(this->n_op) +
-                          "_cmc_relin_rescale_bootstrap/" + slot_tag + "/level_3";
-            FheTaskCpu proj(path);
-            vector<CxxVectorArgument> args = {
-                {"in_x_list", &xv.ciphertexts()},
-                {"in_y_list", &yv.ciphertexts()},
-                {"out_z_list", &z_list},
-            };
-            proj.run(&this->ctx, args);
+            string relative_path =
+                this->tag + "/CKKS_" + to_string(this->n_op) + "_cmc_relin_rescale_bootstrap/" + slot_tag + "/level_3";
+            run_ckks_backends("", relative_path, [&](auto& proj) {
+                auto xv = new_test_complex_cts(this->n_op, this->ctx, level, lhs_log_slots);
+                auto yv = new_test_complex_cts(this->n_op, this->ctx, level, rhs_log_slots);
+                vector<CkksCiphertext> z_list;
+                z_list.reserve(this->n_op);
+                for (int _i = 0; _i < this->n_op; _i++)
+                    z_list.push_back(CkksCiphertext(this->param, this->max_level));
+                vector<CxxVectorArgument> args = {
+                    {"in_x_list", &xv.ciphertexts()},
+                    {"in_y_list", &yv.ciphertexts()},
+                    {"out_z_list", &z_list},
+                };
+                proj.run(&this->ctx, args);
 
-            int output_log_slots = std::max(lhs_log_slots, rhs_log_slots);
-            const int bootstrap_log2_min_prec = std::max(this->param.log_default_scale() - this->param.log_n() - 12, 0);
-            for (int i = 0; i < this->n_op; i++) {
-                vector<complex<double>> lhs = expand_to_log_slots(xv.messages()[i], lhs_log_slots, output_log_slots);
-                vector<complex<double>> rhs = expand_to_log_slots(yv.messages()[i], rhs_log_slots, output_log_slots);
-                verify_ckks_precision(this->ctx, vec_mul(lhs, rhs), z_list[i], bootstrap_log2_min_prec);
-            }
+                int output_log_slots = std::max(lhs_log_slots, rhs_log_slots);
+                const int bootstrap_log2_min_prec =
+                    std::max(this->param.log_default_scale() - this->param.log_n() - 12, 0);
+                for (int i = 0; i < this->n_op; i++) {
+                    vector<complex<double>> lhs =
+                        expand_to_log_slots(xv.messages()[i], lhs_log_slots, output_log_slots);
+                    vector<complex<double>> rhs =
+                        expand_to_log_slots(yv.messages()[i], rhs_log_slots, output_log_slots);
+                    verify_ckks_precision(this->ctx, vec_mul(lhs, rhs), z_list[i], bootstrap_log2_min_prec);
+                }
+            });
         }
     }
 }

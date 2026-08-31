@@ -34,7 +34,7 @@ jobs:
         --device=/dev/xdma0_h2c_3:/dev/xdma0_h2c_3
         --device=/dev/xdma0_user:/dev/xdma0_user
       volumes:
-        - /opt/heongpu-cache:/opt/heongpu-cache
+        - /opt/gpu-core-cache:/opt/gpu-core-cache
         - /opt/go-mod-cache:/root/go/pkg/mod
         - /var/lock:/var/lock
     timeout-minutes: 60
@@ -86,32 +86,32 @@ jobs:
           nvidia-smi --query-gpu=name --format=csv,noheader
           python3 --version
 
-      - name: Restore HEonGPU cache
+      - name: Restore lattisense-gpu-core cache
         run: |
-          HEONGPU_COMMIT=$(git -C backends/HEonGPU rev-parse HEAD)
+          GPU_CORE_COMMIT=$(git -C backends/lattisense-gpu-core rev-parse HEAD)
           CUDA_ARCH=86
-          HEONGPU_CACHE_KEY="${HEONGPU_COMMIT}-arch${CUDA_ARCH}"
-          HEONGPU_CACHE_MARKER=".heongpu_cache_key"
-          CACHE_DIR="/opt/heongpu-cache/${HEONGPU_CACHE_KEY}"
+          GPU_CORE_CACHE_KEY="${GPU_CORE_COMMIT}-arch${CUDA_ARCH}"
+          GPU_CORE_CACHE_MARKER=".gpu_core_cache_key"
+          CACHE_DIR="/opt/gpu-core-cache/${GPU_CORE_CACHE_KEY}"
 
-          if [ -d backends/HEonGPU/install/lib ] && \
-             [ -d backends/HEonGPU/build ] && \
-             [ -f "backends/HEonGPU/install/${HEONGPU_CACHE_MARKER}" ] && \
-             [ "$(cat "backends/HEonGPU/install/${HEONGPU_CACHE_MARKER}")" = "${HEONGPU_CACHE_KEY}" ]; then
-            echo "Using existing HEonGPU build (${HEONGPU_COMMIT:0:8}, arch=${CUDA_ARCH})"
+          if [ -d backends/lattisense-gpu-core/install/lib ] && \
+             [ -d backends/lattisense-gpu-core/build ] && \
+             [ -f "backends/lattisense-gpu-core/install/${GPU_CORE_CACHE_MARKER}" ] && \
+             [ "$(cat "backends/lattisense-gpu-core/install/${GPU_CORE_CACHE_MARKER}")" = "${GPU_CORE_CACHE_KEY}" ]; then
+            echo "Using existing lattisense-gpu-core build (${GPU_CORE_COMMIT:0:8}, arch=${CUDA_ARCH})"
           else
-            rm -rf backends/HEonGPU/build backends/HEonGPU/install
+            rm -rf backends/lattisense-gpu-core/build backends/lattisense-gpu-core/install
             if [ -d "${CACHE_DIR}/install/lib" ] && \
                [ -d "${CACHE_DIR}/build" ] && \
-               [ -f "${CACHE_DIR}/install/${HEONGPU_CACHE_MARKER}" ] && \
-               [ "$(cat "${CACHE_DIR}/install/${HEONGPU_CACHE_MARKER}")" = "${HEONGPU_CACHE_KEY}" ]; then
-              echo "Using cached HEonGPU (${HEONGPU_COMMIT:0:8}, arch=${CUDA_ARCH})"
-              cp -a "${CACHE_DIR}/install" backends/HEonGPU/install
-              cp -a "${CACHE_DIR}/build" backends/HEonGPU/build
-              find backends/HEonGPU/install -name '*.cmake' -exec sed -i \
-                "s|${GITHUB_WORKSPACE}/HEonGPU/|${GITHUB_WORKSPACE}/backends/HEonGPU/|g" {} +
+               [ -f "${CACHE_DIR}/install/${GPU_CORE_CACHE_MARKER}" ] && \
+               [ "$(cat "${CACHE_DIR}/install/${GPU_CORE_CACHE_MARKER}")" = "${GPU_CORE_CACHE_KEY}" ]; then
+              echo "Using cached lattisense-gpu-core (${GPU_CORE_COMMIT:0:8}, arch=${CUDA_ARCH})"
+              cp -a "${CACHE_DIR}/install" backends/lattisense-gpu-core/install
+              cp -a "${CACHE_DIR}/build" backends/lattisense-gpu-core/build
+              find backends/lattisense-gpu-core/install -name '*.cmake' -exec sed -i \
+                "s|${GITHUB_WORKSPACE}/lattisense-gpu-core/|${GITHUB_WORKSPACE}/backends/lattisense-gpu-core/|g" {} +
             else
-              echo "No matching HEonGPU cache found; HEonGPU will be built during cmake configure"
+              echo "No matching lattisense-gpu-core cache found; lattisense-gpu-core will be built during cmake configure"
             fi
           fi
 
@@ -123,27 +123,27 @@ jobs:
             -DLATTISENSE_ENABLE_GPU=ON \
             -DLATTISENSE_ENABLE_FPGA=ON \
             -DLATTISENSE_CUDA_ARCH=86 \
-            -DHEONGPU_CCCL_GIT_URL=https://gitee.com/nvidia_mirror/cccl.git
+            -DGPU_CORE_CCCL_GIT_URL=https://gitee.com/nvidia_mirror/cccl.git
           cmake --build build -j$(nproc)
 
-      - name: Save HEonGPU cache
+      - name: Save lattisense-gpu-core cache
         run: |
-          HEONGPU_COMMIT=$(git -C backends/HEonGPU rev-parse HEAD)
+          GPU_CORE_COMMIT=$(git -C backends/lattisense-gpu-core rev-parse HEAD)
           CUDA_ARCH=86
-          HEONGPU_CACHE_KEY="${HEONGPU_COMMIT}-arch${CUDA_ARCH}"
-          HEONGPU_CACHE_MARKER=".heongpu_cache_key"
-          CACHE_DIR="/opt/heongpu-cache/${HEONGPU_CACHE_KEY}"
-          if [ -d "backends/HEonGPU/install/lib" ] && \
+          GPU_CORE_CACHE_KEY="${GPU_CORE_COMMIT}-arch${CUDA_ARCH}"
+          GPU_CORE_CACHE_MARKER=".gpu_core_cache_key"
+          CACHE_DIR="/opt/gpu-core-cache/${GPU_CORE_CACHE_KEY}"
+          if [ -d "backends/lattisense-gpu-core/install/lib" ] && \
              { [ ! -d "${CACHE_DIR}/install/lib" ] || \
-               [ ! -f "${CACHE_DIR}/install/${HEONGPU_CACHE_MARKER}" ] || \
-               [ "$(cat "${CACHE_DIR}/install/${HEONGPU_CACHE_MARKER}" 2>/dev/null)" != "${HEONGPU_CACHE_KEY}" ]; }; then
-            echo "Saving HEonGPU build to cache"
-            echo "${HEONGPU_CACHE_KEY}" > "backends/HEonGPU/install/${HEONGPU_CACHE_MARKER}"
+               [ ! -f "${CACHE_DIR}/install/${GPU_CORE_CACHE_MARKER}" ] || \
+               [ "$(cat "${CACHE_DIR}/install/${GPU_CORE_CACHE_MARKER}" 2>/dev/null)" != "${GPU_CORE_CACHE_KEY}" ]; }; then
+            echo "Saving lattisense-gpu-core build to cache"
+            echo "${GPU_CORE_CACHE_KEY}" > "backends/lattisense-gpu-core/install/${GPU_CORE_CACHE_MARKER}"
             rm -rf "${CACHE_DIR}"
             mkdir -p "${CACHE_DIR}"
-            cp -a backends/HEonGPU/install "${CACHE_DIR}/"
-            cp -a backends/HEonGPU/build "${CACHE_DIR}/"
-            ls -dt /opt/heongpu-cache/*/ 2>/dev/null | tail -n +4 | xargs rm -rf 2>/dev/null || true
+            cp -a backends/lattisense-gpu-core/install "${CACHE_DIR}/"
+            cp -a backends/lattisense-gpu-core/build "${CACHE_DIR}/"
+            ls -dt /opt/gpu-core-cache/*/ 2>/dev/null | tail -n +4 | xargs rm -rf 2>/dev/null || true
           fi
 
       - name: Generate CPU/GPU test data
@@ -164,7 +164,7 @@ jobs:
         timeout-minutes: 20
         run: |
           cd build/unittests
-          export LD_LIBRARY_PATH=$GITHUB_WORKSPACE/build/lib:$GITHUB_WORKSPACE/backends/HEonGPU/install/lib:$LD_LIBRARY_PATH
+          export LD_LIBRARY_PATH=$GITHUB_WORKSPACE/build/lib:$GITHUB_WORKSPACE/backends/lattisense-gpu-core/install/lib:$LD_LIBRARY_PATH
           ./test_lattigo
           ./test_mp_lattigo
           ./test_bfv
@@ -218,7 +218,7 @@ jobs:
         timeout-minutes: 10
         run: |
           export PYTHONPATH=$GITHUB_WORKSPACE:$PYTHONPATH
-          export LD_LIBRARY_PATH=$GITHUB_WORKSPACE/build:$GITHUB_WORKSPACE/build/fhe_ops_lib:$GITHUB_WORKSPACE/fhe_ops_lib/lattigo/go_sdk:$GITHUB_WORKSPACE/backends/HEonGPU/install/lib:$LD_LIBRARY_PATH
+          export LD_LIBRARY_PATH=$GITHUB_WORKSPACE/build:$GITHUB_WORKSPACE/build/fhe_ops_lib:$GITHUB_WORKSPACE/fhe_ops_lib/lattigo/go_sdk:$GITHUB_WORKSPACE/backends/lattisense-gpu-core/install/lib:$LD_LIBRARY_PATH
 
           cd $GITHUB_WORKSPACE/build/examples/benchmark_gpu
           python3 benchmark_gpu.py && ./benchmark_gpu all

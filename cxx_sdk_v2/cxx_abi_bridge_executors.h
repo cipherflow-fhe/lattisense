@@ -112,18 +112,6 @@ inline ExecutorFunc create_abi_export_executor(Algo algorithm, bool heterogeneou
                     }
                     Metadata local_metadata = ct->metadata();
                     if (local_metadata != source_metadata) {
-                        printf("ABI export input metadata mismatch for data node %s\n"
-                               "local_metadata={is_ringt=%d, is_batched=%d, degree=%d, level=%d, log_slots=%d, "
-                               "scale=%f, is_ntt=%d, mform_bits=%d}\n"
-                               "source_metadata={is_ringt=%d, is_batched=%d, degree=%d, level=%d, log_slots=%d, "
-                               "scale=%f, is_ntt=%d, mform_bits=%d}\n",
-                               input_node->id.c_str(), static_cast<int>(local_metadata.is_ringt),
-                               static_cast<int>(local_metadata.is_batched), local_metadata.degree, local_metadata.level,
-                               local_metadata.log_slots, local_metadata.scale, static_cast<int>(local_metadata.is_ntt),
-                               local_metadata.mform_bits, static_cast<int>(source_metadata.is_ringt),
-                               static_cast<int>(source_metadata.is_batched), source_metadata.degree,
-                               source_metadata.level, source_metadata.log_slots, source_metadata.scale,
-                               static_cast<int>(source_metadata.is_ntt), source_metadata.mform_bits);
                         throw std::runtime_error("ABI export input metadata mismatch for data node " + input_node->id);
                     }
                     CCiphertext* c_ct = (CCiphertext*)malloc(sizeof(CCiphertext));
@@ -240,9 +228,10 @@ inline ExecutorFunc create_abi_export_executor(Algo algorithm, bool heterogeneou
             Metadata source_metadata = input_node->metadata();
             Metadata target_metadata = self.output_nodes[0]->metadata();
 
-            int sp_level = input_node->fhe_prop.has_value() && input_node->fhe_prop->p.has_value() ?
-                               input_node->fhe_prop->p->sp_level :
-                               -1;
+            bool is_bootstrap_key = input_node->fhe_prop.has_value() && input_node->fhe_prop->p.has_value() &&
+                                    input_node->fhe_prop->p->key_role == "bootstrap";
+
+            const CkksParameter& export_param = is_bootstrap_key ? ckks_ctx->bootstrapping_parameter() : param;
             switch (data_type) {
                 case DataType::TYPE_CIPHERTEXT: {
                     CkksCiphertext* ct = input_node->is_input ?
@@ -299,11 +288,7 @@ inline ExecutorFunc create_abi_export_executor(Algo algorithm, bool heterogeneou
                         if (abi_export_mutex == nullptr)
                             throw std::runtime_error("ABI export mutex not found");
                         std::lock_guard<std::mutex> lock(*abi_export_mutex);
-                        bool is_bootstrap_key = input_node->fhe_prop.has_value() &&
-                                                input_node->fhe_prop->p.has_value() &&
-                                                input_node->fhe_prop->p->key_role == "bootstrap";
                         if (is_bootstrap_key) {
-                            ckks_ctx->set_enable_bootstrapping(true);
                             ckks_ctx->set_bootstrapping_relin_key(*rlk);
                         } else {
                             ckks_ctx->set_relin_key(*rlk);
@@ -312,7 +297,7 @@ inline ExecutorFunc create_abi_export_executor(Algo algorithm, bool heterogeneou
                     }
 
                     CEvaluationKey* c_rlk = (CEvaluationKey*)malloc(sizeof(CEvaluationKey));
-                    export_evaluation_key(param.get(), rlk->get(), -1, &target_metadata, c_rlk);
+                    export_evaluation_key(export_param.get(), rlk->get(), -1, &target_metadata, c_rlk);
                     local_data[self.output_nodes[0]->id] =
                         std::shared_ptr<CEvaluationKey>(c_rlk, [](CEvaluationKey* p) {
                             free_evaluation_key(p);
@@ -332,11 +317,7 @@ inline ExecutorFunc create_abi_export_executor(Algo algorithm, bool heterogeneou
                         if (abi_export_mutex == nullptr)
                             throw std::runtime_error("ABI export mutex not found");
                         std::lock_guard<std::mutex> lock(*abi_export_mutex);
-                        bool is_bootstrap_key = input_node->fhe_prop.has_value() &&
-                                                input_node->fhe_prop->p.has_value() &&
-                                                input_node->fhe_prop->p->key_role == "bootstrap";
                         if (is_bootstrap_key) {
-                            ckks_ctx->set_enable_bootstrapping(true);
                             ckks_ctx->set_bootstrapping_galois_key(*glk);
                         } else {
                             ckks_ctx->set_galois_key(*glk);
@@ -344,7 +325,7 @@ inline ExecutorFunc create_abi_export_executor(Algo algorithm, bool heterogeneou
                         break;
                     }
                     CEvaluationKey* c_glk = (CEvaluationKey*)malloc(sizeof(CEvaluationKey));
-                    export_evaluation_key(param.get(), glk->get(), -1, &target_metadata, c_glk);
+                    export_evaluation_key(export_param.get(), glk->get(), -1, &target_metadata, c_glk);
                     local_data[self.output_nodes[0]->id] =
                         std::shared_ptr<CEvaluationKey>(c_glk, [](CEvaluationKey* p) {
                             free_evaluation_key(p);
@@ -365,11 +346,7 @@ inline ExecutorFunc create_abi_export_executor(Algo algorithm, bool heterogeneou
                         if (abi_export_mutex == nullptr)
                             throw std::runtime_error("ABI export mutex not found");
                         std::lock_guard<std::mutex> lock(*abi_export_mutex);
-                        bool is_bootstrap_key = input_node->fhe_prop.has_value() &&
-                                                input_node->fhe_prop->p.has_value() &&
-                                                input_node->fhe_prop->p->key_role == "bootstrap";
                         if (is_bootstrap_key) {
-                            ckks_ctx->set_enable_bootstrapping(true);
                             if (input_node->id == "evk_n1_to_n2") {
                                 ckks_ctx->set_evk_n1_to_n2(*evk);
                             } else if (input_node->id == "evk_n2_to_n1") {
@@ -384,7 +361,7 @@ inline ExecutorFunc create_abi_export_executor(Algo algorithm, bool heterogeneou
                     }
 
                     CEvaluationKey* c_evk = (CEvaluationKey*)malloc(sizeof(CEvaluationKey));
-                    export_evaluation_key(param.get(), evk->get(), sp_level, &target_metadata, c_evk);
+                    export_evaluation_key(export_param.get(), evk->get(), -1, &target_metadata, c_evk);
                     local_data[self.output_nodes[0]->id] =
                         std::shared_ptr<CEvaluationKey>(c_evk, [](CEvaluationKey* p) {
                             free_evaluation_key(p);

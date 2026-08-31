@@ -193,6 +193,7 @@ class CkksParam(Param):
         super().__init__(Algo.CKKS, log_n)
         self.log_default_scale: int = log_scale
         self.default_scale: float = 1 << log_scale
+        self.enable_bootstrapping: bool = False
 
     def set_log_scale(self, log_scale: int):
         self.log_default_scale = log_scale
@@ -226,6 +227,7 @@ class CkksParam(Param):
     def to_json_dict(self) -> dict:
         d = super().to_json_dict()
         d['log_default_scale'] = self.log_default_scale
+        d['enable_bootstrapping'] = self.enable_bootstrapping
         return d
 
 
@@ -489,6 +491,8 @@ class EvaluationKeyNode(FheDataNode):
         metadata = Metadata(is_ringt=False, is_batched=True, degree=1, level=level, mform_bits=64)
         super().__init__(type=type, metadata=metadata, id=id)
         self.sp_level = param.get_max_sp_level()
+        if key_role == 'bootstrap':
+            self.sp_level = -1
         if key_role:
             self.key_role = key_role
 
@@ -746,6 +750,7 @@ class BridgeDataNode(DataNode):
         self.metadata = Metadata(degree=-1, level=-1)
         self.sp_level: int | None = None
         self.galois_element: int | None = None
+        self.key_role: str = ''
 
     def __repr__(self) -> str:
         return f'(bridge_data, {self.id})'
@@ -768,6 +773,8 @@ class BridgeDataNode(DataNode):
                 d['sp_level'] = self.sp_level
             if self.galois_element is not None:
                 d['galois_element'] = self.galois_element
+            if self.key_role:
+                d['key_role'] = self.key_role
         return d
 
 
@@ -800,6 +807,7 @@ def _copy_bridge_data_attrs(dst: BridgeDataNode, src: DataNode, metadata: Metada
         dst.metadata = metadata.copy() if metadata is not None else src.metadata.copy()
         dst.sp_level = getattr(src, 'sp_level', None)
         dst.galois_element = getattr(src, 'galois_element', None)
+        dst.key_role = getattr(src, 'key_role', '')
 
 
 class BridgeComputeNode(ComputeNode):

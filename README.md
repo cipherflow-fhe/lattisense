@@ -15,7 +15,7 @@ While the FHE ecosystem is growing, it is often fragmented between low-level cry
 
 | **Category**              | **Focus**                                                    | **Examples**                             |
 | ------------------------- | ------------------------------------------------------------ | ---------------------------------------- |
-| **Crypto Libraries**      | Single-threaded (CPU) or single-stream (GPU) algorithm implementations | SEAL, OpenFHE, TFHE-rs, Lattigo, HEonGPU |
+| **Crypto Libraries**      | Single-threaded (CPU) or single-stream (GPU) algorithm implementations | SEAL, OpenFHE, TFHE-rs, Lattigo, lattisense-gpu-core |
 | **FHE Compilers**         | Translating high-level logic into low-level instructions     | HEIR, Concrete                           |
 | **FHE Schedulers**        | Runtime parallelization and orchestration                    | TFHE-rs, HLG                             |
 | **Hardware Accelerators** | Customized implementation of FHE algorithms on FPGA or ASIC  | Zama HPU, HERACLES                       |
@@ -132,7 +132,7 @@ The container includes the pre-built SDK, compilation toolchain, and project tem
 | Dependency | Version | Description |
 |------------|---------|-------------|
 | CUDA Toolkit | >= 11.4 | GPU compute support |
-| HEonGPU | 1.1 | GPU acceleration library (auto-built during cmake configure) |
+| lattisense-gpu-core | 1.1 | GPU acceleration library, fork of HEonGPU (auto-built during cmake configure) |
 
 #### 1. Clone Repository
 
@@ -178,8 +178,8 @@ sudo cmake --install build
 | `LATTISENSE_BUILD_EXAMPLES` | OFF | Build example programs |
 | `LATTISENSE_DEV` | OFF | Development mode (verbose logging) |
 | `LATTISENSE_BUILD_SEAL_PLUG_IN` | OFF | Build SEAL library plug-in (requires GPU) |
-| `HEONGPU_CCCL_GIT_URL` | empty | Optional CCCL mirror URL for HEonGPU dependency fetch |
-| `HEONGPU_SPDLOG_GIT_URL` | empty | Optional spdlog mirror URL for HEonGPU dependency fetch |
+| `GPU_CORE_CCCL_GIT_URL` | empty | Optional CCCL mirror URL for lattisense-gpu-core dependency fetch |
+| `GPU_CORE_SPDLOG_GIT_URL` | empty | Optional spdlog mirror URL for lattisense-gpu-core dependency fetch |
 
 Example:
 ```bash
@@ -187,7 +187,7 @@ cmake -B build -DCMAKE_INSTALL_PREFIX=$(pwd)/install -DLATTISENSE_BUILD_EXAMPLES
 cmake -B build -DLATTISENSE_ENABLE_GPU=ON -DLATTISENSE_CUDA_ARCH=89
 ```
 
-To enable GPU acceleration, simply pass the GPU flags — HEonGPU is built automatically and reused when `backends/HEonGPU/install` matches the current HEonGPU commit and CUDA architecture:
+To enable GPU acceleration, simply pass the GPU flags — lattisense-gpu-core is built automatically and reused when `backends/lattisense-gpu-core/install` matches the current lattisense-gpu-core commit and CUDA architecture:
 
 ```bash
 cmake -B build -DLATTISENSE_ENABLE_GPU=ON -DLATTISENSE_CUDA_ARCH=<arch>
@@ -203,14 +203,14 @@ task.run(&context, cxx_args, nullptr, 1);  // run on CUDA device 1
 
 The default device is `0` when the argument is omitted.
 
-> **Slow HEonGPU dependency downloads?** Use mirrors for RAPIDS/CPM dependencies:
+> **Slow lattisense-gpu-core dependency downloads?** Use mirrors for RAPIDS/CPM dependencies:
 > ```bash
 > cmake -B build -DLATTISENSE_ENABLE_GPU=ON -DLATTISENSE_CUDA_ARCH=<arch> \
->   -DHEONGPU_CCCL_GIT_URL=https://gitee.com/mirrors_NVIDIA/cccl.git \
->   -DHEONGPU_SPDLOG_GIT_URL=https://gitee.com/mirror-luyi/spdlog.git
+>   -DGPU_CORE_CCCL_GIT_URL=https://gitee.com/mirrors_NVIDIA/cccl.git \
+>   -DGPU_CORE_SPDLOG_GIT_URL=https://gitee.com/mirror-luyi/spdlog.git
 > ```
 
-> **Note**: Set `LATTISENSE_CUDA_ARCH` (and the matching `CMAKE_CUDA_ARCHITECTURES` for HEonGPU) according to your GPU (see [CUDA GPUs](https://developer.nvidia.com/cuda-gpus) for reference):
+> **Note**: Set `LATTISENSE_CUDA_ARCH` (and the matching `CMAKE_CUDA_ARCHITECTURES` for lattisense-gpu-core) according to your GPU (see [CUDA GPUs](https://developer.nvidia.com/cuda-gpus) for reference):
 > - RTX 30xx series: 86
 > - RTX 40xx series: 89
 > - H100: 90

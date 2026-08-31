@@ -179,16 +179,32 @@ inline void append_public_key_arguments(nlohmann::json& key_signature,
         }
         const auto& btp_keys = ckks_context->bootstrapping_evaluation_keys();
         const auto& btp_key_set = btp_keys.evaluation_key_set();
+
+        if (key_signature.contains("ckks_btp_glk_order") && !key_signature["ckks_btp_glk_order"].empty()) {
+            int btp_glk_level = -1;
+            std::vector<Handle*> btp_glk_handles;
+            for (auto& item : key_signature["ckks_btp_glk_order"]) {
+                uint64_t gal_el = item.get<uint64_t>();
+                std::string glk_id = "evk_glk_" + std::to_string(gal_el);
+                if (!key_signature["ckks_btp_evk"].contains(glk_id)) {
+                    throw std::runtime_error("ckks_btp_glk_order element missing from ckks_btp_evk: " + glk_id);
+                }
+                int level = key_signature["ckks_btp_evk"][glk_id].get<int>();
+                btp_glk_level = btp_glk_level < level ? level : btp_glk_level;
+                btp_glk_handles.push_back(const_cast<GaloisKey*>(&btp_key_set.galois_key(gal_el)));
+            }
+            cxx_args.emplace_back("btp_glk", CxxArgumentType::GALOIS_KEY, btp_glk_level, std::move(btp_glk_handles));
+        }
+
         for (auto& item : key_signature["ckks_btp_evk"].items()) {
             const std::string& id = item.key();
-            int level = item.value()[0].get<int>();
+            if (id.rfind("evk_glk_", 0) == 0) {
+                continue;  // handled by the aggregated btp_glk arg above
+            }
+            int level = item.value().get<int>();
             if (id == "evk_rlk") {
                 cxx_args.emplace_back(id, CxxArgumentType::RELIN_KEY, level,
                                       std::vector<Handle*>{const_cast<RelinKey*>(&btp_key_set.relin_key())});
-            } else if (id.rfind("evk_glk_", 0) == 0) {
-                uint64_t gal_el = std::stoull(id.substr(std::string("evk_glk_").size()));
-                cxx_args.emplace_back(id, CxxArgumentType::GALOIS_KEY, level,
-                                      std::vector<Handle*>{const_cast<GaloisKey*>(&btp_key_set.galois_key(gal_el))});
             } else if (id == "evk_n1_to_n2") {
                 cxx_args.emplace_back(id, CxxArgumentType::EVALUATION_KEY, level,
                                       std::vector<Handle*>{const_cast<EvaluationKey*>(&btp_keys.evk_n1_to_n2())});
@@ -234,6 +250,10 @@ inline int get_n_key_arg(nlohmann::json& key_signature, bool online_phase = true
         }
         if (key_signature.contains("ckks_btp_evk")) {
             n_key_arg += key_signature["ckks_btp_evk"].size();
+            if (key_signature.contains("ckks_btp_glk_order") && !key_signature["ckks_btp_glk_order"].empty()) {
+                // evk_glk_* entries are aggregated into a single GALOIS_KEY arg.
+                n_key_arg -= key_signature["ckks_btp_glk_order"].size() - 1;
+            }
         }
     }
     return n_key_arg;
