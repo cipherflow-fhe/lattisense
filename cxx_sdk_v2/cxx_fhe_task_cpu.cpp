@@ -75,11 +75,12 @@ FheTaskCpu::run(FheContext* context, const std::vector<CxxVectorArgument>& cxx_a
 
     nlohmann::json key_signature = _task_signature["key"];
 
-    new_args(n_in_args, n_out_args);
+    auto runtime_cxx_args = build_runtime_cxx_arguments(cxx_args, n_in_args, key_signature, context);
+    int runtime_n_in_args = runtime_cxx_args.size() - n_out_args;
 
-    export_cxx_arguments(cxx_args, input_args, output_args);
+    new_args(runtime_n_in_args, n_out_args);
 
-    export_public_key_arguments(key_signature, input_args, context, _key_storage);
+    export_cxx_arguments(runtime_cxx_args, input_args, output_args);
 
     // Wrap std::function into C callback
     progress_callback_t c_cb = nullptr;

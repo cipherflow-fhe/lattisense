@@ -26,11 +26,12 @@ using namespace lattisense;
 
 void benchmark_bfv_mult_relin() {
     const int n_op = 1024;
-    const uint64_t n = 16384;
+    const int log_n = 14;
+    const uint64_t n = 1 << log_n;
     const uint64_t t = 65537;
     const int level = 3;
 
-    BfvParameter param = BfvParameter::create_parameter(n, t);
+    BfvParameter param = BfvParameter::create_parameter(log_n, t);
     BfvContext ctx = BfvContext::create_random_context(param);
 
     std::vector<BfvCiphertext> xs, ys, zs;
@@ -53,11 +54,12 @@ void benchmark_bfv_mult_relin() {
 
 void benchmark_ckks_mult_relin() {
     const int n_op = 1024;
-    const uint64_t n = 16384;
+    const int log_n = 14;
+    const uint64_t n = 1 << 14;
     const double scale = pow(2, 40);
     const int level = 3;
 
-    CkksParameter param = CkksParameter::create_parameter(n);
+    CkksParameter param = CkksParameter::create_parameter(log_n);
     CkksContext ctx = CkksContext::create_random_context(param);
 
     std::vector<CkksCiphertext> xs, ys, zs;
@@ -80,11 +82,12 @@ void benchmark_ckks_mult_relin() {
 
 void benchmark_bfv_rotate_col() {
     const int n_op = 1024;
-    const uint64_t n = 16384;
+    const int log_n = 14;
+    const uint64_t n = 1 << log_n;
     const uint64_t t = 65537;
     const int level = 3;
 
-    BfvParameter param = BfvParameter::create_parameter(n, t);
+    BfvParameter param = BfvParameter::create_parameter(log_n, t);
     BfvContext ctx = BfvContext::create_random_context(param);
     ctx.gen_rotation_keys();
 

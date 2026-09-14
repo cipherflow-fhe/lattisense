@@ -45,15 +45,13 @@ FheTask::FheTask(const std::string& project_path) : _project_path{project_path} 
         throw std::runtime_error("Unknown algorithm in task_signature: " + algo_str);
     }
 
-    std::ifstream mega_ag_file;
-    std::string mega_ag_file_path = _project_path + "/mega_ag.json";
-    mega_ag_file.open(mega_ag_file_path);
-    if (!mega_ag_file.is_open()) {
-        throw std::runtime_error("Cannot open mega_ag file " + mega_ag_file_path);
+    std::ifstream param_file;
+    std::string param_file_path = _project_path + "/fhe_parameter.json";
+    param_file.open(param_file_path);
+    if (!param_file.is_open()) {
+        throw std::runtime_error("Cannot open fhe_parameter file " + param_file_path);
     }
-    nlohmann::json mega_ag_json = nlohmann::json::parse(mega_ag_file);
-    mega_ag_file.close();
-    _param_json = mega_ag_json["parameter"];
+    _param_json = nlohmann::json::parse(param_file);
 }
 
 FheTask::~FheTask() {

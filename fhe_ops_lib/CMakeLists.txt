@@ -1,12 +1,16 @@
 set(FHE_OPS_LIB_SRCS
-    fhe_lib_v2.cpp
+    schemes/base/types.cpp
+    schemes/bfv/bfv.cpp
+    schemes/ckks/ckks.cpp
+    schemes/ckks/bootstrapping.cpp
     utils.cpp
-    precision.cpp
+    schemes/ckks/precision.cpp
     bridge.c
 )
 
 add_library(fhe_ops_lib_obj OBJECT ${FHE_OPS_LIB_SRCS})
 target_include_directories(fhe_ops_lib_obj PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/lattigo/go_sdk/
     ${CMAKE_SOURCE_DIR}/abi/
 )
@@ -14,6 +18,7 @@ target_compile_definitions(fhe_ops_lib_obj PRIVATE CMAKE_CURRENT_SOURCE_DIR="${C
 
 add_library(fhe_ops_lib SHARED $<TARGET_OBJECTS:fhe_ops_lib_obj>)
 target_include_directories(fhe_ops_lib PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/lattigo/go_sdk/
     ${CMAKE_SOURCE_DIR}/abi/
 )
@@ -33,4 +38,8 @@ else()
         BUILD_WITH_INSTALL_RPATH OFF
         INSTALL_RPATH_USE_LINK_PATH FALSE
     )
+endif()
+
+if(LATTISENSE_BUILD_TESTS)
+    add_subdirectory(unittests)
 endif()

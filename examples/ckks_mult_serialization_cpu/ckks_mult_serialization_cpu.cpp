@@ -27,8 +27,9 @@ using namespace fhe_ops_lib;
 using namespace std;
 
 tuple<CkksContext, vector<uint8_t>, vector<uint8_t>, vector<uint8_t>> client_phase_0() {
-    int N = 16384;
-    CkksParameter param = CkksParameter::create_parameter(N);
+    int logN = 14;
+    int N = 1 << logN;
+    CkksParameter param = CkksParameter::create_parameter(logN);
     CkksContext ctx = CkksContext::create_random_context(param);
     int level = 3;
     double default_scale = param.get_default_scale();
@@ -42,8 +43,8 @@ tuple<CkksContext, vector<uint8_t>, vector<uint8_t>, vector<uint8_t>> client_pha
 
     CkksContext public_ctx = ctx.make_public_context();
     vector<uint8_t> public_ctx_bin = public_ctx.serialize();
-    vector<uint8_t> x_bin = x_ct.serialize(param);
-    vector<uint8_t> y_bin = y_ct.serialize(param);
+    vector<uint8_t> x_bin = x_ct.serialize();
+    vector<uint8_t> y_bin = y_ct.serialize();
 
     print_double_message(x_mg.data(), "x_mg", 2);
     print_double_message(y_mg.data(), "y_mg", 2);
@@ -60,7 +61,7 @@ server_phase_1(const vector<uint8_t>& ctx_bin, const vector<uint8_t>& x_bin, con
     CkksCiphertext3 z_ct3 = public_context.mult(x_ct, y_ct);
     CkksCiphertext z_ct = public_context.relinearize(z_ct3);
 
-    vector<uint8_t> z_bin = z_ct.serialize(public_context.get_parameter());
+    vector<uint8_t> z_bin = z_ct.serialize();
 
     return z_bin;
 }

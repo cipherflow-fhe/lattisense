@@ -50,7 +50,7 @@ public:
     // Uses MultChannelPack mode: multiple channels packed per ciphertext
     void pack(const Array<double, 3>& feature_mg, bool is_symmetric = false, double scale_in = 0) {
         if (scale_in == 0) {
-            scale_in = context->get_parameter().get_default_scale();
+            scale_in = context->parameter().get_default_scale();
         }
 
         auto input_shape = feature_mg.get_shape();
@@ -60,7 +60,7 @@ public:
         skip[0] = 1;
         skip[1] = 1;
 
-        int n_slot = context->get_parameter().get_n() / 2;
+        int n_slot = context->parameter().get_n() / 2;
         n_channel_per_ct = n_slot / (shape[0] * shape[1]);
         uint32_t n_ct = div_ceil(n_channel, n_channel_per_ct);
 

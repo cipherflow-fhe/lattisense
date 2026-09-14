@@ -18,21 +18,25 @@
 
 #pragma once
 
-#include <cstdint>
-#include <unordered_map>
-#include <unordered_set>
-#include <vector>
-#include <set>
-#include <string>
-#include <functional>
 #include <any>
 #include <atomic>
+#include <cstdint>
+#include <complex>
+#include <functional>
 #include <optional>
+#include <set>
+#include <stdexcept>
+#include <string>
+#include <unordered_map>
+#include <unordered_set>
+#include <variant>
+#include <vector>
 #include "nlohmann/json.hpp"
 #include "c_argument.h"
-#include "../fhe_ops_lib/fhe_lib_v2.h"
+#include "../abi/c_types.h"
 
-using NodeIndex = uint64_t;
+using NodeId = std::string;
+using ScalarType = std::variant<int64_t, uint64_t, double, std::complex<double>>;
 
 /// Progress callback for tracking mega_ag execution.
 /// @param completed Number of compute nodes completed so far.
@@ -41,8 +45,9 @@ using ProgressCallback = std::function<void(int completed, int total)>;
 
 // Forward declarations
 struct ComputeNode;
+struct CompoundComputeNode;
 
-enum class Processor { CPU, FPGA, GPU };
+enum class Processor { CPU, GPU };
 
 // Unified execution context for both CPU and GPU
 struct ExecutionContext {
@@ -65,65 +70,59 @@ struct ExecutionContext {
 };
 
 // Unified executor function signature
-using ExecutorFunc = std::function<void(ExecutionContext& ctx,
-                                        const std::unordered_map<NodeIndex, std::any>& inputs,
-                                        std::any& output,
-                                        const ComputeNode& self)>;
+using ExecutorFunc = std::function<
+    void(ExecutionContext& ctx, std::unordered_map<NodeId, std::any>& local_data, const ComputeNode& self)>;
 
 enum class OperationType {
     UNKNOWN,
     ADD,
     SUB,
-    NEGATE,
     MULTIPLY,
     RELINEARIZE,
     RESCALE,
     DROP_LEVEL,
     ROTATE_COL,
     ROTATE_ROW,
+    CONJUGATE,
     MAC_WO_PARTIAL_SUM,
     MAC_W_PARTIAL_SUM,
     BOOTSTRAP,
 
-    FPGA_KERNEL,  // Composite FPGA sub-project operator (heterogeneous mode)
-
-    // ABI bridge operations (inserted automatically by from_json for heterogeneous mode)
+    // ABI bridge operations (inserted by the Python linker for heterogeneous mode)
     EXPORT_TO_ABI,       // Frontend Handle → ABI C struct (defined in cxx_sdk)
     IMPORT_FROM_ABI,     // ABI C struct → Frontend Handle (defined in cxx_sdk)
     LOAD_TO_BACKEND,     // ABI C struct → Backend device (GPU/FPGA, defined in mega_ag_runners)
     STORE_FROM_BACKEND,  // Backend device → ABI C struct (GPU/FPGA, defined in mega_ag_runners)
 };
 
-// Forward declaration
-struct ComputeNode;
-
 /**
- * @brief Unified data node for both FHE and custom types
+ * @brief Unified data node for both FHE and custom types.
  */
 struct DatumNode {
-    NodeIndex index;
     std::string id;
-    std::vector<ComputeNode*> predecessors;  // Producer compute nodes (both FHE and custom)
-    std::vector<ComputeNode*> successors;    // Consumer compute nodes (both FHE and custom)
+    std::vector<CompoundComputeNode*> predecessors;  // Producer top-level compute nodes
+    std::vector<CompoundComputeNode*> successors;    // Consumer top-level compute nodes
     bool is_input = false;
     bool is_output = false;
     DataType datum_type = TYPE_CUSTOM;  // Unified data type (TYPE_CUSTOM for custom nodes)
 
-    // FHE-specific properties (use custom_prop.has_value() to check if custom node)
+    // FHE-specific metadata. These fields mirror frontend.types.Metadata.
     struct FheProperty {
-        int32_t level = 0;
+        bool is_ringt = false;
+        bool is_batched = true;
         int32_t degree = 0;
-        bool is_ntt = false;
-        bool is_mform = false;
+        int32_t level = 0;
+        int32_t log_slots = -1;
+        double scale = 1.0;
+        bool is_ntt = true;
+        int32_t mform_bits = 0;
 
         struct ExtraProperty {
-            bool is_ringt = false;
-            bool is_compressed = false;
+            int32_t sp_level = -1;
             uint32_t galois_element = 0;
+            std::string key_role;
         };
         std::optional<ExtraProperty> p;
-
-        int32_t sp_level = 0;
     };
     std::optional<FheProperty> fhe_prop;
 
@@ -133,13 +132,30 @@ struct DatumNode {
         nlohmann::json attributes;  // Custom attributes from JSON
     };
     std::optional<CustomProperty> custom_prop;
+
+    Metadata metadata() const {
+        if (datum_type == DataType::TYPE_CUSTOM) {
+            return Metadata{};
+        }
+        if (!fhe_prop.has_value()) {
+            throw std::runtime_error("Data node missing FHE metadata");
+        }
+        const auto& prop = *fhe_prop;
+        return Metadata{static_cast<uint8_t>(prop.is_ringt),
+                        static_cast<uint8_t>(prop.is_batched),
+                        prop.degree,
+                        prop.level,
+                        prop.log_slots,
+                        prop.scale,
+                        static_cast<uint8_t>(prop.is_ntt),
+                        prop.mform_bits};
+    }
 };
 
 /**
- * @brief Unified compute node for both FHE and custom operations
+ * @brief Unified compute node for both FHE and custom operations.
  */
 struct ComputeNode {
-    NodeIndex index;
     std::string id;
 
     std::vector<DatumNode*> input_nodes;
@@ -148,78 +164,85 @@ struct ComputeNode {
     // Unified executor function (CPU and GPU)
     ExecutorFunc executor;
 
-    // Execution target: true if this node runs on CPU
-    bool on_cpu = false;
-
-    // Scheduling priority: higher value runs first
-    int priority = 0;
-
-    // Graph structural properties for scheduling, computed by MegaAG::compute_graph_properties()
-    struct ScheduleMeta {
-        int top_level = 0;     // longest path from any source compute node to this node
-        int bottom_level = 0;  // longest path from this node to any sink compute node
-    };
-    ScheduleMeta sched_meta;
-
-    // FHE-specific properties (use custom_prop.has_value() to check if custom node)
+    // FHE-specific properties
     struct FheProperty {
         OperationType op_type = OperationType::UNKNOWN;
 
         struct ExtraProperty {
-            int32_t rotation_step = 0;
+            std::vector<int32_t> rotation_steps;
+            bool use_default_rotation_keys = true;
             int32_t sum_cnt = 0;
+            int32_t drop_level = 1;
+            ScalarType scalar;
+            bool has_scalar = false;
         };
         std::optional<ExtraProperty> p;
     };
     std::optional<FheProperty> fhe_prop;
 
-    // Custom-specific properties (if has value, this is a custom node)
+    // Custom-specific properties (opaque user-bound operation)
     struct CustomProperty {
-        std::string type;           // Custom operation type (e.g., "encode", "decode")
-        nlohmann::json attributes;  // Custom attributes from JSON (e.g., level, scale)
+        std::string type;           // Custom operation type
+        nlohmann::json attributes;  // Custom attributes from JSON
     };
     std::optional<CustomProperty> custom_prop;
 };
 
-/**
- * @brief Scheduling mode for compute node priority computation.
- *
- * MAKESPAN_FIRST: bottom_level (longest path to sink) — minimizes makespan.
- * MEMORY_FIRST:  -bottom_level (prefer nodes closer to sink) — reduces peak memory by completing in-flight paths first.
- */
-enum class ScheduleMode {
-    MAKESPAN_FIRST,
-    MEMORY_FIRST,
+struct CompoundComputeNode {
+    std::string id;
+
+    std::vector<DatumNode*> input_nodes;
+    std::vector<DatumNode*> output_nodes;
+    std::vector<ComputeNode> ops;
+
+    bool on_cpu = true;
+    int priority = 0;
+
+    void execute(ExecutionContext& exec_ctx, std::unordered_map<NodeId, std::any>& data_cache) const {
+        for (const auto& op : ops) {
+            op.executor(exec_ctx, data_cache, op);
+        }
+    }
 };
 
+inline bool compute_contains_operation(const CompoundComputeNode& node, OperationType op_type) {
+    for (const auto& op : node.ops) {
+        if (op.fhe_prop.has_value() && op.fhe_prop->op_type == op_type) {
+            return true;
+        }
+    }
+    return false;
+}
+
 struct MegaAG {
-    std::unordered_map<NodeIndex, DatumNode> data;
-    std::unordered_map<NodeIndex, ComputeNode> computes;
-    std::vector<NodeIndex> inputs;
-    std::vector<NodeIndex> outputs;
-    std::vector<NodeIndex> offline_inputs;
+    std::unordered_map<NodeId, DatumNode> data;
+    std::unordered_map<NodeId, CompoundComputeNode> computes;
+    std::vector<NodeId> inputs;
+    std::vector<NodeId> outputs;
     nlohmann::json parameter;
     Processor processor = Processor::CPU;
-    Algo algo = ALGO_BFV;
+    Algo algo;
 
     /**
-     * @brief Load a MegaAG from JSON, apply processor layout, and compute scheduling priorities.
-     *        This is the primary entry point for constructing a ready-to-run MegaAG.
+     * @brief Load compiled_mega_ag.json and fhe_parameter.json from a task project directory.
      */
-    static MegaAG
-    load(const std::string& json_path, Processor processor, ScheduleMode mode = ScheduleMode::MAKESPAN_FIRST);
+    static MegaAG load(const std::string& project_path, Processor processor);
 
     void bind_abi_bridge_executors(const ExecutorFunc& abi_export,
                                    const ExecutorFunc& abi_import,
                                    const ExecutorFunc& backend_load = {},
                                    const ExecutorFunc& backend_store = {}) {
-        for (auto& [index, compute] : computes) {
-            if (compute.fhe_prop.has_value()) {
-                switch (compute.fhe_prop->op_type) {
-                    case OperationType::EXPORT_TO_ABI: compute.executor = abi_export; break;
-                    case OperationType::IMPORT_FROM_ABI: compute.executor = abi_import; break;
-                    case OperationType::LOAD_TO_BACKEND: compute.executor = backend_load; break;
-                    case OperationType::STORE_FROM_BACKEND: compute.executor = backend_store; break;
+        for (auto& item : computes) {
+            auto& compute = item.second;
+            for (auto& op : compute.ops) {
+                if (!op.fhe_prop.has_value()) {
+                    continue;
+                }
+                switch (op.fhe_prop->op_type) {
+                    case OperationType::EXPORT_TO_ABI: op.executor = abi_export; break;
+                    case OperationType::IMPORT_FROM_ABI: op.executor = abi_import; break;
+                    case OperationType::LOAD_TO_BACKEND: op.executor = backend_load; break;
+                    case OperationType::STORE_FROM_BACKEND: op.executor = backend_store; break;
                     default: break;
                 }
             }
@@ -227,57 +250,64 @@ struct MegaAG {
     }
 
     /**
-     * @brief Bind custom executors for custom operation types
-     * @param custom_executors Map of custom operation type to executor function
+     * @brief Bind custom executors for custom operation types.
+     * @param custom_executors Map of custom operation type to executor function.
      */
     void bind_custom_executors(const std::unordered_map<std::string, ExecutorFunc>& custom_executors) {
-        for (auto& [index, compute] : computes) {
-            if (compute.custom_prop.has_value()) {
-                auto it = custom_executors.find(compute.custom_prop->type);
+        for (auto& item : computes) {
+            auto& compute = item.second;
+            for (auto& op : compute.ops) {
+                if (!op.custom_prop.has_value()) {
+                    continue;
+                }
+                auto it = custom_executors.find(op.custom_prop->type);
                 if (it != custom_executors.end()) {
-                    compute.executor = it->second;
+                    op.executor = it->second;
                 }
             }
         }
     }
 
     template <typename T>
-    std::unordered_set<NodeIndex> get_available_computes(const std::unordered_map<NodeIndex, T>& available_data) const {
-        std::unordered_set<NodeIndex> available_computes;
-        for (const auto& [compute_index, compute_node] : this->computes) {
+    std::unordered_set<NodeId> get_available_computes(const std::unordered_map<NodeId, T>& available_data) const {
+        std::unordered_set<NodeId> available_computes;
+        for (const auto& item : this->computes) {
+            const auto& compute_id = item.first;
+            const auto& compute_node = item.second;
             bool input_missing = false;
 
             for (auto* compute_input_node : compute_node.input_nodes) {
-                if (available_data.find(compute_input_node->index) == available_data.end()) {
+                if (available_data.find(compute_input_node->id) == available_data.end()) {
                     input_missing = true;
                     break;
                 }
             }
 
             if (!input_missing) {
-                available_computes.insert(compute_index);
+                available_computes.insert(compute_id);
             }
         }
         return available_computes;
     }
 
     template <typename T>
-    std::unordered_set<NodeIndex>
-    step_available_computes(const DatumNode& newly_available_datum,
-                            const std::unordered_map<NodeIndex, T>& available_data) const {
-        std::unordered_set<NodeIndex> newly_available_computes;
+    std::unordered_set<NodeId> step_available_computes(const CompoundComputeNode& completed_compute,
+                                                       const std::unordered_map<NodeId, T>& available_data) const {
+        std::unordered_set<NodeId> newly_available_computes;
 
-        for (auto* compute_node : newly_available_datum.successors) {
-            bool input_missing = false;
-            for (const auto* required_node : compute_node->input_nodes) {
-                if (available_data.find(required_node->index) == available_data.end()) {
-                    input_missing = true;
-                    break;
+        for (const auto* output_node : completed_compute.output_nodes) {
+            for (auto* compute_node : output_node->successors) {
+                bool input_missing = false;
+                for (const auto* required_node : compute_node->input_nodes) {
+                    if (available_data.find(required_node->id) == available_data.end()) {
+                        input_missing = true;
+                        break;
+                    }
                 }
-            }
 
-            if (!input_missing) {
-                newly_available_computes.insert(compute_node->index);
+                if (!input_missing) {
+                    newly_available_computes.insert(compute_node->id);
+                }
             }
         }
 
@@ -285,36 +315,14 @@ struct MegaAG {
     }
 
     template <typename T>
-    void purge_unused_data(const ComputeNode& compute_node,
-                           std::unordered_map<NodeIndex, std::atomic<int>>& data_ref_counts,
-                           std::unordered_map<NodeIndex, T>& available_data) const {
+    void purge_unused_data(const CompoundComputeNode& compute_node,
+                           std::unordered_map<NodeId, std::atomic<int>>& data_ref_counts,
+                           std::unordered_map<NodeId, T>& available_data) const {
         for (const auto* input_node : compute_node.input_nodes) {
-            int remaining_use = data_ref_counts[input_node->index].fetch_sub(1) - 1;
-            if (remaining_use <= 0 && !input_node->is_output && !input_node->is_input) {
-                available_data.erase(input_node->index);
+            int remaining_use = data_ref_counts[input_node->id].fetch_sub(1) - 1;
+            if (remaining_use <= 0) {
+                available_data.erase(input_node->id);
             }
         }
     }
-
-    /**
-     * @brief Compute top_level/bottom_level for each compute node, then set priority by ScheduleMode.
-     *
-     * MAKESPAN_FIRST: priority = bottom_level (longer remaining critical path runs first).
-     * MEMORY_FIRST:  priority = -bottom_level (prefer nodes closer to sink, completing in-flight paths to free memory).
-     */
-    void compute_properties(ScheduleMode mode);
-
-private:
-    static MegaAG from_json(const std::string& json_path, Processor processor);
-
-    // Inserts ABI bridge nodes for the target processor and sets on_cpu for all compute nodes.
-    void apply_processor_layout();
-
-    std::pair<NodeIndex, NodeIndex> get_next_indices() const;
-    void rebuild_bridge_relationships(std::initializer_list<OperationType> bridge_ops);
-    void insert_backend_abi_bridge_nodes();
-    void insert_cpu_abi_bridge_nodes();
-
-    void compute_top_levels();
-    void compute_bottom_levels();
 };

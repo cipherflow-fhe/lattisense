@@ -90,3 +90,5 @@ credentials.json
 # Superpowers (AI agent workspace)
 .superpowers/
 .worktrees/
+
+*.csv

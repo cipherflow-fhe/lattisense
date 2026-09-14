@@ -70,7 +70,7 @@ inline void bind_gpu_executor(ComputeNode& /*node*/, Algo /*algorithm*/) {
  *
  * Supported backends:
  * - CPU: Uses Lattigo-based operations (always available in standard builds)
- * - GPU: Uses HEonGPU library (requires LATTISENSE_ENABLE_GPU=ON)
+ * - GPU: Uses lattisense-gpu-core library (requires LATTISENSE_ENABLE_GPU=ON)
  * - FPGA: Not yet implemented
  */
 class ExecutorBinder {

@@ -36,7 +36,7 @@ header:
 
   paths-ignore:
     # Git submodules (managed separately)
-    - 'HEonGPU/**'
+    - 'backends/lattisense-gpu-core/**'
     - 'fhe_ops_lib/lattigo/**'
 
     # Third-party libraries

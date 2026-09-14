@@ -19,92 +19,48 @@
 #pragma once
 #include "c_types.h"
 
-void alloc_component(CComponent* component, int n);
+void alloc_plaintext(CPlaintext* pt, int level, int ring_degree);
 
-void alloc_plaintext(CPlaintext* pt, int level, int n);
+void alloc_ciphertext(CCiphertext* ct, int cipher_size, int level, int ring_degree);
 
-void alloc_ciphertext(CCiphertext* ct, int degree, int level, int n);
+void alloc_evaluation_key(CEvaluationKey* evk, int level_q, int level_p, int ring_degree);
 
 void free_plaintext(CPlaintext* pt);
 
 void free_ciphertext(CCiphertext* ct);
 
-void alloc_relin_key(CRelinKey* rlk, int n_public_key, int level, int n);
+void free_evaluation_key(CEvaluationKey* evk);
 
-void set_galois_key_steps(CGaloisKey* glk, uint64_t* galois_elements, int n_galois_elements);
+ErrorStatus import_ciphertext(uint64_t parameter_handle,
+                              uint64_t dest_handle,
+                              Metadata* source_metadata,
+                              Metadata* target_metadata,
+                              CCiphertext* c_ciphertext);
 
-void free_relin_key(CRelinKey* rlk);
+void export_plaintext(uint64_t parameter_handle, uint64_t plaintext_handle, Metadata* metadata, CPlaintext* plaintext);
 
-void free_galois_key(CGaloisKey* gk);
+void export_ciphertext(uint64_t parameter_handle,
+                       uint64_t ciphertext_handle,
+                       Metadata* metadata,
+                       CCiphertext* ciphertext);
 
-void import_bfv_ciphertext(uint64_t dest_handle, CCiphertext* c_ciphertext);
+void export_evaluation_key(uint64_t parameter_handle,
+                           uint64_t evaluation_key_handle,
+                           int level_p,
+                           Metadata* metadata,
+                           CEvaluationKey* evaluation_key);
 
-void import_ckks_ciphertext(uint64_t dest_handle, CCiphertext* c_ciphertext);
+void bfv_poly_ntt(uint64_t parameter_handle, uint64_t* data, int level_q, int level_p);
 
-void export_bfv_plaintext_ringt(uint64_t plaintext_ringt_handle, CPlaintext* plaintext);
+void bfv_poly_inv_ntt(uint64_t parameter_handle, uint64_t* data, int level_q, int level_p);
 
-void export_bfv_plaintext_mul(uint64_t parameter_handle,
-                              uint64_t plaintext_mul_handle,
-                              int mf_nbits,
-                              CPlaintext* plaintext);
+void bfv_poly_mul_by_pow2(uint64_t parameter_handle, uint64_t* data, int level_q, int level_p, int pow2);
 
-void export_ckks_plaintext_mul(uint64_t parameter_handle,
-                               uint64_t plaintext_mul_handle,
-                               int mf_nbits,
-                               CPlaintext* plaintext);
+void ckks_poly_ntt(uint64_t parameter_handle, uint64_t* data, int level_q, int level_p);
 
-void export_ckks_plaintext_ringt(uint64_t plaintext_ringt_handle, CPlaintext* plaintext);
+void ckks_poly_inv_ntt(uint64_t parameter_handle, uint64_t* data, int level_q, int level_p);
 
-void export_bfv_plaintext(uint64_t plaintext_handle, CPlaintext* plaintext);
-
-void export_ckks_plaintext(uint64_t plaintext_handle, CPlaintext* plaintext);
-
-void export_bfv_ciphertext(uint64_t ciphertext_handle, CCiphertext* ciphertext);
-
-void export_ckks_ciphertext(uint64_t ciphertext_handle, CCiphertext* ciphertext);
-
-void export_bfv_relin_key(uint64_t parameter_handle,
-                          uint64_t relin_key_handle,
-                          int level,
-                          int key_mf_nbits,
-                          CRelinKey* relin_key);
-
-void export_ckks_relin_key(uint64_t parameter_handle,
-                           uint64_t relin_key_handle,
-                           int level,
-                           int key_mf_nbits,
-                           CRelinKey* relin_key);
-
-void export_bfv_galois_key(uint64_t parameter_handle,
-                           uint64_t galois_key_handle,
-                           int level,
-                           int key_mf_nbits,
-                           CGaloisKey* galois_key);
-
-void export_ckks_galois_key(uint64_t parameter_handle,
-                            uint64_t galois_key_handle,
-                            int level,
-                            int key_mf_nbits,
-                            CGaloisKey* galois_key);
-
-void export_ckks_switching_key(uint64_t parameter_handle,
-                               uint64_t switching_key_handle,
-                               int level,
-                               int sp_level,
-                               int key_mf_nbits,
-                               CKeySwitchKey* switching_key);
-
-void bfv_component_ntt(uint64_t parameter_handle, uint64_t* coeff, int lvl_idx);
-
-void bfv_component_inv_ntt(uint64_t parameter_handle, uint64_t* coeff, int lvl_idx);
-
-void ckks_component_ntt(uint64_t parameter_handle, uint64_t* coeff, int lvl_idx);
-
-void ckks_component_inv_ntt(uint64_t parameter_handle, uint64_t* coeff, int lvl_idx);
-
-void bfv_component_mul_by_pow2(uint64_t parameter_handle, uint64_t* coeff, int lvl_idx, int pow2);
-
-void ckks_component_mul_by_pow2(uint64_t parameter_handle, uint64_t* coeff, int lvl_idx, int pow2);
+void ckks_poly_mul_by_pow2(uint64_t parameter_handle, uint64_t* data, int level_q, int level_p, int pow2);
 
 uint64_t c_set_bfv_parameter(uint64_t N, uint64_t T, const uint64_t* Q, int q_len, const uint64_t* P, int p_len);
 

@@ -27,8 +27,6 @@
 
 namespace lattisense {
 
-const int GPU_MFORM_BITS = 0;
-
 FheTaskGpu::FheTaskGpu(const std::string& project_path) : FheTask{project_path} {
     task_handle = create_fhe_gpu_task(project_path.c_str());
 
@@ -41,7 +39,7 @@ FheTaskGpu::~FheTaskGpu() {
 
 void FheTaskGpu::bind_abi_executors() {
     // Create ABI export executor (Handle → c_struct, for pre-allocation)
-    ExecutorFunc abi_export = create_abi_export_executor(_algo, true, GPU_MFORM_BITS, GPU_MFORM_BITS);
+    ExecutorFunc abi_export = create_abi_export_executor(_algo, true);
 
     // Create ABI import executor (c_struct → Handle, for intermediate data and output write-back)
     ExecutorFunc abi_import = create_abi_import_executor(_algo, true);
@@ -85,12 +83,13 @@ uint64_t FheTaskGpu::run(FheContext* context,
 
     nlohmann::json key_signature = _task_signature["key"];
 
-    new_args(n_in_args, n_out_args);
+    auto runtime_cxx_args = build_runtime_cxx_arguments(cxx_args, n_in_args, key_signature, context);
+    int runtime_n_in_args = runtime_cxx_args.size() - n_out_args;
+
+    new_args(runtime_n_in_args, n_out_args);
 
     // Export cxx arguments to Handle (same as CPU wrapper)
-    export_cxx_arguments(cxx_args, input_args, output_args);
-
-    export_public_key_arguments(key_signature, input_args, context, _key_storage);
+    export_cxx_arguments(runtime_cxx_args, input_args, output_args);
 
     // Wrap std::function into C callback
     progress_callback_t c_cb = nullptr;

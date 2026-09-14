@@ -64,14 +64,14 @@ TEST_CASE("create_fhe_parameter returns BfvParameter for BFV cmc_relin task") {
         auto param_var = create_fhe_parameter(task);
         BfvParameter& p = get<BfvParameter>(param_var);
 
-        REQUIRE(p.get_n() == BFV_N);
-        REQUIRE(p.get_t() == BFV_T);
-        REQUIRE(p.get_q_count() == (int)BFV_Q.size());
-        for (int i = 0; i < p.get_q_count(); i++)
-            REQUIRE(p.get_q(i) == BFV_Q[i]);
-        REQUIRE(p.get_p_count() == (int)BFV_P.size());
-        for (int i = 0; i < p.get_p_count(); i++)
-            REQUIRE(p.get_p(i) == BFV_P[i]);
+        REQUIRE(p.n() == BFV_N);
+        REQUIRE(p.t() == BFV_T);
+        REQUIRE(static_cast<int>(p.q().size()) == (int)BFV_Q.size());
+        for (int i = 0; i < static_cast<int>(p.q().size()); i++)
+            REQUIRE(p.q()[i] == BFV_Q[i]);
+        REQUIRE(static_cast<int>(p.p().size()) == (int)BFV_P.size());
+        for (int i = 0; i < static_cast<int>(p.p().size()); i++)
+            REQUIRE(p.p()[i] == BFV_P[i]);
     }
 
     SECTION("create_bfv_parameter gives identical result") {
@@ -79,11 +79,11 @@ TEST_CASE("create_fhe_parameter returns BfvParameter for BFV cmc_relin task") {
         BfvParameter& p_via_variant = get<BfvParameter>(param_var);
         BfvParameter p_direct = create_bfv_parameter(task.param_json());
 
-        REQUIRE(p_via_variant.get_n() == p_direct.get_n());
-        REQUIRE(p_via_variant.get_t() == p_direct.get_t());
-        REQUIRE(p_via_variant.get_q_count() == p_direct.get_q_count());
-        for (int i = 0; i < p_via_variant.get_q_count(); i++)
-            REQUIRE(p_via_variant.get_q(i) == p_direct.get_q(i));
+        REQUIRE(p_via_variant.n() == p_direct.n());
+        REQUIRE(p_via_variant.t() == p_direct.t());
+        REQUIRE(static_cast<int>(p_via_variant.q().size()) == static_cast<int>(p_direct.q().size()));
+        for (int i = 0; i < static_cast<int>(p_via_variant.q().size()); i++)
+            REQUIRE(p_via_variant.q()[i] == p_direct.q()[i]);
     }
 
     SECTION("context created from task parameter runs cmc_relin correctly") {
@@ -92,23 +92,23 @@ TEST_CASE("create_fhe_parameter returns BfvParameter for BFV cmc_relin task") {
         BfvContext ctx = BfvContext::create_random_context(p);
 
         const int n_op_run = 4;
-        auto xv = new_bfv_test_ct(n_op_run, ctx, level, p.get_t());
-        auto yv = new_bfv_test_ct(n_op_run, ctx, level, p.get_t());
+        auto xv = new_test_cts(n_op_run, ctx, level);
+        auto yv = new_test_cts(n_op_run, ctx, level);
         vector<BfvCiphertext> z_list;
         z_list.reserve(n_op_run);
         for (int i = 0; i < n_op_run; i++)
-            z_list.push_back(ctx.new_ciphertext(level));
+            z_list.push_back(BfvCiphertext(ctx.parameter(), level));
 
         vector<CxxVectorArgument> args = {
-            {"in_x_list", &xv.ciphertexts},
-            {"in_y_list", &yv.ciphertexts},
+            {"in_x_list", &xv.ciphertexts()},
+            {"in_y_list", &yv.ciphertexts()},
             {"out_z_list", &z_list},
         };
         task.run(&ctx, args);
 
         vector<vector<uint64_t>> expected(n_op_run);
         for (int i = 0; i < n_op_run; i++)
-            expected[i] = vec_mod_mul(xv.values[i], yv.values[i], p.get_t());
+            expected[i] = vec_mod_mul(xv.messages()[i], yv.messages()[i], p.t());
         REQUIRE(decrypt_and_decode(ctx, z_list) == expected);
     }
 }

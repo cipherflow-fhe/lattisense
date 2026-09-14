@@ -28,7 +28,7 @@ typedef enum {
     TYPE_CIPHERTEXT,
     TYPE_RELIN_KEY,
     TYPE_GALOIS_KEY,
-    TYPE_SWITCH_KEY,
+    TYPE_EVALUATION_KEY,
     TYPE_CUSTOM,
 } DataType;
 

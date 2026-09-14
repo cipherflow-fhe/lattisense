@@ -35,7 +35,8 @@
 #include "../mega_ag.h"
 #include "gpu_abi_bridge_executors.h"
 #include "../cpu_task_utils.h"
-#include "../../fhe_ops_lib/fhe_lib_v2.h"
+#include "../../fhe_ops_lib/schemes/bfv/bfv.h"
+#include "../../fhe_ops_lib/schemes/ckks/ckks.h"
 
 #ifdef LATTISENSE_DEV
 #    include "gpu_mem_monitor.h"
@@ -53,8 +54,13 @@ using namespace fhe_ops_lib;
 template <heongpu::Scheme SchemeType>
 void init_gpu_context(const nlohmann::json& param_json,
                       heongpu::HEContext<SchemeType>& context,
-                      std::unique_ptr<heongpu::HEArithmeticOperator<SchemeType>>& operators) {
-    auto n = param_json["n"].get<int>();
+                      std::unique_ptr<heongpu::HEEncoder<SchemeType>>& encoder,
+                      std::unique_ptr<heongpu::HEArithmeticOperator<SchemeType>>& operators,
+                      heongpu::HEContext<SchemeType>& boot_context,
+                      std::unique_ptr<heongpu::HEEncoder<SchemeType>>& boot_encoder,
+                      std::unique_ptr<heongpu::HEArithmeticOperator<SchemeType>>& boot_operators) {
+    auto log_n = param_json["log_n"].get<int>();
+    auto n = 1 << log_n;
 
     auto max_level = param_json["max_level"].get<int>();
     auto q = param_json["q"].get<std::vector<uint64_t>>();
@@ -63,11 +69,12 @@ void init_gpu_context(const nlohmann::json& param_json,
     heongpu::MemoryPoolConfig pool_config = heongpu::MemoryPoolConfig::Defaults();
 
     if constexpr (SchemeType == heongpu::Scheme::CKKS) {
+        // The parameter carries the default scale as a log2 value.
+        double scale = std::ldexp(1.0, param_json["log_default_scale"].get<int>());
+
         context = heongpu::GenHEContext<SchemeType>(heongpu::sec_level_type::none);
         context->set_poly_modulus_degree(n);
-
-        int slots = param_json["slots"].get<int>();
-        context->set_slot_count(slots);
+        context->set_default_scale(scale);
 
         std::vector<Data64> Q, P;
         for (int i = 0; i <= max_level; i++) {
@@ -80,40 +87,23 @@ void init_gpu_context(const nlohmann::json& param_json,
         context->set_coeff_modulus_values(Q, P);
         context->generate(pool_config);
 
-        auto gpu_encoder = std::make_unique<heongpu::HEEncoder<SchemeType>>(context);
-        operators = std::make_unique<heongpu::HEArithmeticOperator<SchemeType>>(context, *gpu_encoder);
+        encoder = std::make_unique<heongpu::HEEncoder<SchemeType>>(context);
+        operators = std::make_unique<heongpu::HEArithmeticOperator<SchemeType>>(context, *encoder);
 
-        if (param_json.contains("btp_output_level")) {
-            int cts_start_level = param_json["btp_cts_start_level"].get<int>();
-            int cts_depth = param_json["btp_cts_depth"].get<int>();
-            double cts_bsgs_ratio = param_json["btp_cts_bsgs_ratio"].get<double>();
+        if (param_json.value("enable_bootstrapping", false)) {
+            heongpu::BootstrappingParamConfig param_config;
+            heongpu::BootstrappingConfigV3 boot_config_v3 = operators->generate_bootstrapping_config_v3(param_config);
 
-            uint64_t eval_mod_q = param_json["btp_eval_mod_q"].get<uint64_t>();
-            int eval_mod_start_level = param_json["btp_eval_mod_start_level"].get<int>();
-            double eval_mod_scaling_factor = param_json["btp_eval_mod_scaling_factor"].get<double>();
-            double eval_mod_message_ratio = param_json["btp_eval_mod_message_ratio"].get<double>();
-            int eval_mod_k = param_json["btp_eval_mod_k"].get<int>();
-            int eval_mod_sine_deg = param_json["btp_eval_mod_sine_deg"].get<int>();
-            int eval_mod_double_angle = param_json["btp_eval_mod_double_angle"].get<int>();
-            int eval_mod_arcsine_deg = param_json["btp_eval_mod_arcsine_deg"].get<int>();
+            boot_context = heongpu::GenHEContext<SchemeType>(heongpu::sec_level_type::none);
+            boot_context->set_poly_modulus_degree(std::size_t(1) << boot_config_v3.log_n_);
+            boot_context->set_default_scale(scale);
+            boot_context->set_coeff_modulus_values(boot_config_v3.q_, boot_config_v3.p_);
+            boot_context->generate();
 
-            int stc_start_level = param_json["btp_stc_start_level"].get<int>();
-            int stc_depth = param_json["btp_stc_depth"].get<int>();
-            double stc_bsgs_ratio = param_json["btp_stc_bsgs_ratio"].get<double>();
-
-            double scale = param_json["scale"].get<double>();
-
-            heongpu::EncodingMatrixConfig cts_config(heongpu::LinearTransformType::COEFFS_TO_SLOTS, cts_start_level,
-                                                     cts_bsgs_ratio, cts_depth);
-            heongpu::EvalModConfig eval_mod_config(eval_mod_q, eval_mod_start_level, eval_mod_message_ratio, eval_mod_k,
-                                                   eval_mod_sine_deg, eval_mod_double_angle, eval_mod_arcsine_deg,
-                                                   eval_mod_scaling_factor);
-            heongpu::EncodingMatrixConfig stc_config(heongpu::LinearTransformType::SLOTS_TO_COEFFS, stc_start_level,
-                                                     stc_bsgs_ratio, stc_depth);
-
-            heongpu::BootstrappingConfigV2 boot_config(stc_config, eval_mod_config, cts_config);
-
-            operators->generate_bootstrapping_params_v2(scale, boot_config);
+            boot_encoder = std::make_unique<heongpu::HEEncoder<SchemeType>>(boot_context);
+            boot_operators = std::make_unique<heongpu::HEArithmeticOperator<SchemeType>>(boot_context, *boot_encoder);
+            boot_operators->set_residual_context(context);
+            boot_operators->generate_bootstrapping_params_v3(boot_config_v3);
         }
 
     } else {
@@ -132,8 +122,8 @@ void init_gpu_context(const nlohmann::json& param_json,
         context->set_plain_modulus(t);
         context->generate(pool_config);
 
-        auto gpu_encoder = std::make_unique<heongpu::HEEncoder<SchemeType>>(context);
-        operators = std::make_unique<heongpu::HEArithmeticOperator<SchemeType>>(context, *gpu_encoder);
+        encoder = std::make_unique<heongpu::HEEncoder<SchemeType>>(context);
+        operators = std::make_unique<heongpu::HEArithmeticOperator<SchemeType>>(context, *encoder);
     }
 }
 
@@ -151,9 +141,14 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
 
     // Initialize GPU context and operators for GPU FHE operations
     heongpu::HEContext<SchemeType> context;
+    std::unique_ptr<heongpu::HEEncoder<SchemeType>> encoder;
     std::unique_ptr<heongpu::HEArithmeticOperator<SchemeType>> operators;
+    heongpu::HEContext<SchemeType> boot_context;
+    std::unique_ptr<heongpu::HEEncoder<SchemeType>> boot_encoder;
+    std::unique_ptr<heongpu::HEArithmeticOperator<SchemeType>> boot_operators;
 
-    init_gpu_context<SchemeType>(mega_ag.parameter, context, operators);
+    init_gpu_context<SchemeType>(mega_ag.parameter, context, encoder, operators, boot_context, boot_encoder,
+                                 boot_operators);
 
     // GPU streams for FHE computations
     const int num_streams = 2;
@@ -175,70 +170,73 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
     // Create CPU contexts for CPU nodes (ABI bridge only, no keys needed)
     constexpr HEScheme cpu_scheme = (SchemeType == heongpu::Scheme::BFV) ? HEScheme::BFV : HEScheme::CKKS;
     std::unique_ptr<TContext> base_cpu_context;
-    init_empty_context<cpu_scheme, TContext>(mega_ag.parameter, base_cpu_context);
+    init_context<cpu_scheme, TContext>(mega_ag.parameter, base_cpu_context);
 
     std::vector<void*> input_handles = extract_input_handles(input_args);
 
-    std::unordered_map<NodeIndex, std::any> available_data = init_available_data(mega_ag, input_handles);
+    std::unordered_map<NodeId, std::any> available_data = init_available_data(mega_ag, input_handles);
 
-    // Build output handle map: output NodeIndex -> void* handle pointer
-    std::unordered_map<NodeIndex, void*> output_handle_map = extract_output_handle_map(mega_ag, output_args);
+    // Build output handle map: output NodeId -> void* handle pointer
+    std::unordered_map<NodeId, void*> output_handle_map = extract_output_handle_map(mega_ag, output_args);
 
     // GPU-specific data structures
-    std::unordered_map<NodeIndex, cudaEvent_t> data_ready_events;
+    std::unordered_map<NodeId, cudaEvent_t> data_ready_events;
     std::shared_ptr<heongpu::Galoiskey<SchemeType>> galois_key;
     std::mutex galois_key_mutex;
 
-    // Collect all galois elements from data nodes
+    // Collect all galois elements and the shared maximum GLK level from data nodes
     std::vector<uint32_t> all_galois_elts;
-    for (const auto& [data_index, data_node] : mega_ag.data) {
-        if (data_node.datum_type == DataType::TYPE_GALOIS_KEY && data_node.fhe_prop->p.has_value()) {
-            all_galois_elts.push_back(data_node.fhe_prop->p->galois_element);
+    int galois_key_level = -1;
+    for (const auto& [data_id, data_node] : mega_ag.data) {
+        if (data_node.datum_type == DataType::TYPE_GALOIS_KEY && data_node.fhe_prop.has_value()) {
+            galois_key_level = std::max(galois_key_level, data_node.fhe_prop->level);
+            if (data_node.fhe_prop->p.has_value()) {
+                all_galois_elts.push_back(data_node.fhe_prop->p->galois_element);
+            }
         }
     }
 
     // Define GPU task submission function
     // This receives shared state from run_tasks
-    std::function<void(NodeIndex, std::mutex&, std::priority_queue<TaskInfo>&, std::set<NodeIndex>&,
-                       std::atomic<size_t>&, std::atomic<size_t>&, std::condition_variable&, std::mutex&,
-                       std::unordered_map<NodeIndex, std::atomic<int>>&)>
-        submit_gpu_task = [&](NodeIndex task_index, std::mutex& m_mutex, std::priority_queue<TaskInfo>& task_queue,
-                              std::set<NodeIndex>& queued_computes, std::atomic<size_t>& completed_tasks,
+    std::function<void(NodeId, std::mutex&, std::priority_queue<TaskInfo>&, std::set<NodeId>&, std::atomic<size_t>&,
+                       std::atomic<size_t>&, std::condition_variable&, std::mutex&,
+                       std::unordered_map<NodeId, std::atomic<int>>&)>
+        submit_gpu_task = [&](NodeId task_id, std::mutex& m_mutex, std::priority_queue<TaskInfo>& task_queue,
+                              std::set<NodeId>& queued_computes, std::atomic<size_t>& completed_tasks,
                               std::atomic<size_t>& total_tasks, std::condition_variable& completion_cv,
                               std::mutex& completion_mutex,
-                              std::unordered_map<NodeIndex, std::atomic<int>>& data_ref_counts) {
-            const BS::priority_t pool_priority = mega_ag.computes.at(task_index).priority;
+                              std::unordered_map<NodeId, std::atomic<int>>& data_ref_counts) {
+            const BS::priority_t pool_priority = mega_ag.computes.at(task_id).priority;
             gpu_pool.detach_task(
-                [task_index, pool_priority, device, &gpu_pool, &mega_ag, &m_mutex, &task_queue, &queued_computes,
+                [task_id, pool_priority, device, &gpu_pool, &mega_ag, &m_mutex, &task_queue, &queued_computes,
                  &completed_tasks, &total_tasks, &completion_cv, &completion_mutex, &available_data, &operators,
-                 &data_ready_events, &stream_options, &streams, &context, &galois_key, &galois_key_mutex,
-                 &data_ref_counts, &all_galois_elts, cancel_flag]() {
+                 &encoder, &boot_operators, &boot_context, &data_ready_events, &stream_options, &streams, &context,
+                 &galois_key, &galois_key_mutex, &data_ref_counts, &all_galois_elts, &galois_key_level, cancel_flag]() {
                     CHECK(cudaSetDevice(device));
                     if (cancel_flag && cancel_flag->load()) {
                         return;
                     }
                     auto stream_id = BS::this_thread::get_index().value();
 
-                    const ComputeNode& compute_node = mega_ag.computes.at(task_index);
-
-                    // Get operation type outside lock
-                    OperationType op =
-                        compute_node.fhe_prop.has_value() ? compute_node.fhe_prop->op_type : OperationType::UNKNOWN;
+                    const CompoundComputeNode& compute_node = mega_ag.computes.at(task_id);
 
                     const std::vector<DatumNode*>& compute_input_nodes = compute_node.input_nodes;
-                    const DatumNode* compute_output_node = compute_node.output_nodes[0];
+                    const bool has_load_to_backend =
+                        compute_contains_operation(compute_node, OperationType::LOAD_TO_BACKEND);
+                    const bool has_store_from_backend =
+                        compute_contains_operation(compute_node, OperationType::STORE_FROM_BACKEND);
 
                     std::vector<cudaEvent_t> events_to_wait;
-                    std::unordered_map<uint64_t, std::any> thread_input_cache;
+                    std::unordered_map<NodeId, std::any> thread_data_cache;
                     {
                         std::lock_guard<std::mutex> lock(m_mutex);
 
-                        // Check if all BACKEND input events are available
-                        // ABI inputs (from CPU via LOAD_TO_BACKEND) don't have events
+                        // Check if all BACKEND input events are available.
+                        // ABI inputs for LOAD_TO_BACKEND don't have events.
                         bool events_ready = true;
-                        if (op != OperationType::LOAD_TO_BACKEND) {
+                        if (!has_load_to_backend) {
                             for (const auto* input_node : compute_input_nodes) {
-                                auto event_it = data_ready_events.find(input_node->index);
+                                auto event_it = data_ready_events.find(input_node->id);
                                 if (event_it == data_ready_events.end()) {
                                     events_ready = false;
                                     break;
@@ -247,20 +245,17 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
                         }
 
                         if (!events_ready) {
-                            queued_computes.erase(task_index);
-                            task_queue.push({mega_ag.computes.at(task_index).priority, task_index});
+                            queued_computes.erase(task_id);
+                            task_queue.push({compute_node.priority, task_id});
                             return;
                         }
 
-                        // Collect events to wait for and cache data pointers
+                        // Collect events to wait for and cache data pointers.
                         for (const auto* input_node : compute_input_nodes) {
-                            // Cache input data
-                            thread_input_cache[input_node->index] = available_data[input_node->index];
+                            thread_data_cache[input_node->id] = available_data[input_node->id];
 
-                            // Collect events for GPU backend inputs
-                            // LOAD_TO_BACKEND loads from CPU (no events), other ops use GPU inputs (have events)
-                            if (op != OperationType::LOAD_TO_BACKEND) {
-                                events_to_wait.push_back(data_ready_events[input_node->index]);
+                            if (!has_load_to_backend) {
+                                events_to_wait.push_back(data_ready_events.at(input_node->id));
                             }
                         }
                     }
@@ -274,68 +269,65 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
                     ExecutionContext exec_ctx;
                     exec_ctx.context = operators.get();
                     exec_ctx.other_args.push_back(&stream_options[stream_id]);
+                    exec_ctx.other_args.push_back(&context);
 
-                    // LOAD_TO_BACKEND needs HEContext and galois_key parameters
-                    if (op == OperationType::LOAD_TO_BACKEND) {
-                        exec_ctx.other_args.push_back(&context);
+                    // The bootstrapping operator is passed as an other_arg to the
+                    // BOOTSTRAP nodes (which have no LOAD_TO_BACKEND, so index 2).
+                    if (compute_contains_operation(compute_node, OperationType::BOOTSTRAP)) {
+                        exec_ctx.other_args.push_back(boot_operators.get());
+                    }
+
+                    if (has_load_to_backend) {
                         exec_ctx.other_args.push_back(&galois_key);
                         exec_ctx.other_args.push_back(&galois_key_mutex);
                         exec_ctx.other_args.push_back(&all_galois_elts);
+                        exec_ctx.other_args.push_back(&galois_key_level);
+                        exec_ctx.other_args.push_back(&boot_context);
                     }
 
-                    std::any output;
-
-                    // Allocate output based on operation type
-                    // GPU FHE ops: pre-allocate GPU ciphertext (except LOAD and STORE which handle allocation
-                    // internally) LOAD_TO_BACKEND: allocates GPU memory internally STORE_FROM_BACKEND: outputs to C
-                    // struct (not GPU memory)
-                    if (op != OperationType::LOAD_TO_BACKEND && op != OperationType::STORE_FROM_BACKEND) {
-                        int output_level = compute_output_node->fhe_prop->level;
-                        auto output_ptr = std::make_shared<heongpu::Ciphertext<SchemeType>>(context, output_level,
-                                                                                            stream_options[stream_id]);
-                        output = output_ptr;
+                    try {
+                        compute_node.execute(exec_ctx, thread_data_cache);
+                    } catch (const std::exception& e) {
+                        fprintf(stderr, ">>> GPU task %s threw: %s\n", task_id.c_str(), e.what());
+                        throw;
                     }
 
-                    compute_node.executor(exec_ctx, thread_input_cache, output, compute_node);
-
-                    // Create event for GPU backend outputs (not STORE_FROM_BACKEND which outputs to C struct)
-                    cudaEvent_t output_event;
-                    bool has_output_event = false;
-                    if (op != OperationType::STORE_FROM_BACKEND) {
-                        CHECK(cudaEventCreate(&output_event));
-                        CHECK(cudaEventRecord(output_event, streams[stream_id]));
-                        has_output_event = true;
+                    // Create events for GPU backend outputs (not STORE_FROM_BACKEND which outputs to C struct)
+                    std::vector<cudaEvent_t> output_events;
+                    if (!has_store_from_backend) {
+                        output_events.reserve(compute_node.output_nodes.size());
+                        for (size_t i = 0; i < compute_node.output_nodes.size(); ++i) {
+                            cudaEvent_t output_event;
+                            CHECK(cudaEventCreate(&output_event));
+                            CHECK(cudaEventRecord(output_event, streams[stream_id]));
+                            output_events.push_back(output_event);
+                        }
                     }
 
                     {
                         std::lock_guard<std::mutex> lock(m_mutex);
 
-                        // Store output in available_data
-                        available_data[compute_output_node->index] = output;
+                        for (const auto* output_node : compute_node.output_nodes) {
+                            available_data[output_node->id] = thread_data_cache.at(output_node->id);
+                        }
+                        auto newly_available_computes = mega_ag.step_available_computes(compute_node, available_data);
 
-                        // Store event if created
-                        if (has_output_event) {
-                            data_ready_events[compute_output_node->index] = output_event;
+                        for (size_t i = 0; i < output_events.size(); ++i) {
+                            data_ready_events[compute_node.output_nodes[i]->id] = output_events[i];
                         }
 
-                        // Update available computes
-                        std::unordered_set<NodeIndex> newly_available_computes =
-                            mega_ag.step_available_computes(*compute_output_node, available_data);
-
-                        for (const auto& new_task_index : newly_available_computes) {
-                            if (queued_computes.find(new_task_index) == queued_computes.end()) {
-                                task_queue.push({mega_ag.computes.at(new_task_index).priority, new_task_index});
-                                queued_computes.insert(new_task_index);
+                        for (const auto& new_task_id : newly_available_computes) {
+                            if (queued_computes.find(new_task_id) == queued_computes.end()) {
+                                task_queue.push({mega_ag.computes.at(new_task_id).priority, new_task_id});
+                                queued_computes.insert(new_task_id);
                             }
                         }
                     }
 
                     gpu_pool.detach_task(
-                        [compute_node, output_event, has_output_event, device, &mega_ag, &m_mutex, &available_data,
-                         &data_ref_counts]() {
+                        [compute_node, output_events, device, &mega_ag, &m_mutex, &available_data, &data_ref_counts]() {
                             CHECK(cudaSetDevice(device));
-                            // Wait for GPU computation to complete if event exists
-                            if (has_output_event) {
+                            for (auto& output_event : output_events) {
                                 CHECK(cudaEventSynchronize(output_event));
                             }
 
@@ -355,22 +347,17 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
                 pool_priority);
         };
 
-    // Define get_other_args for IMPORT_FROM_ABI nodes: pass output Handle* as other_arg
-    auto get_other_args = [&](const ComputeNode& compute_node) -> std::vector<std::any> {
-        std::vector<std::any> other_args_vec;
-        if (compute_node.fhe_prop.has_value() && compute_node.fhe_prop->op_type == OperationType::IMPORT_FROM_ABI) {
-            NodeIndex output_node_index = compute_node.output_nodes[0]->index;
-            auto it = output_handle_map.find(output_node_index);
-            if (it != output_handle_map.end()) {
-                other_args_vec.push_back(it->second);
-            }
+    // Define get_other_args for IMPORT_FROM_ABI nodes: pass all output Handle* entries.
+    auto get_other_args = [&](const CompoundComputeNode& compute_node) -> std::vector<std::any> {
+        if (compute_contains_operation(compute_node, OperationType::IMPORT_FROM_ABI)) {
+            return {&output_handle_map};
         }
-        return other_args_vec;
+        return {};
     };
 
 #ifdef LATTISENSE_DEV
     MemoryMonitor cpu_mem_monitor(100);  // sample every 100 ms
-    cpu_mem_monitor.start(MemoryMonitor::next_csv_path("mem_usage_cpu"));
+    cpu_mem_monitor.start(MemoryMonitor::next_csv_path(".", "mem_usage_cpu"));
     GpuMemoryMonitor gpu_mem_monitor(100);  // sample every 100 ms
     gpu_mem_monitor.start(GpuMemoryMonitor::next_csv_path("mem_usage_gpu"));
 #endif
@@ -415,13 +402,8 @@ void _run_mega_ag(gsl::span<CArgument> input_args,
                   int gpu_device = 0,
                   const std::atomic<bool>* cancel_flag = nullptr) {
     if constexpr (SchemeType == heongpu::Scheme::CKKS) {
-        if (mega_ag.parameter.contains("btp_output_level")) {
-            _run_mega_ag_impl<SchemeType, CkksBtpContext>(input_args, output_args, mega_ag, progress_cb, gpu_device,
-                                                          cancel_flag);
-        } else {
-            _run_mega_ag_impl<SchemeType, CkksContext>(input_args, output_args, mega_ag, progress_cb, gpu_device,
-                                                       cancel_flag);
-        }
+        _run_mega_ag_impl<SchemeType, CkksContext>(input_args, output_args, mega_ag, progress_cb, gpu_device,
+                                                   cancel_flag);
     } else {
         _run_mega_ag_impl<SchemeType, BfvContext>(input_args, output_args, mega_ag, progress_cb, gpu_device,
                                                   cancel_flag);
@@ -431,7 +413,7 @@ void _run_mega_ag(gsl::span<CArgument> input_args,
 class FheGpuTask {
 public:
     FheGpuTask(const std::string& project_path) {
-        mega_ag_ = MegaAG::load(project_path + "/mega_ag.json", Processor::GPU);
+        mega_ag_ = MegaAG::load(project_path, Processor::GPU);
 
         cudaSetDevice(0);  // Warm up default device; actual device is selected at run time
 

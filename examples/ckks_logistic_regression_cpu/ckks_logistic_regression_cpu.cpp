@@ -32,8 +32,9 @@ using namespace lattisense;
 void ckks_logistic_regression_cpu() {
     int level = 3;
     int n_input_feature = 30;
-    int N = 16384;
-    CkksParameter param = CkksParameter::create_parameter(N);
+    int logN = 14;
+    int N = 1 << logN;
+    CkksParameter param = CkksParameter::create_parameter(logN);
     CkksContext ctx = CkksContext::create_random_context(param);
     double default_scale = param.get_default_scale();
 

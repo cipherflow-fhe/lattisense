@@ -47,7 +47,7 @@ func NewFheTaskGpu(project_path string) (*FheTaskGpu, error) {
 	}
 
 	task_signature_path := fmt.Sprintf("%s/task_signature.json", project_path)
-	task_signature_file, err := os.OpenFile(task_signature_path, os.O_CREATE|os.O_RDWR, 0666)
+	task_signature_file, err := os.Open(task_signature_path)
 	if err != nil {
 		return nil, err
 	}
@@ -58,24 +58,7 @@ func NewFheTaskGpu(project_path string) (*FheTaskGpu, error) {
 		return nil, err
 	}
 
-	// Load mega_ag.json for parameter and algorithm
-	mega_ag_path := fmt.Sprintf("%s/mega_ag.json", project_path)
-	mega_ag_file, err := os.Open(mega_ag_path)
-	if err != nil {
-		return nil, err
-	}
-	defer mega_ag_file.Close()
-
-	var mega_ag_json map[string]interface{}
-	decoder := json.NewDecoder(mega_ag_file)
-	decoder.UseNumber() // Use json.Number to preserve precision
-	err = decoder.Decode(&mega_ag_json)
-	if err != nil {
-		return nil, err
-	}
-	task.param_json = mega_ag_json["parameter"].(map[string]interface{})
-
-	algo_str := mega_ag_json["algorithm"].(string)
+	algo_str := task.task_signature["algorithm"].(string)
 	switch algo_str {
 	case "BFV":
 		task.algo = C.ALGO_BFV
@@ -83,6 +66,20 @@ func NewFheTaskGpu(project_path string) (*FheTaskGpu, error) {
 		task.algo = C.ALGO_CKKS
 	default:
 		return nil, fmt.Errorf("unknown algorithm: %s", algo_str)
+	}
+
+	param_path := fmt.Sprintf("%s/fhe_parameter.json", project_path)
+	param_file, err := os.Open(param_path)
+	if err != nil {
+		return nil, err
+	}
+	defer param_file.Close()
+
+	decoder := json.NewDecoder(param_file)
+	decoder.UseNumber()
+	err = decoder.Decode(&task.param_json)
+	if err != nil {
+		return nil, err
 	}
 
 	task.task_handle = C.create_fhe_gpu_task(C.CString(project_path))

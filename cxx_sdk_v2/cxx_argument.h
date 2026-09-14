@@ -22,10 +22,14 @@
 #include <vector>
 #include <string>
 #include <typeindex>
+#include <type_traits>
 #include <unordered_map>
 #include <stdexcept>
+#include <utility>
 #include "nlohmann/json.hpp"
-#include "../fhe_ops_lib/fhe_lib_v2.h"
+#include "../fhe_ops_lib/schemes/base/custom_data.h"
+#include "../fhe_ops_lib/schemes/bfv/bfv.h"
+#include "../fhe_ops_lib/schemes/ckks/ckks.h"
 
 extern "C" {
 #include "../abi/c_structs.h"
@@ -36,39 +40,22 @@ namespace lattisense {
 
 using namespace fhe_ops_lib;
 
-enum class CxxArgumentType {
-    PLAINTEXT,
-    PLAINTEXT_MUL,
-    PLAINTEXT_RINGT,
-    CIPHERTEXT,
-    CIPHERTEXT3,
-    RELIN_KEY,
-    GALOIS_KEY,
-    CUSTOM
-};
+enum class CxxArgumentType { PLAINTEXT, CIPHERTEXT, RELIN_KEY, GALOIS_KEY, EVALUATION_KEY, CUSTOM };
 
 inline std::unordered_map<CxxArgumentType, DataType> type_map = {
     {CxxArgumentType::CIPHERTEXT, DataType::TYPE_CIPHERTEXT},
-    {CxxArgumentType::CIPHERTEXT3, DataType::TYPE_CIPHERTEXT},
     {CxxArgumentType::PLAINTEXT, DataType::TYPE_PLAINTEXT},
-    {CxxArgumentType::PLAINTEXT_RINGT, DataType::TYPE_PLAINTEXT},
-    {CxxArgumentType::PLAINTEXT_MUL, DataType::TYPE_PLAINTEXT},
     {CxxArgumentType::RELIN_KEY, DataType::TYPE_RELIN_KEY},
     {CxxArgumentType::GALOIS_KEY, DataType::TYPE_GALOIS_KEY},
+    {CxxArgumentType::EVALUATION_KEY, DataType::TYPE_EVALUATION_KEY},
     {CxxArgumentType::CUSTOM, DataType::TYPE_CUSTOM},
 };
 
 inline std::unordered_map<std::type_index, CxxArgumentType> _type_map = {
     {std::type_index(typeid(BfvCiphertext)), CxxArgumentType::CIPHERTEXT},
-    {std::type_index(typeid(BfvCiphertext3)), CxxArgumentType::CIPHERTEXT3},
     {std::type_index(typeid(BfvPlaintext)), CxxArgumentType::PLAINTEXT},
-    {std::type_index(typeid(BfvPlaintextRingt)), CxxArgumentType::PLAINTEXT_RINGT},
-    {std::type_index(typeid(BfvPlaintextMul)), CxxArgumentType::PLAINTEXT_MUL},
     {std::type_index(typeid(CkksCiphertext)), CxxArgumentType::CIPHERTEXT},
-    {std::type_index(typeid(CkksCiphertext3)), CxxArgumentType::CIPHERTEXT3},
     {std::type_index(typeid(CkksPlaintext)), CxxArgumentType::PLAINTEXT},
-    {std::type_index(typeid(CkksPlaintextRingt)), CxxArgumentType::PLAINTEXT_RINGT},
-    {std::type_index(typeid(CkksPlaintextMul)), CxxArgumentType::PLAINTEXT_MUL},
     {std::type_index(typeid(CustomData)), CxxArgumentType::CUSTOM},
 };
 
@@ -93,11 +80,10 @@ void add_flat(T& x,
         flat.push_back(&x);
         flat_types.push_back(_type_map[std::type_index(typeid(T))]);
 
-        // CustomData doesn't have get_level(), use -1 as default
         if constexpr (std::is_same_v<T, CustomData>) {
             flat_levels.push_back(-1);
         } else {
-            flat_levels.push_back(x.get_level());
+            flat_levels.push_back(x.level());
         }
     }
 }
@@ -130,6 +116,9 @@ struct CxxVectorArgument {
             }
         }
     }
+
+    CxxVectorArgument(const std::string& id, CxxArgumentType arg_type, int arg_level, std::vector<Handle*>&& handles)
+        : arg_id(id), type(arg_type), level(arg_level), flat_handles(std::move(handles)) {}
 };
 
 inline CArgument export_cxx_argument(const CxxVectorArgument& src) {
@@ -158,105 +147,96 @@ inline void export_cxx_arguments(const std::vector<CxxVectorArgument>& cxx_args,
     }
 }
 
-/**
- * @brief Per-instance storage for extracted public keys.
- *
- * Owned by FheTask so that key lifetime is tied to the FheTask instance,
- * avoiding the thread-safety and multi-instance hazards of static locals.
- */
-struct PublicKeyStorage {
-    RelinKey saved_rlk;
-    GaloisKey saved_glk;
-    KeySwitchKey saved_swk_dts;
-    KeySwitchKey saved_swk_std;
-    RelinKey* rlk_handle = nullptr;
-    GaloisKey* glk_handle = nullptr;
-    KeySwitchKey* swk_dts_handle = nullptr;
-    KeySwitchKey* swk_std_handle = nullptr;
-};
-
-inline void export_public_key_arguments(nlohmann::json& key_signature,
-                                        std::vector<CArgument>& input_args,
-                                        FheContext* context,
-                                        PublicKeyStorage& keys) {
+inline void append_public_key_arguments(nlohmann::json& key_signature,
+                                        std::vector<CxxVectorArgument>& cxx_args,
+                                        FheContext* context) {
     if (key_signature["rlk"].get<int>() >= 0) {
-        CArgument rlk_arg;
         int rlk_level = key_signature["rlk"].get<int>();
-        rlk_arg.id = "rlk_ntt";
-        rlk_arg.type = DataType::TYPE_RELIN_KEY;
-        rlk_arg.size = 1;
-        rlk_arg.level = rlk_level;
-
-        // Use Handle* pointers; ABI conversion is performed by the EXPORT_TO_ABI node in the MegaAG graph
-        keys.saved_rlk = context->extract_relin_key();
-        keys.rlk_handle = &keys.saved_rlk;
-        rlk_arg.data = (void*)&keys.rlk_handle;
-
-        input_args.push_back(rlk_arg);
+        cxx_args.emplace_back("rlk_ntt", CxxArgumentType::RELIN_KEY, rlk_level,
+                              std::vector<Handle*>{const_cast<RelinKey*>(&context->evaluation_key_set().relin_key())});
     }
+
     if (!key_signature["glk"].empty()) {
-        CArgument glk_arg;
+        if (!key_signature.contains("glk_order")) {
+            throw std::runtime_error("GLK signature requires glk_order");
+        }
+
         int glk_level = -1;
-        for (auto& item : key_signature["glk"].items()) {
-            int level = item.value().get<int>();
+        std::vector<Handle*> glk_handles;
+        for (auto& item : key_signature["glk_order"]) {
+            uint64_t gal_el = item.get<uint64_t>();
+            int level = key_signature["glk"].at(std::to_string(gal_el)).get<int>();
             glk_level = glk_level < level ? level : glk_level;
+            glk_handles.push_back(const_cast<GaloisKey*>(&context->evaluation_key_set().galois_key(gal_el)));
         }
-
-        glk_arg.id = "glk_ntt";
-        glk_arg.type = DataType::TYPE_GALOIS_KEY;
-        glk_arg.size = 1;
-        glk_arg.level = glk_level;
-
-        // Use Handle* pointers; ABI conversion is performed by the EXPORT_TO_ABI node in the MegaAG graph
-        keys.saved_glk = context->extract_galois_key();
-        keys.glk_handle = &keys.saved_glk;
-        glk_arg.data = (void*)&keys.glk_handle;
-
-        input_args.push_back(glk_arg);
+        cxx_args.emplace_back("glk_ntt", CxxArgumentType::GALOIS_KEY, glk_level, std::move(glk_handles));
     }
-    if (key_signature.contains("ckks_btp_swk")) {
-        auto& swk_sig = key_signature["ckks_btp_swk"];
-        CkksBtpContext* btp_context = dynamic_cast<CkksBtpContext*>(context);
-        if (btp_context == nullptr) {
-            throw std::runtime_error("Context is not CkksBtpContext but ckks_btp_swk is required");
+
+    if (key_signature.contains("ckks_btp_evk") && !key_signature["ckks_btp_evk"].empty()) {
+        auto* ckks_context = dynamic_cast<CkksContext*>(context);
+        if (ckks_context == nullptr) {
+            throw std::runtime_error("CKKS bootstrapping evaluation keys require CkksContext");
+        }
+        const auto& btp_keys = ckks_context->bootstrapping_evaluation_keys();
+        const auto& btp_key_set = btp_keys.evaluation_key_set();
+
+        if (key_signature.contains("ckks_btp_glk_order") && !key_signature["ckks_btp_glk_order"].empty()) {
+            int btp_glk_level = -1;
+            std::vector<Handle*> btp_glk_handles;
+            for (auto& item : key_signature["ckks_btp_glk_order"]) {
+                uint64_t gal_el = item.get<uint64_t>();
+                std::string glk_id = "evk_glk_" + std::to_string(gal_el);
+                if (!key_signature["ckks_btp_evk"].contains(glk_id)) {
+                    throw std::runtime_error("ckks_btp_glk_order element missing from ckks_btp_evk: " + glk_id);
+                }
+                int level = key_signature["ckks_btp_evk"][glk_id].get<int>();
+                btp_glk_level = btp_glk_level < level ? level : btp_glk_level;
+                btp_glk_handles.push_back(const_cast<GaloisKey*>(&btp_key_set.galois_key(gal_el)));
+            }
+            cxx_args.emplace_back("btp_glk", CxxArgumentType::GALOIS_KEY, btp_glk_level, std::move(btp_glk_handles));
         }
 
-        if (swk_sig.contains("swk_dts")) {
-            CArgument swk_dts_arg;
-            auto swk_dts_levels = swk_sig["swk_dts"].get<std::vector<int>>();
-            int level = swk_dts_levels[0];
-
-            swk_dts_arg.id = "swk_dts";
-            swk_dts_arg.type = DataType::TYPE_SWITCH_KEY;
-            swk_dts_arg.size = 1;
-            swk_dts_arg.level = level;
-
-            // Use Handle* pointers; ABI conversion is performed by the EXPORT_TO_ABI node in the MegaAG graph
-            keys.saved_swk_dts = btp_context->extract_swk_dts();
-            keys.swk_dts_handle = &keys.saved_swk_dts;
-            swk_dts_arg.data = (void*)&keys.swk_dts_handle;
-
-            input_args.push_back(swk_dts_arg);
-        }
-
-        if (swk_sig.contains("swk_std")) {
-            CArgument swk_std_arg;
-            auto swk_std_levels = swk_sig["swk_std"].get<std::vector<int>>();
-            int level = swk_std_levels[0];
-
-            swk_std_arg.id = "swk_std";
-            swk_std_arg.type = DataType::TYPE_SWITCH_KEY;
-            swk_std_arg.size = 1;
-            swk_std_arg.level = level;
-
-            // Use Handle* pointers; ABI conversion is performed by the EXPORT_TO_ABI node in the MegaAG graph
-            keys.saved_swk_std = btp_context->extract_swk_std();
-            keys.swk_std_handle = &keys.saved_swk_std;
-            swk_std_arg.data = (void*)&keys.swk_std_handle;
-
-            input_args.push_back(swk_std_arg);
+        for (auto& item : key_signature["ckks_btp_evk"].items()) {
+            const std::string& id = item.key();
+            if (id.rfind("evk_glk_", 0) == 0) {
+                continue;  // handled by the aggregated btp_glk arg above
+            }
+            int level = item.value().get<int>();
+            if (id == "evk_rlk") {
+                cxx_args.emplace_back(id, CxxArgumentType::RELIN_KEY, level,
+                                      std::vector<Handle*>{const_cast<RelinKey*>(&btp_key_set.relin_key())});
+            } else if (id == "evk_n1_to_n2") {
+                cxx_args.emplace_back(id, CxxArgumentType::EVALUATION_KEY, level,
+                                      std::vector<Handle*>{const_cast<EvaluationKey*>(&btp_keys.evk_n1_to_n2())});
+            } else if (id == "evk_n2_to_n1") {
+                cxx_args.emplace_back(id, CxxArgumentType::EVALUATION_KEY, level,
+                                      std::vector<Handle*>{const_cast<EvaluationKey*>(&btp_keys.evk_n2_to_n1())});
+            } else if (id == "evk_dense_to_sparse") {
+                cxx_args.emplace_back(
+                    id, CxxArgumentType::EVALUATION_KEY, level,
+                    std::vector<Handle*>{const_cast<EvaluationKey*>(&btp_keys.evk_dense_to_sparse())});
+            } else if (id == "evk_sparse_to_dense") {
+                cxx_args.emplace_back(
+                    id, CxxArgumentType::EVALUATION_KEY, level,
+                    std::vector<Handle*>{const_cast<EvaluationKey*>(&btp_keys.evk_sparse_to_dense())});
+            }
         }
     }
+}
+
+inline std::vector<CxxVectorArgument> build_runtime_cxx_arguments(const std::vector<CxxVectorArgument>& cxx_args,
+                                                                  int n_in_args,
+                                                                  nlohmann::json& key_signature,
+                                                                  FheContext* context) {
+    std::vector<CxxVectorArgument> runtime_args;
+    runtime_args.reserve(cxx_args.size() + 2);
+
+    auto output_begin = cxx_args.begin() + n_in_args;
+    runtime_args.insert(runtime_args.end(), cxx_args.begin(), output_begin);
+    append_public_key_arguments(key_signature, runtime_args, context);
+    runtime_args.insert(runtime_args.end(), output_begin, cxx_args.end());
+
+    return runtime_args;
 }
 
 inline int get_n_key_arg(nlohmann::json& key_signature, bool online_phase = true) {
@@ -268,13 +248,11 @@ inline int get_n_key_arg(nlohmann::json& key_signature, bool online_phase = true
         if (!key_signature["glk"].empty()) {
             n_key_arg++;
         }
-        if (key_signature.contains("ckks_btp_swk")) {
-            auto& swk = key_signature["ckks_btp_swk"];
-            if (swk.contains("swk_dts")) {
-                n_key_arg++;
-            }
-            if (swk.contains("swk_std")) {
-                n_key_arg++;
+        if (key_signature.contains("ckks_btp_evk")) {
+            n_key_arg += key_signature["ckks_btp_evk"].size();
+            if (key_signature.contains("ckks_btp_glk_order") && !key_signature["ckks_btp_glk_order"].empty()) {
+                // evk_glk_* entries are aggregated into a single GALOIS_KEY arg.
+                n_key_arg -= key_signature["ckks_btp_glk_order"].size() - 1;
             }
         }
     }

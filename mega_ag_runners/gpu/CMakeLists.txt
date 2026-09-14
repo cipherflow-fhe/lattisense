@@ -7,6 +7,7 @@ target_compile_definitions(gpu_mega_ag_runner_obj PRIVATE
 )
 target_include_directories(gpu_mega_ag_runner_obj PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/..
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../fhe_ops_lib
     ${CMAKE_CURRENT_SOURCE_DIR}/../../lib/
 )
 target_link_libraries(gpu_mega_ag_runner_obj PUBLIC HEonGPU::heongpu CUDA::cudart)

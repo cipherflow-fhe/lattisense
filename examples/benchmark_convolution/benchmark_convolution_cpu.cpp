@@ -35,7 +35,8 @@ using namespace fhe_ops_lib;
 
 void benchmark_convolution(uint32_t input_size, uint32_t kernel_size, uint32_t n_in_channel, uint32_t n_out_channel) {
     // Parameters
-    const int N = 16384;
+    const int logN = 14;
+    const int N = 1 << logN;
     const int n_slot = N / 2;
     const int init_level = 2;
     const Duo input_shape = {input_size, input_size};
@@ -49,7 +50,7 @@ void benchmark_convolution(uint32_t input_size, uint32_t kernel_size, uint32_t n
 
     // Initialize CKKS context
     printf("Initializing CKKS context (N=%d)...\n", N);
-    CkksParameter param = CkksParameter::create_parameter(N);
+    CkksParameter param = CkksParameter::create_parameter(logN);
     CkksContext context = CkksContext::create_random_context(param);
     context.gen_rotation_keys();
 
