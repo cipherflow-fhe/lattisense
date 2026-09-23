@@ -211,6 +211,14 @@ inline void append_public_key_arguments(nlohmann::json& key_signature,
             } else if (id == "evk_n2_to_n1") {
                 cxx_args.emplace_back(id, CxxArgumentType::EVALUATION_KEY, level,
                                       std::vector<Handle*>{const_cast<EvaluationKey*>(&btp_keys.evk_n2_to_n1())});
+            } else if (id == "evk_ci_to_std") {
+                // Conjugate invariant residual ring: these two ring-swap keys
+                // replace the evk_n1_to_n2 / evk_n2_to_n1 pair above.
+                cxx_args.emplace_back(id, CxxArgumentType::EVALUATION_KEY, level,
+                                      std::vector<Handle*>{const_cast<EvaluationKey*>(&btp_keys.evk_ci_to_std())});
+            } else if (id == "evk_std_to_ci") {
+                cxx_args.emplace_back(id, CxxArgumentType::EVALUATION_KEY, level,
+                                      std::vector<Handle*>{const_cast<EvaluationKey*>(&btp_keys.evk_std_to_ci())});
             } else if (id == "evk_dense_to_sparse") {
                 cxx_args.emplace_back(
                     id, CxxArgumentType::EVALUATION_KEY, level,

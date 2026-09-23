@@ -22,7 +22,7 @@ import os
 import random
 import string
 from dataclasses import dataclass
-from enum import Enum
+from enum import Enum, IntEnum
 from typing import List
 
 import networkx as nx
@@ -41,6 +41,15 @@ GALOIS_GEN = 5
 class Algo(Enum):
     BFV = 'BFV'
     CKKS = 'CKKS'
+
+
+class RingType(IntEnum):
+    """
+    @brief CKKS ring type. Values are aligned with the Go ring.Type and the C++ RingType enum.
+    """
+
+    Standard = 0
+    ConjugateInvariant = 1
 
 
 class DataType(Enum):
@@ -194,13 +203,18 @@ class CkksParam(Param):
         self.log_default_scale: int = log_scale
         self.default_scale: float = 1 << log_scale
         self.enable_bootstrapping: bool = False
+        self.ring_type: RingType = RingType.Standard
 
     def set_log_scale(self, log_scale: int):
         self.log_default_scale = log_scale
         self.default_scale = 1 << log_scale
 
+    def log_max_slots(self) -> int:
+        # The conjugate-invariant ring encodes N slots, the standard ring N/2.
+        return self.log_n if self.ring_type == RingType.ConjugateInvariant else self.log_n - 1
+
     @classmethod
-    def create_default_param(cls, log_n: int):
+    def create_default_param(cls, log_n: int, ring_type: RingType = RingType.Standard):
         instance = cls(log_n)
 
         param_json = instance._load_parameter()
@@ -213,21 +227,26 @@ class CkksParam(Param):
         instance.max_level = param_json['max_level']
         instance.log_default_scale = param_json['log_default_scale']
         instance.default_scale = 1 << instance.log_default_scale
+        instance.ring_type = RingType(ring_type)
 
         return instance
 
     @classmethod
-    def create_custom_param(cls, log_n: int, q: List[int], p: List[int], log_scale: int = 0):
+    def create_custom_param(
+        cls, log_n: int, q: List[int], p: List[int], log_scale: int = 0, ring_type: RingType = RingType.Standard
+    ):
         instance = cls(log_n, log_scale)
         instance.q = q
         instance.p = p
         instance.max_level = len(q) - 1
+        instance.ring_type = RingType(ring_type)
         return instance
 
     def to_json_dict(self) -> dict:
         d = super().to_json_dict()
         d['log_default_scale'] = self.log_default_scale
         d['enable_bootstrapping'] = self.enable_bootstrapping
+        d['ring_type'] = int(self.ring_type)
         return d
 
 
@@ -391,9 +410,10 @@ class CkksPlaintextNode(PlaintextNode):
     def _validate_log_slots(log_slots: int, param: CkksParam) -> None:
         if log_slots < 0:
             raise ValueError(f'log_slots must be non-negative, got {log_slots}')
+        max_slots = 1 << param.log_max_slots()
         slots = 1 << log_slots
-        if slots > param.n // 2:
-            raise ValueError(f'slots must be in range (0, {param.n // 2}], got {slots}')
+        if slots > max_slots:
+            raise ValueError(f'slots must be in range (0, {max_slots}], got {slots}')
 
     def __init__(
         self,
@@ -410,7 +430,7 @@ class CkksPlaintextNode(PlaintextNode):
         if not isinstance(param, CkksParam):
             raise ValueError('CKKS plaintext requires CKKS parameters.')
         if log_slots == -1:
-            log_slots = int(math.log2(param.n // 2))
+            log_slots = param.log_max_slots()
         if scale == 0.0:
             scale = param.default_scale
         self._validate_log_slots(log_slots, param)
@@ -462,7 +482,7 @@ class CkksCiphertextNode(CiphertextNode):
         if not isinstance(param, CkksParam):
             raise ValueError('CKKS ciphertext requires CKKS parameters.')
         if log_slots == -1:
-            log_slots = int(math.log2(param.n // 2))
+            log_slots = param.log_max_slots()
         if scale == 0.0:
             scale = param.default_scale
         CkksPlaintextNode._validate_log_slots(log_slots, param)

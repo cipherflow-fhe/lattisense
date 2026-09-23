@@ -87,7 +87,7 @@ template <typename GpuKey> void export_evaluation_key(const CEvaluationKey& src,
 template <heongpu::Scheme SchemeType>
 void export_galois_key(const CEvaluationKey& src,
                        heongpu::Galoiskey<SchemeType>& dest,
-                       uint32_t galois_element,
+                       uint64_t galois_element,
                        int dest_level_q,
                        cudaStream_t stream) {
     if (dest_level_q < src.level_q) {
@@ -100,8 +100,8 @@ void export_galois_key(const CEvaluationKey& src,
     const int src_decomp_count = c_evaluation_key_decomp_rns(&src);
     const int dst_q_size = dest_level_q + 1;
     const int dst_rns_size = dst_q_size + src_p_size;
-    auto* dest_data =
-        galois_element != static_cast<uint32_t>(2 * ring_degree - 1) ? dest.data(galois_element) : dest.c_data();
+
+    auto* dest_data = dest.data(galois_element);
 
     for (int decomp_idx = 0; decomp_idx < src_decomp_count; decomp_idx++) {
         for (int poly_idx = 0; poly_idx < 2; poly_idx++) {
@@ -160,7 +160,7 @@ template <heongpu::Scheme SchemeType> ExecutorFunc create_load_to_gpu_executor()
         auto* context = ctx.get_other_arg<heongpu::HEContext<SchemeType>>(1);
         auto* galois_key_ptr = ctx.get_other_arg<std::shared_ptr<heongpu::Galoiskey<SchemeType>>>(2);
         auto* galois_key_mutex = ctx.get_other_arg<std::mutex>(3);
-        auto* all_galois_elts = ctx.get_other_arg<std::vector<uint32_t>>(4);
+        auto* all_galois_elts = ctx.get_other_arg<std::vector<uint64_t>>(4);
         auto* galois_key_level = ctx.get_other_arg<int>(5);
         // Bootstrap keys are generated under the bootstrapping (N2) context;
         // it is only present for LOAD_TO_BACKEND nodes.
@@ -194,7 +194,7 @@ template <heongpu::Scheme SchemeType> ExecutorFunc create_load_to_gpu_executor()
 
         std::any c_struct = local_data.at(input_node->id);
 
-        uint32_t galois_element = 0;
+        uint64_t galois_element = 0;
         if (data_type == TYPE_GALOIS_KEY && input_node->fhe_prop->p.has_value()) {
             galois_element = input_node->fhe_prop->p->galois_element;
         }

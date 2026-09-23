@@ -25,19 +25,20 @@ namespace fhe_ops_lib {
 
 // ─── CkksParameter ───────────────────────────────────────────────────────────
 
-CkksParameter CkksParameter::create_parameter(int log_n) {
+CkksParameter CkksParameter::create_parameter(int log_n, RingType ring_type) {
     uint64_t handle = 0;
-    CHECK(CreateCkksDefaultParameter(log_n, &handle));
+    CHECK(CreateCkksDefaultParameter(log_n, static_cast<int>(ring_type), &handle));
     return CkksParameter(std::move(handle));
 }
 
 CkksParameter CkksParameter::create_custom_parameter(int log_n,
                                                      int log_default_scale,
                                                      const std::vector<uint64_t>& q,
-                                                     const std::vector<uint64_t>& p) {
+                                                     const std::vector<uint64_t>& p,
+                                                     RingType ring_type) {
     uint64_t handle = 0;
     CHECK(CreateCkksCustomParameter(log_n, log_default_scale, (uint64_t*)q.data(), q.size(), (uint64_t*)p.data(),
-                                    p.size(), &handle));
+                                    p.size(), static_cast<int>(ring_type), &handle));
     return CkksParameter(std::move(handle));
 }
 
@@ -121,6 +122,20 @@ int CkksParameter::log_default_scale() const {
     int value = 0;
     CHECK(GetCkksLogDefaultScale(this->get(), &value));
     return value;
+}
+
+RingType CkksParameter::ring_type() const {
+    int value = 0;
+    CHECK(GetCkksRingType(this->get(), &value));
+    return static_cast<RingType>(value);
+}
+
+bool CkksParameter::is_standard() const {
+    return ring_type() == RingType::Standard;
+}
+
+bool CkksParameter::is_conjugate_invariant() const {
+    return ring_type() == RingType::ConjugateInvariant;
 }
 
 // ─── CkksEncoder ─────────────────────────────────────────────────────────────
@@ -355,17 +370,21 @@ CkksContext CkksContext::create_random_context(const CkksParameter& param,
 }
 
 void CkksContext::gen_rotation_keys(int level) {
-    const int log_n = parameter().log_n();
+    // Rotation steps are modulo the number of slots: log_n-1 for the standard ring (N/2 complex
+    // slots) and log_n for the conjugate-invariant ring (N real slots).
+    const int log_slots = parameter().log_max_slots();
     std::vector<int32_t> rotations;
-    rotations.reserve(2 * log_n - 3);
-    for (int i = 0; i < log_n - 1; ++i) {
+    rotations.reserve(2 * log_slots - 1);
+    for (int i = 0; i < log_slots; ++i) {
         rotations.push_back(1 << i);
     }
-    for (int i = 0; i < log_n - 2; ++i) {
+    for (int i = 0; i < log_slots - 1; ++i) {
         rotations.push_back(-1 * (1 << i));
     }
 
-    gen_rotation_keys(rotations, true, level);
+    // The row-swap (complex conjugation) Galois element does not exist in the conjugate-invariant
+    // ring, so it is only requested for the standard ring.
+    gen_rotation_keys(rotations, !parameter().is_conjugate_invariant(), level);
     _use_default_rotation_keys = true;
 }
 

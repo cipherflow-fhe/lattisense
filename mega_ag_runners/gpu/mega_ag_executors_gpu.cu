@@ -118,7 +118,7 @@ _create_output_data(ExecutionContext& ctx, std::unordered_map<NodeId, std::any>&
     return *output;
 }
 
-static std::vector<int32_t> get_default_rotation_substeps(int32_t step) {
+static std::vector<int32_t> get_default_rotation_substeps(int32_t step, int log_slots) {
     const bool negative_step = step < 0;
     uint32_t abs_step =
         negative_step ? static_cast<uint32_t>(-static_cast<int64_t>(step)) : static_cast<uint32_t>(step);
@@ -130,6 +130,11 @@ static std::vector<int32_t> get_default_rotation_substeps(int32_t step) {
 
     std::vector<int32_t> substeps;
     for (int idx = 30; idx >= 0; --idx) {
+        // A substep that is a multiple of the slot count is the identity rotation (e.g. N/2 for the
+        // standard ring or N for the conjugate-invariant ring) and needs no Galois key.
+        if (idx >= log_slots) {
+            continue;
+        }
         uint32_t bit = 1u << idx;
         if ((pos_bits & bit) != 0) {
             int32_t substep = static_cast<int32_t>(bit);
@@ -137,6 +142,9 @@ static std::vector<int32_t> get_default_rotation_substeps(int32_t step) {
         }
     }
     for (int idx = 30; idx >= 0; --idx) {
+        if (idx >= log_slots) {
+            continue;
+        }
         uint32_t bit = 1u << idx;
         if ((neg_bits & bit) != 0) {
             int32_t substep = -static_cast<int32_t>(bit);
@@ -423,6 +431,13 @@ template <heongpu::Scheme S> void bind_gpu_rotate_col(ComputeNode& node) {
                                                        std::unordered_map<NodeId, std::any>& local_data,
                                                        const ComputeNode& self) -> void {
         auto [operators, stream_option] = _get_operator_and_stream_option<S>(ctx);
+        // Rotation steps are modulo the slot count; used to drop the identity substeps during the
+        // NAF decomposition below. other_args[1] holds the HEContext (see gpu_wrapper.cu).
+        auto* he_context = ctx.get_other_arg<heongpu::HEContext<S>>(1);
+        if (!he_context) {
+            throw std::runtime_error("ROTATE_COL requires the HEContext");
+        }
+        const int log_max_slots = (*he_context)->get_log_max_slot_count();
         auto& input0 = _get_input_data<Ct<S>>(local_data, *self.input_nodes[0]);
         if (steps.size() != self.output_nodes.size()) {
             throw std::runtime_error("ROTATE_COL output count does not match rotation_steps count");
@@ -435,7 +450,7 @@ template <heongpu::Scheme S> void bind_gpu_rotate_col(ComputeNode& node) {
             auto& glk = _get_input_data<Glk<S>>(local_data, *self.input_nodes[1]);
             for (size_t i = 0; i < steps.size(); ++i) {
                 auto& output = _create_output_data<S>(ctx, local_data, *self.output_nodes[i]);
-                auto substeps = get_default_rotation_substeps(steps[i]);
+                auto substeps = get_default_rotation_substeps(steps[i], log_max_slots);
                 if (substeps.empty()) {
                     throw std::runtime_error("ROTATE_COL step 0 is not supported on GPU");
                 }
@@ -630,24 +645,31 @@ template <heongpu::Scheme S> void bind_gpu_bootstrap(ComputeNode& node) {
                 throw std::runtime_error("GPU BOOTSTRAP requires at least one ciphertext input");
             }
 
-            heongpu::BootstrappingEvaluationKeys boot_keys;
-            boot_keys.relin_key_ = _get_input_data<Rlk<S>>(local_data, *self.input_nodes[key_idx++]);
+            auto* residual_context = ctx.get_other_arg<heongpu::HEContext<S>>(1);
+            const bool residual_is_ci =
+                residual_context && ((*residual_context)->get_ring_type() == heongpu::ring_type::CONJUGATE_INVARIANT);
 
-            // EvkN1ToN2 / EvkN2ToN1 are only generated when N1 != N2; detect
-            // their presence from the number of evaluation-key inputs remaining.
+            heongpu::BootstrappingEvaluationKeyRefs boot_keys;
+            boot_keys.relin_key_ = &_get_input_data<Rlk<S>>(local_data, *self.input_nodes[key_idx++]);
+
             size_t eval_key_count = 0;
             for (size_t i = key_idx; i < self.input_nodes.size(); i++) {
                 if (self.input_nodes[i]->datum_type == DataType::TYPE_EVALUATION_KEY) {
                     eval_key_count++;
                 }
             }
-            if (eval_key_count >= 4) {
-                boot_keys.evk_n1_to_n2_ = _get_input_data<Swk<S>>(local_data, *self.input_nodes[key_idx++]);
-                boot_keys.evk_n2_to_n1_ = _get_input_data<Swk<S>>(local_data, *self.input_nodes[key_idx++]);
+            if (residual_is_ci || eval_key_count >= 4) {
+                if (residual_is_ci) {
+                    boot_keys.swk_ci_to_std_ = &_get_input_data<Swk<S>>(local_data, *self.input_nodes[key_idx++]);
+                    boot_keys.swk_std_to_ci_ = &_get_input_data<Swk<S>>(local_data, *self.input_nodes[key_idx++]);
+                } else {
+                    boot_keys.evk_n1_to_n2_ = &_get_input_data<Swk<S>>(local_data, *self.input_nodes[key_idx++]);
+                    boot_keys.evk_n2_to_n1_ = &_get_input_data<Swk<S>>(local_data, *self.input_nodes[key_idx++]);
+                }
             }
-            boot_keys.swk_dense_to_sparse_ = _get_input_data<Swk<S>>(local_data, *self.input_nodes[key_idx++]);
-            boot_keys.swk_sparse_to_dense_ = _get_input_data<Swk<S>>(local_data, *self.input_nodes[key_idx++]);
-            boot_keys.galois_key_ = _get_input_data<Glk<S>>(local_data, *self.input_nodes[key_idx]);
+            boot_keys.swk_dense_to_sparse_ = &_get_input_data<Swk<S>>(local_data, *self.input_nodes[key_idx++]);
+            boot_keys.swk_sparse_to_dense_ = &_get_input_data<Swk<S>>(local_data, *self.input_nodes[key_idx++]);
+            boot_keys.galois_key_ = &_get_input_data<Glk<S>>(local_data, *self.input_nodes[key_idx]);
 
             auto outputs = boot_operators->bootstrap_many(inputs, boot_keys, *stream_option);
 

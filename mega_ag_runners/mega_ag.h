@@ -119,7 +119,7 @@ struct DatumNode {
 
         struct ExtraProperty {
             int32_t sp_level = -1;
-            uint32_t galois_element = 0;
+            uint64_t galois_element = 0;
             std::string key_role;
         };
         std::optional<ExtraProperty> p;
