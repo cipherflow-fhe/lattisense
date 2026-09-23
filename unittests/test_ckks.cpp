@@ -20,6 +20,7 @@
 #include <cmath>
 #include <complex>
 #include <random>
+#include <type_traits>
 #include <utility>
 #define CATCH_CONFIG_MAIN
 #include "catch.hpp"
@@ -47,17 +48,21 @@ template <typename T> vector<T> expand_to_log_slots(const vector<T>& values, int
     return src_log_slots == dst_log_slots ? values : expand_sparse_slots(values, dst_log_slots);
 }
 
+// Slot cases of a test: the parameter maximum, plus - for the parameter sets
+// whose test data includes them - the sparsely packed cases (log_slots below the
+// maximum), which take the repacking path of the DFT.
+template <typename ParamProvider>
 vector<pair<int, int>> binary_slot_cases(const CkksParameter& param, bool same_input = false) {
     vector<pair<int, int>> cases = {{param.log_max_slots(), param.log_max_slots()}};
-    if (param.log_n() == 14) {
+    if (ParamProvider::has_sparse_slot_cases) {
         cases.emplace_back(kSparseLogSlots, same_input ? kSparseLogSlots : kSparseBinaryRhsLogSlots);
     }
     return cases;
 }
 
-vector<int> unary_slot_cases(const CkksParameter& param) {
+template <typename ParamProvider> vector<int> unary_slot_cases(const CkksParameter& param) {
     vector<int> cases = {param.log_max_slots()};
-    if (param.log_n() == 14) {
+    if (ParamProvider::has_sparse_slot_cases) {
         cases.push_back(kSparseLogSlots);
     }
     return cases;
@@ -89,26 +94,54 @@ void run_ckks_backends(const string& section_suffix, const string& relative_path
 #endif
 }
 
+// The conjugate-invariant ring encodes real messages only (the encoder drops the imaginary part),
+// so the CI parameter sets are exercised with real inputs; the standard ring keeps complex inputs.
+template <typename ParamProvider> auto new_test_cts(int n_samples, CkksContext& ctx, int level, int log_slots = -1) {
+    if constexpr (ParamProvider::is_conjugate_invariant) {
+        return new_test_real_cts(n_samples, ctx, level, /*is_batched=*/true, log_slots);
+    } else {
+        return new_test_complex_cts(n_samples, ctx, level, log_slots);
+    }
+}
+
+template <typename ParamProvider>
+auto new_test_pts(int n_samples, CkksContext& ctx, int level, bool is_ringt, int log_slots = -1) {
+    if constexpr (ParamProvider::is_conjugate_invariant) {
+        return new_test_real_pts(n_samples, ctx, level, is_ringt, /*is_batched=*/true, log_slots);
+    } else {
+        return new_test_complex_pts(n_samples, ctx, level, is_ringt, log_slots);
+    }
+}
+
+// Scalar operands follow the message type: real for the conjugate-invariant ring, complex otherwise.
+template <typename ParamProvider> auto ring_scalar(const complex<double>& scalar) {
+    if constexpr (ParamProvider::is_conjugate_invariant) {
+        return scalar.real();
+    } else {
+        return scalar;
+    }
+}
+
 }  // namespace
 
 // ---------------------------------------------------------------------------
 // Multi-param tests (default n=16384 and custom n=8192)
 // ---------------------------------------------------------------------------
 
-TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS cap", "", CkksTestDefaultParams, CkksTestCustomParams) {
+TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS cap", "", CkksTestDefaultParams, CkksTestCustomParams, CkksTestCIParams) {
     for (bool is_ringt : {false, true}) {
         string task_name = is_ringt ? "cap_ringt" : "cap";
         string section_prefix = is_ringt ? "pt-ringt" : "pt";
-        for (const auto& [lhs_log_slots, rhs_log_slots] : binary_slot_cases(this->param)) {
+        for (const auto& [lhs_log_slots, rhs_log_slots] : binary_slot_cases<TestType>(this->param)) {
             string slot_tag = binary_slot_tag(lhs_log_slots, rhs_log_slots);
             for (int level = this->min_level; level <= this->max_level; level++) {
                 SECTION(section_prefix + " " + slot_tag + " lv=" + to_string(level)) {
                     string relative_path = this->tag + "/CKKS_" + to_string(this->n_op) + "_" + task_name + "/" +
                                            slot_tag + "/level_" + to_string(level);
                     run_ckks_backends("", relative_path, [&](auto& proj) {
-                        auto xv = new_test_complex_cts(this->n_op, this->ctx, level, lhs_log_slots);
-                        auto yv =
-                            new_test_complex_pts(this->n_op, this->ctx, is_ringt ? 0 : level, is_ringt, rhs_log_slots);
+                        auto xv = new_test_cts<TestType>(this->n_op, this->ctx, level, lhs_log_slots);
+                        auto yv = new_test_pts<TestType>(this->n_op, this->ctx, is_ringt ? 0 : level, is_ringt,
+                                                         rhs_log_slots);
                         vector<CkksCiphertext> z_list;
                         z_list.reserve(this->n_op);
                         for (int _i = 0; _i < this->n_op; _i++)
@@ -122,10 +155,8 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS cap", "", CkksTestDefaultParams, Ck
                         proj.run(&this->ctx, args);
                         int output_log_slots = std::max(lhs_log_slots, rhs_log_slots);
                         for (int i = 0; i < this->n_op; i++) {
-                            vector<complex<double>> lhs =
-                                expand_to_log_slots(xv.messages()[i], lhs_log_slots, output_log_slots);
-                            vector<complex<double>> rhs =
-                                expand_to_log_slots(yv.messages()[i], rhs_log_slots, output_log_slots);
+                            auto lhs = expand_to_log_slots(xv.messages()[i], lhs_log_slots, output_log_slots);
+                            auto rhs = expand_to_log_slots(yv.messages()[i], rhs_log_slots, output_log_slots);
                             verify_ckks_precision(this->ctx, vec_add(lhs, rhs), z_list[i]);
                         }
                     });
@@ -135,9 +166,9 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS cap", "", CkksTestDefaultParams, Ck
     }
 }
 
-TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS cac", "", CkksTestDefaultParams, CkksTestCustomParams) {
+TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS cac", "", CkksTestDefaultParams, CkksTestCustomParams, CkksTestCIParams) {
     for (bool same_input : {false, true}) {
-        for (const auto& [lhs_log_slots, rhs_log_slots] : binary_slot_cases(this->param, same_input)) {
+        for (const auto& [lhs_log_slots, rhs_log_slots] : binary_slot_cases<TestType>(this->param, same_input)) {
             string slot_tag =
                 same_input ? unary_slot_tag(lhs_log_slots) : binary_slot_tag(lhs_log_slots, rhs_log_slots);
             for (int level = this->min_level; level <= this->max_level; level++) {
@@ -146,8 +177,8 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS cac", "", CkksTestDefaultParams, Ck
                     string relative_path = this->tag + "/CKKS_" + to_string(this->n_op) + "_" + task_name + "/" +
                                            slot_tag + "/level_" + to_string(level);
                     run_ckks_backends("", relative_path, [&](auto& proj) {
-                        auto xv = new_test_complex_cts(this->n_op, this->ctx, level, lhs_log_slots);
-                        auto yv = new_test_complex_cts(this->n_op, this->ctx, level, rhs_log_slots);
+                        auto xv = new_test_cts<TestType>(this->n_op, this->ctx, level, lhs_log_slots);
+                        auto yv = new_test_cts<TestType>(this->n_op, this->ctx, level, rhs_log_slots);
                         vector<CkksCiphertext> z_list;
                         z_list.reserve(this->n_op);
                         for (int _i = 0; _i < this->n_op; _i++)
@@ -169,11 +200,10 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS cac", "", CkksTestDefaultParams, Ck
                         proj.run(&this->ctx, args);
                         int output_log_slots = std::max(lhs_log_slots, rhs_log_slots);
                         for (int i = 0; i < this->n_op; i++) {
-                            vector<complex<double>> lhs =
-                                expand_to_log_slots(xv.messages()[i], lhs_log_slots, output_log_slots);
-                            vector<complex<double>> rhs =
-                                same_input ? lhs :
-                                             expand_to_log_slots(yv.messages()[i], rhs_log_slots, output_log_slots);
+                            auto lhs = expand_to_log_slots(xv.messages()[i], lhs_log_slots, output_log_slots);
+                            auto rhs = same_input ?
+                                           lhs :
+                                           expand_to_log_slots(yv.messages()[i], rhs_log_slots, output_log_slots);
                             verify_ckks_precision(this->ctx, vec_add(lhs, rhs), z_list[i]);
                         }
                     });
@@ -183,19 +213,29 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS cac", "", CkksTestDefaultParams, Ck
     }
 }
 
-TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS add scalar", "", CkksTestDefaultParams, CkksTestCustomParams) {
+TEMPLATE_TEST_CASE_METHOD(CkksFixture,
+                          "CKKS add scalar",
+                          "",
+                          CkksTestDefaultParams,
+                          CkksTestCustomParams,
+                          CkksTestCIParams) {
     const vector<pair<string, complex<double>>> scalar_cases = {
         {"0_75", {0.75, 0.0}}, {"minus_1", {-1.0, 0.0}}, {"i", {0.0, 1.0}}, {"minus_i", {0.0, -1.0}}};
 
     for (const auto& [scalar_tag, scalar] : scalar_cases) {
-        for (int lhs_log_slots : unary_slot_cases(this->param)) {
+        // The conjugate-invariant ring encodes real messages only (the imaginary part is dropped),
+        // so imaginary scalars are not exercised for it.
+        if (this->param.is_conjugate_invariant() && scalar.imag() != 0.0) {
+            continue;
+        }
+        for (int lhs_log_slots : unary_slot_cases<TestType>(this->param)) {
             string slot_tag = unary_slot_tag(lhs_log_slots);
             for (int level = this->min_level; level <= this->max_level; level++) {
                 SECTION(scalar_tag + " " + slot_tag + " lv=" + to_string(level)) {
                     string relative_path = this->tag + "/CKKS_" + to_string(this->n_op) + "_add_scalar/" + scalar_tag +
                                            "/" + slot_tag + "/level_" + to_string(level);
                     run_ckks_backends("", relative_path, [&](auto& proj) {
-                        auto xv = new_test_complex_cts(this->n_op, this->ctx, level, lhs_log_slots);
+                        auto xv = new_test_cts<TestType>(this->n_op, this->ctx, level, lhs_log_slots);
                         vector<CkksCiphertext> z_list;
                         z_list.reserve(this->n_op);
                         for (int _i = 0; _i < this->n_op; _i++)
@@ -207,7 +247,8 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS add scalar", "", CkksTestDefaultPar
                         };
                         proj.run(&this->ctx, args);
                         for (int i = 0; i < this->n_op; i++)
-                            verify_ckks_precision(this->ctx, vec_add(xv.messages()[i], scalar), z_list[i]);
+                            verify_ckks_precision(this->ctx, vec_add(xv.messages()[i], ring_scalar<TestType>(scalar)),
+                                                  z_list[i]);
                     });
                 }
             }
@@ -215,20 +256,20 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS add scalar", "", CkksTestDefaultPar
     }
 }
 
-TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS csp", "", CkksTestDefaultParams, CkksTestCustomParams) {
+TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS csp", "", CkksTestDefaultParams, CkksTestCustomParams, CkksTestCIParams) {
     for (bool is_ringt : {false, true}) {
         string task_name = is_ringt ? "csp_ringt" : "csp";
         string section_prefix = is_ringt ? "pt-ringt" : "pt";
-        for (const auto& [lhs_log_slots, rhs_log_slots] : binary_slot_cases(this->param)) {
+        for (const auto& [lhs_log_slots, rhs_log_slots] : binary_slot_cases<TestType>(this->param)) {
             string slot_tag = binary_slot_tag(lhs_log_slots, rhs_log_slots);
             for (int level = this->min_level; level <= this->max_level; level++) {
                 SECTION(section_prefix + " " + slot_tag + " lv=" + to_string(level)) {
                     string relative_path = this->tag + "/CKKS_" + to_string(this->n_op) + "_" + task_name + "/" +
                                            slot_tag + "/level_" + to_string(level);
                     run_ckks_backends("", relative_path, [&](auto& proj) {
-                        auto xv = new_test_complex_cts(this->n_op, this->ctx, level, lhs_log_slots);
-                        auto yv =
-                            new_test_complex_pts(this->n_op, this->ctx, is_ringt ? 0 : level, is_ringt, rhs_log_slots);
+                        auto xv = new_test_cts<TestType>(this->n_op, this->ctx, level, lhs_log_slots);
+                        auto yv = new_test_pts<TestType>(this->n_op, this->ctx, is_ringt ? 0 : level, is_ringt,
+                                                         rhs_log_slots);
                         vector<CkksCiphertext> z_list;
                         z_list.reserve(this->n_op);
                         for (int _i = 0; _i < this->n_op; _i++)
@@ -242,10 +283,8 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS csp", "", CkksTestDefaultParams, Ck
                         proj.run(&this->ctx, args);
                         int output_log_slots = std::max(lhs_log_slots, rhs_log_slots);
                         for (int i = 0; i < this->n_op; i++) {
-                            vector<complex<double>> lhs =
-                                expand_to_log_slots(xv.messages()[i], lhs_log_slots, output_log_slots);
-                            vector<complex<double>> rhs =
-                                expand_to_log_slots(yv.messages()[i], rhs_log_slots, output_log_slots);
+                            auto lhs = expand_to_log_slots(xv.messages()[i], lhs_log_slots, output_log_slots);
+                            auto rhs = expand_to_log_slots(yv.messages()[i], rhs_log_slots, output_log_slots);
                             verify_ckks_precision(this->ctx, vec_sub(lhs, rhs), z_list[i]);
                         }
                     });
@@ -255,9 +294,9 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS csp", "", CkksTestDefaultParams, Ck
     }
 }
 
-TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS csc", "", CkksTestDefaultParams, CkksTestCustomParams) {
+TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS csc", "", CkksTestDefaultParams, CkksTestCustomParams, CkksTestCIParams) {
     for (bool same_input : {false, true}) {
-        for (const auto& [lhs_log_slots, rhs_log_slots] : binary_slot_cases(this->param, same_input)) {
+        for (const auto& [lhs_log_slots, rhs_log_slots] : binary_slot_cases<TestType>(this->param, same_input)) {
             string slot_tag =
                 same_input ? unary_slot_tag(lhs_log_slots) : binary_slot_tag(lhs_log_slots, rhs_log_slots);
             for (int level = this->min_level; level <= this->max_level; level++) {
@@ -266,8 +305,8 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS csc", "", CkksTestDefaultParams, Ck
                     string relative_path = this->tag + "/CKKS_" + to_string(this->n_op) + "_" + task_name + "/" +
                                            slot_tag + "/level_" + to_string(level);
                     run_ckks_backends("", relative_path, [&](auto& proj) {
-                        auto xv = new_test_complex_cts(this->n_op, this->ctx, level, lhs_log_slots);
-                        auto yv = new_test_complex_cts(this->n_op, this->ctx, level, rhs_log_slots);
+                        auto xv = new_test_cts<TestType>(this->n_op, this->ctx, level, lhs_log_slots);
+                        auto yv = new_test_cts<TestType>(this->n_op, this->ctx, level, rhs_log_slots);
                         vector<CkksCiphertext> z_list;
                         z_list.reserve(this->n_op);
                         for (int _i = 0; _i < this->n_op; _i++)
@@ -289,11 +328,10 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS csc", "", CkksTestDefaultParams, Ck
                         proj.run(&this->ctx, args);
                         int output_log_slots = std::max(lhs_log_slots, rhs_log_slots);
                         for (int i = 0; i < this->n_op; i++) {
-                            vector<complex<double>> lhs =
-                                expand_to_log_slots(xv.messages()[i], lhs_log_slots, output_log_slots);
-                            vector<complex<double>> rhs =
-                                same_input ? lhs :
-                                             expand_to_log_slots(yv.messages()[i], rhs_log_slots, output_log_slots);
+                            auto lhs = expand_to_log_slots(xv.messages()[i], lhs_log_slots, output_log_slots);
+                            auto rhs = same_input ?
+                                           lhs :
+                                           expand_to_log_slots(yv.messages()[i], rhs_log_slots, output_log_slots);
                             verify_ckks_precision(this->ctx, vec_sub(lhs, rhs), z_list[i]);
                         }
                     });
@@ -303,19 +341,29 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS csc", "", CkksTestDefaultParams, Ck
     }
 }
 
-TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS sub scalar", "", CkksTestDefaultParams, CkksTestCustomParams) {
+TEMPLATE_TEST_CASE_METHOD(CkksFixture,
+                          "CKKS sub scalar",
+                          "",
+                          CkksTestDefaultParams,
+                          CkksTestCustomParams,
+                          CkksTestCIParams) {
     const vector<pair<string, complex<double>>> scalar_cases = {
         {"0_75", {0.75, 0.0}}, {"minus_1", {-1.0, 0.0}}, {"i", {0.0, 1.0}}, {"minus_i", {0.0, -1.0}}};
 
     for (const auto& [scalar_tag, scalar] : scalar_cases) {
-        for (int lhs_log_slots : unary_slot_cases(this->param)) {
+        // The conjugate-invariant ring encodes real messages only (the imaginary part is dropped),
+        // so imaginary scalars are not exercised for it.
+        if (this->param.is_conjugate_invariant() && scalar.imag() != 0.0) {
+            continue;
+        }
+        for (int lhs_log_slots : unary_slot_cases<TestType>(this->param)) {
             string slot_tag = unary_slot_tag(lhs_log_slots);
             for (int level = this->min_level; level <= this->max_level; level++) {
                 SECTION(scalar_tag + " " + slot_tag + " lv=" + to_string(level)) {
                     string relative_path = this->tag + "/CKKS_" + to_string(this->n_op) + "_sub_scalar/" + scalar_tag +
                                            "/" + slot_tag + "/level_" + to_string(level);
                     run_ckks_backends("", relative_path, [&](auto& proj) {
-                        auto xv = new_test_complex_cts(this->n_op, this->ctx, level, lhs_log_slots);
+                        auto xv = new_test_cts<TestType>(this->n_op, this->ctx, level, lhs_log_slots);
                         vector<CkksCiphertext> z_list;
                         z_list.reserve(this->n_op);
                         for (int _i = 0; _i < this->n_op; _i++)
@@ -327,7 +375,8 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS sub scalar", "", CkksTestDefaultPar
                         };
                         proj.run(&this->ctx, args);
                         for (int i = 0; i < this->n_op; i++)
-                            verify_ckks_precision(this->ctx, vec_sub(xv.messages()[i], scalar), z_list[i]);
+                            verify_ckks_precision(this->ctx, vec_sub(xv.messages()[i], ring_scalar<TestType>(scalar)),
+                                                  z_list[i]);
                     });
                 }
             }
@@ -335,20 +384,20 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS sub scalar", "", CkksTestDefaultPar
     }
 }
 
-TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS cmp", "", CkksTestDefaultParams, CkksTestCustomParams) {
+TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS cmp", "", CkksTestDefaultParams, CkksTestCustomParams, CkksTestCIParams) {
     for (bool is_ringt : {false, true}) {
         string task_name = is_ringt ? "cmp_ringt" : "cmp";
         string section_prefix = is_ringt ? "pt-ringt" : "pt";
-        for (const auto& [lhs_log_slots, rhs_log_slots] : binary_slot_cases(this->param)) {
+        for (const auto& [lhs_log_slots, rhs_log_slots] : binary_slot_cases<TestType>(this->param)) {
             string slot_tag = binary_slot_tag(lhs_log_slots, rhs_log_slots);
             for (int level = 1; level <= this->max_level; level++) {
                 SECTION(section_prefix + " " + slot_tag + " lv=" + to_string(level)) {
                     string relative_path = this->tag + "/CKKS_" + to_string(this->n_op) + "_" + task_name + "/" +
                                            slot_tag + "/level_" + to_string(level);
                     run_ckks_backends("", relative_path, [&](auto& proj) {
-                        auto xv = new_test_complex_cts(this->n_op, this->ctx, level, lhs_log_slots);
-                        auto yv =
-                            new_test_complex_pts(this->n_op, this->ctx, is_ringt ? 0 : level, is_ringt, rhs_log_slots);
+                        auto xv = new_test_cts<TestType>(this->n_op, this->ctx, level, lhs_log_slots);
+                        auto yv = new_test_pts<TestType>(this->n_op, this->ctx, is_ringt ? 0 : level, is_ringt,
+                                                         rhs_log_slots);
                         vector<CkksCiphertext> z_list;
                         z_list.reserve(this->n_op);
                         for (int _i = 0; _i < this->n_op; _i++)
@@ -362,10 +411,8 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS cmp", "", CkksTestDefaultParams, Ck
                         proj.run(&this->ctx, args);
                         int output_log_slots = std::max(lhs_log_slots, rhs_log_slots);
                         for (int i = 0; i < this->n_op; i++) {
-                            vector<complex<double>> lhs =
-                                expand_to_log_slots(xv.messages()[i], lhs_log_slots, output_log_slots);
-                            vector<complex<double>> rhs =
-                                expand_to_log_slots(yv.messages()[i], rhs_log_slots, output_log_slots);
+                            auto lhs = expand_to_log_slots(xv.messages()[i], lhs_log_slots, output_log_slots);
+                            auto rhs = expand_to_log_slots(yv.messages()[i], rhs_log_slots, output_log_slots);
                             verify_ckks_precision(this->ctx, vec_mul(lhs, rhs), z_list[i]);
                         }
                     });
@@ -375,19 +422,29 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS cmp", "", CkksTestDefaultParams, Ck
     }
 }
 
-TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS mult scalar", "", CkksTestDefaultParams, CkksTestCustomParams) {
+TEMPLATE_TEST_CASE_METHOD(CkksFixture,
+                          "CKKS mult scalar",
+                          "",
+                          CkksTestDefaultParams,
+                          CkksTestCustomParams,
+                          CkksTestCIParams) {
     const vector<pair<string, complex<double>>> scalar_cases = {
         {"0_75", {0.75, 0.0}}, {"minus_1", {-1.0, 0.0}}, {"i", {0.0, 1.0}}, {"minus_i", {0.0, -1.0}}};
 
     for (const auto& [scalar_tag, scalar] : scalar_cases) {
-        for (int lhs_log_slots : unary_slot_cases(this->param)) {
+        // The conjugate-invariant ring encodes real messages only (the imaginary part is dropped),
+        // so imaginary scalars are not exercised for it.
+        if (this->param.is_conjugate_invariant() && scalar.imag() != 0.0) {
+            continue;
+        }
+        for (int lhs_log_slots : unary_slot_cases<TestType>(this->param)) {
             string slot_tag = unary_slot_tag(lhs_log_slots);
             for (int level = 1; level <= this->max_level; level++) {
                 SECTION(scalar_tag + " " + slot_tag + " lv=" + to_string(level)) {
                     string relative_path = this->tag + "/CKKS_" + to_string(this->n_op) + "_mult_scalar/" + scalar_tag +
                                            "/" + slot_tag + "/level_" + to_string(level);
                     run_ckks_backends("", relative_path, [&](auto& proj) {
-                        auto xv = new_test_complex_cts(this->n_op, this->ctx, level, lhs_log_slots);
+                        auto xv = new_test_cts<TestType>(this->n_op, this->ctx, level, lhs_log_slots);
                         vector<CkksCiphertext> z_list;
                         z_list.reserve(this->n_op);
                         for (int _i = 0; _i < this->n_op; _i++)
@@ -399,7 +456,8 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS mult scalar", "", CkksTestDefaultPa
                         };
                         proj.run(&this->ctx, args);
                         for (int i = 0; i < this->n_op; i++)
-                            verify_ckks_precision(this->ctx, vec_mul(xv.messages()[i], scalar), z_list[i]);
+                            verify_ckks_precision(this->ctx, vec_mul(xv.messages()[i], ring_scalar<TestType>(scalar)),
+                                                  z_list[i]);
                     });
                 }
             }
@@ -407,9 +465,9 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS mult scalar", "", CkksTestDefaultPa
     }
 }
 
-TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS cmc", "", CkksTestDefaultParams, CkksTestCustomParams) {
+TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS cmc", "", CkksTestDefaultParams, CkksTestCustomParams, CkksTestCIParams) {
     for (bool same_input : {false, true}) {
-        for (const auto& [lhs_log_slots, rhs_log_slots] : binary_slot_cases(this->param, same_input)) {
+        for (const auto& [lhs_log_slots, rhs_log_slots] : binary_slot_cases<TestType>(this->param, same_input)) {
             string slot_tag =
                 same_input ? unary_slot_tag(lhs_log_slots) : binary_slot_tag(lhs_log_slots, rhs_log_slots);
             for (int level = 1; level <= this->max_level; level++) {
@@ -418,8 +476,8 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS cmc", "", CkksTestDefaultParams, Ck
                     string relative_path = this->tag + "/CKKS_" + to_string(this->n_op) + "_" + task_name + "/" +
                                            slot_tag + "/level_" + to_string(level);
                     run_ckks_backends("", relative_path, [&](auto& proj) {
-                        auto xv = new_test_complex_cts(this->n_op, this->ctx, level, lhs_log_slots);
-                        auto yv = new_test_complex_cts(this->n_op, this->ctx, level, rhs_log_slots);
+                        auto xv = new_test_cts<TestType>(this->n_op, this->ctx, level, lhs_log_slots);
+                        auto yv = new_test_cts<TestType>(this->n_op, this->ctx, level, rhs_log_slots);
                         vector<CkksCiphertext> z_list;
                         z_list.reserve(this->n_op);
                         for (int _i = 0; _i < this->n_op; _i++)
@@ -441,11 +499,10 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS cmc", "", CkksTestDefaultParams, Ck
                         proj.run(&this->ctx, args);
                         int output_log_slots = std::max(lhs_log_slots, rhs_log_slots);
                         for (int i = 0; i < this->n_op; i++) {
-                            vector<complex<double>> lhs =
-                                expand_to_log_slots(xv.messages()[i], lhs_log_slots, output_log_slots);
-                            vector<complex<double>> rhs =
-                                same_input ? lhs :
-                                             expand_to_log_slots(yv.messages()[i], rhs_log_slots, output_log_slots);
+                            auto lhs = expand_to_log_slots(xv.messages()[i], lhs_log_slots, output_log_slots);
+                            auto rhs = same_input ?
+                                           lhs :
+                                           expand_to_log_slots(yv.messages()[i], rhs_log_slots, output_log_slots);
                             verify_ckks_precision(this->ctx, vec_mul(lhs, rhs), this->ctx.relinearize(z_list[i]));
                         }
                     });
@@ -455,9 +512,14 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS cmc", "", CkksTestDefaultParams, Ck
     }
 }
 
-TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS cmc_relin", "", CkksTestDefaultParams, CkksTestCustomParams) {
+TEMPLATE_TEST_CASE_METHOD(CkksFixture,
+                          "CKKS cmc_relin",
+                          "",
+                          CkksTestDefaultParams,
+                          CkksTestCustomParams,
+                          CkksTestCIParams) {
     for (bool same_input : {false, true}) {
-        for (const auto& [lhs_log_slots, rhs_log_slots] : binary_slot_cases(this->param, same_input)) {
+        for (const auto& [lhs_log_slots, rhs_log_slots] : binary_slot_cases<TestType>(this->param, same_input)) {
             string slot_tag =
                 same_input ? unary_slot_tag(lhs_log_slots) : binary_slot_tag(lhs_log_slots, rhs_log_slots);
             for (int level = 1; level <= this->max_level; level++) {
@@ -466,8 +528,8 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS cmc_relin", "", CkksTestDefaultPara
                     string relative_path = this->tag + "/CKKS_" + to_string(this->n_op) + "_" + task_name + "/" +
                                            slot_tag + "/level_" + to_string(level);
                     run_ckks_backends("", relative_path, [&](auto& proj) {
-                        auto xv = new_test_complex_cts(this->n_op, this->ctx, level, lhs_log_slots);
-                        auto yv = new_test_complex_cts(this->n_op, this->ctx, level, rhs_log_slots);
+                        auto xv = new_test_cts<TestType>(this->n_op, this->ctx, level, lhs_log_slots);
+                        auto yv = new_test_cts<TestType>(this->n_op, this->ctx, level, rhs_log_slots);
                         vector<CkksCiphertext> z_list;
                         z_list.reserve(this->n_op);
                         for (int _i = 0; _i < this->n_op; _i++)
@@ -489,11 +551,10 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS cmc_relin", "", CkksTestDefaultPara
                         proj.run(&this->ctx, args);
                         int output_log_slots = std::max(lhs_log_slots, rhs_log_slots);
                         for (int i = 0; i < this->n_op; i++) {
-                            vector<complex<double>> lhs =
-                                expand_to_log_slots(xv.messages()[i], lhs_log_slots, output_log_slots);
-                            vector<complex<double>> rhs =
-                                same_input ? lhs :
-                                             expand_to_log_slots(yv.messages()[i], rhs_log_slots, output_log_slots);
+                            auto lhs = expand_to_log_slots(xv.messages()[i], lhs_log_slots, output_log_slots);
+                            auto rhs = same_input ?
+                                           lhs :
+                                           expand_to_log_slots(yv.messages()[i], rhs_log_slots, output_log_slots);
                             verify_ckks_precision(this->ctx, vec_mul(lhs, rhs), z_list[i]);
                         }
                     });
@@ -503,9 +564,14 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS cmc_relin", "", CkksTestDefaultPara
     }
 }
 
-TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS cmc_relin_rescale", "", CkksTestDefaultParams, CkksTestCustomParams) {
+TEMPLATE_TEST_CASE_METHOD(CkksFixture,
+                          "CKKS cmc_relin_rescale",
+                          "",
+                          CkksTestDefaultParams,
+                          CkksTestCustomParams,
+                          CkksTestCIParams) {
     for (bool same_input : {false, true}) {
-        for (const auto& [lhs_log_slots, rhs_log_slots] : binary_slot_cases(this->param, same_input)) {
+        for (const auto& [lhs_log_slots, rhs_log_slots] : binary_slot_cases<TestType>(this->param, same_input)) {
             string slot_tag =
                 same_input ? unary_slot_tag(lhs_log_slots) : binary_slot_tag(lhs_log_slots, rhs_log_slots);
             for (int level = 1; level <= this->max_level; level++) {
@@ -514,8 +580,8 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS cmc_relin_rescale", "", CkksTestDef
                     string relative_path = this->tag + "/CKKS_" + to_string(this->n_op) + "_" + task_name + "/" +
                                            slot_tag + "/level_" + to_string(level);
                     run_ckks_backends("", relative_path, [&](auto& proj) {
-                        auto xv = new_test_complex_cts(this->n_op, this->ctx, level, lhs_log_slots);
-                        auto yv = new_test_complex_cts(this->n_op, this->ctx, level, rhs_log_slots);
+                        auto xv = new_test_cts<TestType>(this->n_op, this->ctx, level, lhs_log_slots);
+                        auto yv = new_test_cts<TestType>(this->n_op, this->ctx, level, rhs_log_slots);
                         vector<CkksCiphertext> z_list;
                         z_list.reserve(this->n_op);
                         for (int _i = 0; _i < this->n_op; _i++)
@@ -537,11 +603,10 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS cmc_relin_rescale", "", CkksTestDef
                         proj.run(&this->ctx, args);
                         int output_log_slots = std::max(lhs_log_slots, rhs_log_slots);
                         for (int i = 0; i < this->n_op; i++) {
-                            vector<complex<double>> lhs =
-                                expand_to_log_slots(xv.messages()[i], lhs_log_slots, output_log_slots);
-                            vector<complex<double>> rhs =
-                                same_input ? lhs :
-                                             expand_to_log_slots(yv.messages()[i], rhs_log_slots, output_log_slots);
+                            auto lhs = expand_to_log_slots(xv.messages()[i], lhs_log_slots, output_log_slots);
+                            auto rhs = same_input ?
+                                           lhs :
+                                           expand_to_log_slots(yv.messages()[i], rhs_log_slots, output_log_slots);
                             verify_ckks_precision(this->ctx, vec_mul(lhs, rhs), z_list[i]);
                         }
                     });
@@ -551,21 +616,31 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS cmc_relin_rescale", "", CkksTestDef
     }
 }
 
-TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS rescale", "", CkksTestDefaultParams, CkksTestCustomParams) {
-    for (int lhs_log_slots : unary_slot_cases(this->param)) {
+TEMPLATE_TEST_CASE_METHOD(CkksFixture,
+                          "CKKS rescale",
+                          "",
+                          CkksTestDefaultParams,
+                          CkksTestCustomParams,
+                          CkksTestCIParams) {
+    for (int lhs_log_slots : unary_slot_cases<TestType>(this->param)) {
         string slot_tag = unary_slot_tag(lhs_log_slots);
         for (int level = 1; level <= this->max_level; level++) {
             SECTION(slot_tag + " lv=" + to_string(level)) {
                 string relative_path = this->tag + "/CKKS_" + to_string(this->n_op) + "_rescale/" + slot_tag +
                                        "/level_" + to_string(level);
                 run_ckks_backends("", relative_path, [&](auto& proj) {
-                    vector<vector<complex<double>>> x_messages;
+                    using Message = std::conditional_t<TestType::is_conjugate_invariant, double, complex<double>>;
+                    vector<vector<Message>> x_messages;
                     vector<CkksCiphertext> x_list;
                     x_messages.reserve(this->n_op);
                     x_list.reserve(this->n_op);
                     double input_scale = this->default_scale * static_cast<double>(this->param.q()[level]);
                     for (int _i = 0; _i < this->n_op; _i++) {
-                        x_messages.push_back(rand_complex_values(1 << lhs_log_slots));
+                        if constexpr (TestType::is_conjugate_invariant) {
+                            x_messages.push_back(rand_real_values(1 << lhs_log_slots));
+                        } else {
+                            x_messages.push_back(rand_complex_values(1 << lhs_log_slots));
+                        }
                         CkksPlaintext plaintext(this->param,
                                                 plaintext_metadata(false, true, level, lhs_log_slots, input_scale));
                         this->ctx.encode(x_messages.back(), plaintext);
@@ -590,16 +665,21 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS rescale", "", CkksTestDefaultParams
     }
 }
 
-TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS drop_level", "", CkksTestDefaultParams, CkksTestCustomParams) {
+TEMPLATE_TEST_CASE_METHOD(CkksFixture,
+                          "CKKS drop_level",
+                          "",
+                          CkksTestDefaultParams,
+                          CkksTestCustomParams,
+                          CkksTestCIParams) {
     int drop_level = 2;
-    for (int lhs_log_slots : unary_slot_cases(this->param)) {
+    for (int lhs_log_slots : unary_slot_cases<TestType>(this->param)) {
         string slot_tag = unary_slot_tag(lhs_log_slots);
         for (int level = 2; level <= this->max_level; level++) {
             SECTION(slot_tag + " lv=" + to_string(level)) {
                 string relative_path = this->tag + "/CKKS_" + to_string(this->n_op) + "_drop_level/drop_" +
                                        to_string(drop_level) + "/" + slot_tag + "/level_" + to_string(level);
                 run_ckks_backends("", relative_path, [&](auto& proj) {
-                    auto xv = new_test_complex_cts(this->n_op, this->ctx, level, lhs_log_slots);
+                    auto xv = new_test_cts<TestType>(this->n_op, this->ctx, level, lhs_log_slots);
                     vector<CkksCiphertext> y_list;
                     y_list.reserve(this->n_op);
                     for (int _i = 0; _i < this->n_op; _i++)
@@ -618,7 +698,12 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS drop_level", "", CkksTestDefaultPar
     }
 }
 
-TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS rotate_col", "", CkksTestDefaultParams, CkksTestCustomParams) {
+TEMPLATE_TEST_CASE_METHOD(CkksFixture,
+                          "CKKS rotate_col",
+                          "",
+                          CkksTestDefaultParams,
+                          CkksTestCustomParams,
+                          CkksTestCIParams) {
     vector<int32_t> steps;
     for (int i = 1; i <= 8; i++)
         steps.push_back(i);
@@ -633,7 +718,7 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS rotate_col", "", CkksTestDefaultPar
             }
             string key_mode_tag = use_default_rotation_keys ? "default" : "non-default";
 
-            for (int lhs_log_slots : unary_slot_cases(this->param)) {
+            for (int lhs_log_slots : unary_slot_cases<TestType>(this->param)) {
                 string slot_tag = unary_slot_tag(lhs_log_slots);
                 for (int level = 1; level <= this->max_level; level++) {
                     SECTION(slot_tag + " lv=" + to_string(level)) {
@@ -641,7 +726,7 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS rotate_col", "", CkksTestDefaultPar
                                                steps_str + "/" + key_mode_tag + "/" + slot_tag + "/level_" +
                                                to_string(level);
                         run_ckks_backends("", relative_path, [&](auto& proj) {
-                            auto xv = new_test_complex_cts(this->n_op, this->ctx, level, lhs_log_slots);
+                            auto xv = new_test_cts<TestType>(this->n_op, this->ctx, level, lhs_log_slots);
                             vector<vector<CkksCiphertext>> y_list(this->n_op);
                             for (int i = 0; i < this->n_op; i++)
                                 for (int j = 0; j < (int)steps.size(); j++)
@@ -664,17 +749,66 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS rotate_col", "", CkksTestDefaultPar
     }
 }
 
+// The conjugate-invariant ring packs N slots, so its rotation steps range over N whereas the
+// standard ring's steps are taken modulo N/2. Exercise a step beyond that standard range,
+// mirroring test_rotate_col_ci in test_ckks.py.
+TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS rotate_col_ci", "", CkksTestCIParams) {
+    const vector<int32_t> steps = {1, 12000};
+    const string steps_str = "steps_" + to_string(steps.front()) + "_" + to_string(steps.back());
+
+    for (bool use_default_rotation_keys : {false}) {
+        SECTION(use_default_rotation_keys ? "default rotation" : "non-default rotation") {
+            if (use_default_rotation_keys) {
+                this->ctx.gen_rotation_keys();
+            } else {
+                this->ctx.gen_rotation_keys(steps);
+            }
+            const string key_mode_tag = use_default_rotation_keys ? "default" : "non-default";
+            const int lhs_log_slots = this->param.log_max_slots();
+            const string slot_tag = unary_slot_tag(lhs_log_slots);
+            for (int level = 1; level <= this->max_level; level++) {
+                SECTION(slot_tag + " lv=" + to_string(level)) {
+                    const string relative_path = this->tag + "/CKKS_" + to_string(this->n_op) + "_rotate_col/" +
+                                                 steps_str + "/" + key_mode_tag + "/" + slot_tag + "/level_" +
+                                                 to_string(level);
+                    run_ckks_backends("", relative_path, [&](auto& proj) {
+                        auto xv = new_test_cts<TestType>(this->n_op, this->ctx, level, lhs_log_slots);
+                        vector<vector<CkksCiphertext>> y_list(this->n_op);
+                        for (int i = 0; i < this->n_op; i++) {
+                            for (size_t j = 0; j < steps.size(); j++) {
+                                y_list[i].push_back(CkksCiphertext(this->param, level));
+                            }
+                        }
+                        vector<CxxVectorArgument> args = {
+                            {"arg_x", &xv.ciphertexts()},
+                            {"arg_y", &y_list},
+                        };
+                        proj.run(&this->ctx, args);
+                        for (int i = 0; i < this->n_op; i++) {
+                            for (size_t j = 0; j < steps.size(); j++) {
+                                verify_ckks_precision(this->ctx, vec_rotate(xv.messages()[i], steps[j]), y_list[i][j]);
+                            }
+                        }
+                    });
+                }
+            }
+        }
+    }
+}
+
+// The conjugate operator is not supported for the conjugate-invariant ring, so it is not
+// parameterized with CkksTestCIParams.
 TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS conjugate", "", CkksTestDefaultParams, CkksTestCustomParams) {
     this->ctx.gen_rotation_keys(vector<int32_t>{}, true);
 
-    for (int lhs_log_slots : unary_slot_cases(this->param)) {
+    for (int lhs_log_slots : unary_slot_cases<TestType>(this->param)) {
         string slot_tag = unary_slot_tag(lhs_log_slots);
         for (int level = 1; level <= this->max_level; level++) {
             SECTION(slot_tag + " lv=" + to_string(level)) {
                 string relative_path = this->tag + "/CKKS_" + to_string(this->n_op) + "_conjugate/" + slot_tag +
                                        "/level_" + to_string(level);
                 run_ckks_backends("", relative_path, [&](auto& proj) {
-                    auto xv = new_test_complex_cts(this->n_op, this->ctx, level, lhs_log_slots);
+                    auto xv = new_test_cts<TestType>(this->n_op, this->ctx, level, lhs_log_slots);
                     vector<CkksCiphertext> y_list;
                     y_list.reserve(this->n_op);
                     for (int _i = 0; _i < this->n_op; _i++)
@@ -768,7 +902,7 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS custom encode and cap", "", CkksTes
             string relative_path =
                 this->tag + "/CKKS_" + to_string(this->n_op) + "_custom_encode_and_cap/level_" + to_string(level);
             run_ckks_backends("", relative_path, [&](auto& proj) {
-                auto xv = new_test_complex_cts(this->n_op, this->ctx, level);
+                auto xv = new_test_cts<TestType>(this->n_op, this->ctx, level);
 
                 vector<vector<complex<double>>> y_vals;
                 vector<CustomData> y_list;
@@ -818,17 +952,25 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS custom encode and cap", "", CkksTes
 }
 
 // ---------------------------------------------------------------------------
-// Bootstrap tests — default param only
+// Bootstrap tests. The conjugate invariant param runs too: its circuit ring is
+// standard with degree residual log_n + 1, and it takes the ring-swap keys
+// (evk_ci_to_std / evk_std_to_ci) instead of the evk_n1_to_n2 / evk_n2_to_n1 pair.
 // ---------------------------------------------------------------------------
 
-TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS bootstrap", "[.]", CkksTestDefaultParams) {
+TEMPLATE_TEST_CASE_METHOD(CkksFixture,
+                          "CKKS bootstrap",
+                          "",
+                          CkksTestDefaultParams,
+                          CkksTestDefaultParamsN15,
+                          CkksTestDefaultParamsN16,
+                          CkksTestCIParamsN15) {
     this->ctx.create_bootstrapper();
-    for (int log_slots : unary_slot_cases(this->param)) {
+    for (int log_slots : unary_slot_cases<TestType>(this->param)) {
         string slot_tag = unary_slot_tag(log_slots);
         SECTION(slot_tag + " lv=0") {
             string relative_path = this->tag + "/CKKS_" + to_string(this->n_op) + "_bootstrap/" + slot_tag + "/level_0";
             run_ckks_backends("", relative_path, [&](auto& proj) {
-                auto xv = new_test_complex_cts(this->n_op, this->ctx, 0, log_slots);
+                auto xv = new_test_cts<TestType>(this->n_op, this->ctx, 0, log_slots);
                 vector<CkksCiphertext> y_list;
                 y_list.reserve(this->n_op);
                 for (int _i = 0; _i < this->n_op; _i++)
@@ -852,15 +994,21 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS bootstrap", "[.]", CkksTestDefaultP
 
 // Multiple ciphertexts bootstrapped together through a single node
 // (frontend list form; the backend evaluates them in one bootstrap_many call).
-TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS bootstrap_multi", "[.]", CkksTestDefaultParams) {
+TEMPLATE_TEST_CASE_METHOD(CkksFixture,
+                          "CKKS bootstrap_multi",
+                          "",
+                          CkksTestDefaultParams,
+                          CkksTestDefaultParamsN15,
+                          CkksTestDefaultParamsN16,
+                          CkksTestCIParamsN15) {
     this->ctx.create_bootstrapper();
-    for (int log_slots : unary_slot_cases(this->param)) {
+    for (int log_slots : unary_slot_cases<TestType>(this->param)) {
         string slot_tag = unary_slot_tag(log_slots);
         SECTION(slot_tag + " lv=0") {
             string relative_path =
                 this->tag + "/CKKS_" + to_string(this->n_op) + "_bootstrap_multi/" + slot_tag + "/level_0";
             run_ckks_backends("", relative_path, [&](auto& proj) {
-                auto xv = new_test_complex_cts(this->n_op, this->ctx, 0, log_slots);
+                auto xv = new_test_cts<TestType>(this->n_op, this->ctx, 0, log_slots);
                 vector<CkksCiphertext> y_list;
                 y_list.reserve(this->n_op);
                 for (int _i = 0; _i < this->n_op; _i++)
@@ -881,17 +1029,23 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS bootstrap_multi", "[.]", CkksTestDe
     }
 }
 
-TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS cmc_relin_rescale_bootstrap", "[.]", CkksTestDefaultParams) {
+TEMPLATE_TEST_CASE_METHOD(CkksFixture,
+                          "CKKS cmc_relin_rescale_bootstrap",
+                          "",
+                          CkksTestDefaultParams,
+                          CkksTestDefaultParamsN15,
+                          CkksTestDefaultParamsN16,
+                          CkksTestCIParamsN15) {
     this->ctx.create_bootstrapper();
-    for (const auto& [lhs_log_slots, rhs_log_slots] : binary_slot_cases(this->param)) {
+    for (const auto& [lhs_log_slots, rhs_log_slots] : binary_slot_cases<TestType>(this->param)) {
         string slot_tag = binary_slot_tag(lhs_log_slots, rhs_log_slots);
         SECTION(slot_tag + " lv=3") {
             int level = 3;
             string relative_path =
                 this->tag + "/CKKS_" + to_string(this->n_op) + "_cmc_relin_rescale_bootstrap/" + slot_tag + "/level_3";
             run_ckks_backends("", relative_path, [&](auto& proj) {
-                auto xv = new_test_complex_cts(this->n_op, this->ctx, level, lhs_log_slots);
-                auto yv = new_test_complex_cts(this->n_op, this->ctx, level, rhs_log_slots);
+                auto xv = new_test_cts<TestType>(this->n_op, this->ctx, level, lhs_log_slots);
+                auto yv = new_test_cts<TestType>(this->n_op, this->ctx, level, rhs_log_slots);
                 vector<CkksCiphertext> z_list;
                 z_list.reserve(this->n_op);
                 for (int _i = 0; _i < this->n_op; _i++)
@@ -907,10 +1061,10 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS cmc_relin_rescale_bootstrap", "[.]"
                 const int bootstrap_log2_min_prec =
                     std::max(this->param.log_default_scale() - this->param.log_n() - 12, 0);
                 for (int i = 0; i < this->n_op; i++) {
-                    vector<complex<double>> lhs =
-                        expand_to_log_slots(xv.messages()[i], lhs_log_slots, output_log_slots);
-                    vector<complex<double>> rhs =
-                        expand_to_log_slots(yv.messages()[i], rhs_log_slots, output_log_slots);
+                    // The message type follows the ring (complex for the standard
+                    // ring, real for the conjugate invariant one).
+                    auto lhs = expand_to_log_slots(xv.messages()[i], lhs_log_slots, output_log_slots);
+                    auto rhs = expand_to_log_slots(yv.messages()[i], rhs_log_slots, output_log_slots);
                     verify_ckks_precision(this->ctx, vec_mul(lhs, rhs), z_list[i], bootstrap_log2_min_prec);
                 }
             });

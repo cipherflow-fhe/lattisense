@@ -18,8 +18,10 @@
 
 #include <cmath>
 #include <complex>
+#include <iostream>
 #include <map>
 #include <string>
+#include <type_traits>
 #include <vector>
 
 #define CATCH_CONFIG_MAIN
@@ -62,7 +64,7 @@ template <typename T> vector<T> expand_sparse_slots(const vector<T>& values, int
 
 }  // namespace
 
-TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS encode-decode", "", CkksTestParams) {
+TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS encode-decode", "", CkksTestParams, CkksCITestParams) {
     SECTION("real message") {
         for (const EncodingCase& encoding_case : all_encoding_cases()) {
             SECTION(encoding_case.tag) {
@@ -76,6 +78,10 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS encode-decode", "", CkksTestParams)
         }
     }
 
+    // The conjugate-invariant ring encodes real messages only (the imaginary part is dropped).
+    if (this->param.is_conjugate_invariant()) {
+        return;
+    }
     SECTION("complex message") {
         for (const EncodingCase& encoding_case : all_encoding_cases()) {
             if (!encoding_case.is_batched) {
@@ -93,7 +99,7 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS encode-decode", "", CkksTestParams)
     }
 }
 
-TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS encrypt-decrypt", "", CkksTestParams) {
+TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS encrypt-decrypt", "", CkksTestParams, CkksCITestParams) {
     for (const EncryptorCase& encryptor_case : encryptor_cases()) {
         SECTION(encryptor_case.tag) {
             CkksContext ctx = CkksContext::create_random_context(this->param, encryptor_case.encryptor_type);
@@ -111,6 +117,10 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS encrypt-decrypt", "", CkksTestParam
                 }
             }
 
+            // The conjugate-invariant ring encodes real messages only (the imaginary part is dropped).
+            if (this->param.is_conjugate_invariant()) {
+                return;
+            }
             SECTION("complex message") {
                 for (const EncodingCase& encoding_case : all_encoding_cases()) {
                     if (encoding_case.is_ringt) {
@@ -129,7 +139,7 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS encrypt-decrypt", "", CkksTestParam
     }
 }
 
-TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS add ciphertext", "", CkksTestParams) {
+TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS add ciphertext", "", CkksTestParams, CkksCITestParams) {
     SECTION("real message") {
         for (const EncodingCase& encoding_case : all_encoding_cases(true)) {
             if (encoding_case.is_ringt || !encoding_case.is_batched) {
@@ -152,6 +162,10 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS add ciphertext", "", CkksTestParams
         }
     }
 
+    // The conjugate-invariant ring encodes real messages only (the imaginary part is dropped).
+    if (this->param.is_conjugate_invariant()) {
+        return;
+    }
     SECTION("complex message") {
         for (const EncodingCase& encoding_case : all_encoding_cases(true)) {
             if (encoding_case.is_ringt || !encoding_case.is_batched) {
@@ -174,7 +188,7 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS add ciphertext", "", CkksTestParams
     }
 }
 
-TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS add plaintext", "", CkksTestParams) {
+TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS add plaintext", "", CkksTestParams, CkksCITestParams) {
     SECTION("real message") {
         for (const EncodingCase& encoding_case : all_encoding_cases(true)) {
             if (!encoding_case.is_batched) {
@@ -197,6 +211,10 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS add plaintext", "", CkksTestParams)
         }
     }
 
+    // The conjugate-invariant ring encodes real messages only (the imaginary part is dropped).
+    if (this->param.is_conjugate_invariant()) {
+        return;
+    }
     SECTION("complex message") {
         for (const EncodingCase& encoding_case : all_encoding_cases(true)) {
             if (!encoding_case.is_batched) {
@@ -219,7 +237,7 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS add plaintext", "", CkksTestParams)
     }
 }
 
-TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS add scalar", "", CkksTestParams) {
+TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS add scalar", "", CkksTestParams, CkksCITestParams) {
     const vector<pair<const char*, complex<double>>> scalar_cases = {
         {"0.75", {0.75, 0.0}}, {"-1", {-1.0, 0.0}}, {"i", {0.0, 1.0}}, {"-i", {0.0, -1.0}}};
 
@@ -250,6 +268,10 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS add scalar", "", CkksTestParams) {
         }
     }
 
+    // The conjugate-invariant ring encodes real messages only (the imaginary part is dropped).
+    if (this->param.is_conjugate_invariant()) {
+        return;
+    }
     SECTION("complex message") {
         for (const EncodingCase& encoding_case : all_encoding_cases()) {
             if (encoding_case.is_ringt || !encoding_case.is_batched) {
@@ -277,7 +299,7 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS add scalar", "", CkksTestParams) {
     }
 }
 
-TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS sub ciphertext", "", CkksTestParams) {
+TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS sub ciphertext", "", CkksTestParams, CkksCITestParams) {
     SECTION("real message") {
         for (const EncodingCase& encoding_case : all_encoding_cases(true)) {
             if (encoding_case.is_ringt || !encoding_case.is_batched) {
@@ -300,6 +322,10 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS sub ciphertext", "", CkksTestParams
         }
     }
 
+    // The conjugate-invariant ring encodes real messages only (the imaginary part is dropped).
+    if (this->param.is_conjugate_invariant()) {
+        return;
+    }
     SECTION("complex message") {
         for (const EncodingCase& encoding_case : all_encoding_cases(true)) {
             if (encoding_case.is_ringt || !encoding_case.is_batched) {
@@ -322,7 +348,7 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS sub ciphertext", "", CkksTestParams
     }
 }
 
-TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS sub plaintext", "", CkksTestParams) {
+TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS sub plaintext", "", CkksTestParams, CkksCITestParams) {
     SECTION("real message") {
         for (const EncodingCase& encoding_case : all_encoding_cases(true)) {
             if (!encoding_case.is_batched) {
@@ -345,6 +371,10 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS sub plaintext", "", CkksTestParams)
         }
     }
 
+    // The conjugate-invariant ring encodes real messages only (the imaginary part is dropped).
+    if (this->param.is_conjugate_invariant()) {
+        return;
+    }
     SECTION("complex message") {
         for (const EncodingCase& encoding_case : all_encoding_cases(true)) {
             if (!encoding_case.is_batched) {
@@ -367,7 +397,7 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS sub plaintext", "", CkksTestParams)
     }
 }
 
-TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS sub scalar", "", CkksTestParams) {
+TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS sub scalar", "", CkksTestParams, CkksCITestParams) {
     const vector<pair<const char*, complex<double>>> scalar_cases = {
         {"0.75", {0.75, 0.0}}, {"-1", {-1.0, 0.0}}, {"i", {0.0, 1.0}}, {"-i", {0.0, -1.0}}};
 
@@ -398,6 +428,10 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS sub scalar", "", CkksTestParams) {
         }
     }
 
+    // The conjugate-invariant ring encodes real messages only (the imaginary part is dropped).
+    if (this->param.is_conjugate_invariant()) {
+        return;
+    }
     SECTION("complex message") {
         for (const EncodingCase& encoding_case : all_encoding_cases()) {
             if (encoding_case.is_ringt || !encoding_case.is_batched) {
@@ -425,7 +459,11 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS sub scalar", "", CkksTestParams) {
     }
 }
 
-TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS mult ciphertext-relinearize-rescale", "", CkksTestParams) {
+TEMPLATE_TEST_CASE_METHOD(CkksFixture,
+                          "CKKS mult ciphertext-relinearize-rescale",
+                          "",
+                          CkksTestParams,
+                          CkksCITestParams) {
     SECTION("real message") {
         for (const EncodingCase& encoding_case : all_encoding_cases(true)) {
             if (encoding_case.is_ringt) {
@@ -443,6 +481,9 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS mult ciphertext-relinearize-rescale
                             lhs_ciphertext.message :
                             expand_sparse_slots(lhs_ciphertext.message, encoding_case.extra_log_slots);
                     expected = vec_mul(lhs_message, rhs_ciphertext.message);
+                } else if (this->param.is_conjugate_invariant()) {
+                    expected =
+                        ci_coefficient_multiplication(this->param.n(), lhs_ciphertext.message, rhs_ciphertext.message);
                 } else {
                     expected =
                         polynomial_multiplication(this->param.n(), lhs_ciphertext.message, rhs_ciphertext.message);
@@ -475,6 +516,10 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS mult ciphertext-relinearize-rescale
         }
     }
 
+    // The conjugate-invariant ring encodes real messages only (the imaginary part is dropped).
+    if (this->param.is_conjugate_invariant()) {
+        return;
+    }
     SECTION("complex message") {
         for (const EncodingCase& encoding_case : all_encoding_cases(true)) {
             if (encoding_case.is_ringt || !encoding_case.is_batched) {
@@ -518,7 +563,7 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS mult ciphertext-relinearize-rescale
     }
 }
 
-TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS mult plaintext", "", CkksTestParams) {
+TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS mult plaintext", "", CkksTestParams, CkksCITestParams) {
     SECTION("real message") {
         for (const EncodingCase& encoding_case : all_encoding_cases(true)) {
             SECTION(encoding_case.tag) {
@@ -533,6 +578,9 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS mult plaintext", "", CkksTestParams
                             lhs_ciphertext.message :
                             expand_sparse_slots(lhs_ciphertext.message, encoding_case.extra_log_slots);
                     expected = vec_mul(lhs_message, rhs_plaintext.message);
+                } else if (this->param.is_conjugate_invariant()) {
+                    expected =
+                        ci_coefficient_multiplication(this->param.n(), lhs_ciphertext.message, rhs_plaintext.message);
                 } else {
                     expected =
                         polynomial_multiplication(this->param.n(), lhs_ciphertext.message, rhs_plaintext.message);
@@ -556,6 +604,10 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS mult plaintext", "", CkksTestParams
         }
     }
 
+    // The conjugate-invariant ring encodes real messages only (the imaginary part is dropped).
+    if (this->param.is_conjugate_invariant()) {
+        return;
+    }
     SECTION("complex message") {
         for (const EncodingCase& encoding_case : all_encoding_cases(true)) {
             if (!encoding_case.is_batched) {
@@ -590,7 +642,7 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS mult plaintext", "", CkksTestParams
     }
 }
 
-TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS mult scalar", "", CkksTestParams) {
+TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS mult scalar", "", CkksTestParams, CkksCITestParams) {
     const vector<pair<const char*, complex<double>>> scalar_cases = {
         {"0.75", {0.75, 0.0}}, {"-1", {-1.0, 0.0}}, {"i", {0.0, 1.0}}, {"-i", {0.0, -1.0}}};
 
@@ -624,6 +676,10 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS mult scalar", "", CkksTestParams) {
         }
     }
 
+    // The conjugate-invariant ring encodes real messages only (the imaginary part is dropped).
+    if (this->param.is_conjugate_invariant()) {
+        return;
+    }
     SECTION("complex message") {
         for (const EncodingCase& encoding_case : all_encoding_cases()) {
             if (encoding_case.is_ringt || !encoding_case.is_batched) {
@@ -656,7 +712,7 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS mult scalar", "", CkksTestParams) {
     }
 }
 
-TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS drop level", "", CkksTestParams) {
+TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS drop level", "", CkksTestParams, CkksCITestParams) {
     const vector<int> drop_levels = {1, 2};
 
     SECTION("real message") {
@@ -680,6 +736,10 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS drop level", "", CkksTestParams) {
         }
     }
 
+    // The conjugate-invariant ring encodes real messages only (the imaginary part is dropped).
+    if (this->param.is_conjugate_invariant()) {
+        return;
+    }
     SECTION("complex message") {
         for (const EncodingCase& encoding_case : all_encoding_cases()) {
             if (encoding_case.is_ringt || !encoding_case.is_batched) {
@@ -701,7 +761,7 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS drop level", "", CkksTestParams) {
     }
 }
 
-TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS rotate", "", CkksTestParams) {
+TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS rotate", "", CkksTestParams, CkksCITestParams) {
     const vector<int32_t> steps = {1, -2, 5, -10, 1000};
 
     SECTION("default rotation") {
@@ -725,6 +785,10 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS rotate", "", CkksTestParams) {
             }
         }
 
+        // The conjugate-invariant ring encodes real messages only (the imaginary part is dropped).
+        if (this->param.is_conjugate_invariant()) {
+            return;
+        }
         SECTION("complex message") {
             for (const EncodingCase& encoding_case : all_encoding_cases()) {
                 if (encoding_case.is_ringt || !encoding_case.is_batched) {
@@ -764,6 +828,10 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS rotate", "", CkksTestParams) {
             }
         }
 
+        // The conjugate-invariant ring encodes real messages only (the imaginary part is dropped).
+        if (this->param.is_conjugate_invariant()) {
+            return;
+        }
         SECTION("complex message") {
             for (const EncodingCase& encoding_case : all_encoding_cases()) {
                 if (encoding_case.is_ringt || !encoding_case.is_batched) {
@@ -802,7 +870,7 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS conjugate", "", CkksTestParams) {
     }
 }
 
-TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS bootstrap", "", CkksTestParams) {
+TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS bootstrap", "", CkksTestParams, CkksCITestParams) {
     this->ctx.create_bootstrapper();
     const int bootstrap_log2_min_prec = std::max(this->param.log_default_scale() - this->param.log_n() - 12, 0);
 
@@ -821,6 +889,10 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS bootstrap", "", CkksTestParams) {
         }
     }
 
+    // The conjugate-invariant ring encodes real messages only (the imaginary part is dropped).
+    if (this->param.is_conjugate_invariant()) {
+        return;
+    }
     SECTION("complex message") {
         for (const EncodingCase& encoding_case : all_encoding_cases()) {
             if (encoding_case.is_ringt || !encoding_case.is_batched) {
@@ -835,6 +907,10 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS bootstrap", "", CkksTestParams) {
         }
     }
 
+    // The conjugate-invariant ring encodes real messages only (the imaginary part is dropped).
+    if (this->param.is_conjugate_invariant()) {
+        return;
+    }
     SECTION("multiple complex messages") {
         for (const EncodingCase& encoding_case : all_encoding_cases()) {
             if (encoding_case.is_ringt || !encoding_case.is_batched) {
@@ -881,6 +957,10 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS bootstrap", "", CkksTestParams) {
         }
     }
 
+    // The conjugate-invariant ring encodes real messages only (the imaginary part is dropped).
+    if (this->param.is_conjugate_invariant()) {
+        return;
+    }
     SECTION("complex multiply-relinearize-rescale") {
         for (const EncodingCase& encoding_case : all_encoding_cases(true)) {
             if (encoding_case.is_ringt || !encoding_case.is_batched) {
@@ -907,7 +987,7 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS bootstrap", "", CkksTestParams) {
     }
 }
 
-TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS ciphertext serialization", "", CkksTestParams) {
+TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS ciphertext serialization", "", CkksTestParams, CkksCITestParams) {
     CkksRealTestCt test_data = new_real_ct(this->ctx, this->level);
 
     Bytes serialized = test_data.ciphertext.serialize();
@@ -960,4 +1040,27 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS context serialization", "", CkksTes
     CkksCiphertext bootstrapped = restored.bootstrap(bootstrap_input.ciphertext);
     REQUIRE(bootstrapped.degree() == bootstrap_input.ciphertext.degree());
     verify_ckks_precision(this->ctx, bootstrap_input.message, bootstrapped, bootstrap_log2_min_prec);
+}
+
+TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS parameter ring type", "", CkksTestParams, CkksCITestParams) {
+    constexpr bool is_ci = std::is_same<TestType, CkksCITestParams>::value;
+
+    REQUIRE(this->param.ring_type() == (is_ci ? RingType::ConjugateInvariant : RingType::Standard));
+    REQUIRE(this->param.is_conjugate_invariant() == is_ci);
+    REQUIRE(this->param.is_standard() == !is_ci);
+
+    if (is_ci) {
+        REQUIRE(this->param.max_slots() == this->param.n());
+        REQUIRE(this->param.log_max_slots() == this->param.log_n());
+    } else {
+        REQUIRE(this->param.max_slots() == this->param.n() / 2);
+        REQUIRE(this->param.log_max_slots() == this->param.log_n() - 1);
+    }
+
+    Bytes serialized = this->param.serialize();
+    CkksParameter restored = CkksParameter::deserialize(serialized);
+    REQUIRE(restored.ring_type() == this->param.ring_type());
+
+    CkksContext ctx = CkksContext::create_empty_context(restored);
+    REQUIRE(ctx.parameter().ring_type() == this->param.ring_type());
 }

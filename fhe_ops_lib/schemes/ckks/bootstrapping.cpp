@@ -33,16 +33,21 @@ BootstrappingEvaluationKeys::BootstrappingEvaluationKeys(const Handle& bootstrap
     uint64_t btp_evaluation_keys_handle = 0;
     uint64_t evk_n1_to_n2_handle = 0;
     uint64_t evk_n2_to_n1_handle = 0;
+    uint64_t evk_cmplx_to_real_handle = 0;
+    uint64_t evk_real_to_cmplx_handle = 0;
     uint64_t evk_dts_handle = 0;
     uint64_t evk_std_handle = 0;
     uint64_t evaluation_key_set_handle = 0;
     CHECK(GenCkksBootstrappingEvaluationKeys(bootstrapping_parameter.get(), secret_key.get(),
                                              &btp_evaluation_keys_handle, &evk_n1_to_n2_handle, &evk_n2_to_n1_handle,
-                                             &evk_dts_handle, &evk_std_handle, &evaluation_key_set_handle));
+                                             &evk_cmplx_to_real_handle, &evk_real_to_cmplx_handle, &evk_dts_handle,
+                                             &evk_std_handle, &evaluation_key_set_handle));
     _value = btp_evaluation_keys_handle;
     _keep = false;
     _evk_n1_to_n2 = EvaluationKey(std::move(evk_n1_to_n2_handle));
     _evk_n2_to_n1 = EvaluationKey(std::move(evk_n2_to_n1_handle));
+    _evk_ci_to_std = EvaluationKey(std::move(evk_real_to_cmplx_handle));
+    _evk_std_to_ci = EvaluationKey(std::move(evk_cmplx_to_real_handle));
     _evk_dense_to_sparse = EvaluationKey(std::move(evk_dts_handle));
     _evk_sparse_to_dense = EvaluationKey(std::move(evk_std_handle));
     _evaluation_key_set = EvaluationKeySet(std::move(evaluation_key_set_handle));
@@ -51,19 +56,24 @@ BootstrappingEvaluationKeys::BootstrappingEvaluationKeys(const Handle& bootstrap
 
 BootstrappingEvaluationKeys::BootstrappingEvaluationKeys(EvaluationKey&& evk_n1_to_n2,
                                                          EvaluationKey&& evk_n2_to_n1,
+                                                         EvaluationKey&& evk_ci_to_std,
+                                                         EvaluationKey&& evk_std_to_ci,
                                                          EvaluationKey&& evk_dense_to_sparse,
                                                          EvaluationKey&& evk_sparse_to_dense,
                                                          EvaluationKeySet&& evaluation_key_set) {
     uint64_t handle = 0;
-    CHECK(CreateCkksBootstrappingEvaluationKeys(evk_n1_to_n2.is_empty() ? 0 : evk_n1_to_n2.get(),
-                                                evk_n2_to_n1.is_empty() ? 0 : evk_n2_to_n1.get(),
-                                                evk_dense_to_sparse.is_empty() ? 0 : evk_dense_to_sparse.get(),
-                                                evk_sparse_to_dense.is_empty() ? 0 : evk_sparse_to_dense.get(),
-                                                evaluation_key_set.is_empty() ? 0 : evaluation_key_set.get(), &handle));
+    CHECK(CreateCkksBootstrappingEvaluationKeys(
+        evk_n1_to_n2.is_empty() ? 0 : evk_n1_to_n2.get(), evk_n2_to_n1.is_empty() ? 0 : evk_n2_to_n1.get(),
+        evk_std_to_ci.is_empty() ? 0 : evk_std_to_ci.get(), evk_ci_to_std.is_empty() ? 0 : evk_ci_to_std.get(),
+        evk_dense_to_sparse.is_empty() ? 0 : evk_dense_to_sparse.get(),
+        evk_sparse_to_dense.is_empty() ? 0 : evk_sparse_to_dense.get(),
+        evaluation_key_set.is_empty() ? 0 : evaluation_key_set.get(), &handle));
     _value = handle;
     _keep = false;
     _evk_n1_to_n2 = std::move(evk_n1_to_n2);
     _evk_n2_to_n1 = std::move(evk_n2_to_n1);
+    _evk_ci_to_std = std::move(evk_ci_to_std);
+    _evk_std_to_ci = std::move(evk_std_to_ci);
     _evk_dense_to_sparse = std::move(evk_dense_to_sparse);
     _evk_sparse_to_dense = std::move(evk_sparse_to_dense);
     _evaluation_key_set = std::move(evaluation_key_set);
@@ -76,14 +86,20 @@ void BootstrappingEvaluationKeys::sync_from_handle() {
 
     uint64_t evk_n1_to_n2_handle = 0;
     uint64_t evk_n2_to_n1_handle = 0;
+    uint64_t evk_cmplx_to_real_handle = 0;
+    uint64_t evk_real_to_cmplx_handle = 0;
     uint64_t evk_dense_to_sparse_handle = 0;
     uint64_t evk_sparse_to_dense_handle = 0;
     uint64_t evaluation_key_set_handle = 0;
-    CHECK(GetCkksBootstrappingEvaluationKeys(this->get(), &evk_n1_to_n2_handle, &evk_n2_to_n1_handle,
-                                             &evk_dense_to_sparse_handle, &evk_sparse_to_dense_handle,
-                                             &evaluation_key_set_handle));
+    CHECK(GetCkksBootstrappingEvaluationKeys(
+        this->get(), &evk_n1_to_n2_handle, &evk_n2_to_n1_handle, &evk_cmplx_to_real_handle, &evk_real_to_cmplx_handle,
+        &evk_dense_to_sparse_handle, &evk_sparse_to_dense_handle, &evaluation_key_set_handle));
     _evk_n1_to_n2 = evk_n1_to_n2_handle == 0 ? EvaluationKey() : EvaluationKey(std::move(evk_n1_to_n2_handle));
     _evk_n2_to_n1 = evk_n2_to_n1_handle == 0 ? EvaluationKey() : EvaluationKey(std::move(evk_n2_to_n1_handle));
+    _evk_ci_to_std =
+        evk_real_to_cmplx_handle == 0 ? EvaluationKey() : EvaluationKey(std::move(evk_real_to_cmplx_handle));
+    _evk_std_to_ci =
+        evk_cmplx_to_real_handle == 0 ? EvaluationKey() : EvaluationKey(std::move(evk_cmplx_to_real_handle));
     _evk_dense_to_sparse =
         evk_dense_to_sparse_handle == 0 ? EvaluationKey() : EvaluationKey(std::move(evk_dense_to_sparse_handle));
     _evk_sparse_to_dense =
@@ -117,6 +133,14 @@ const EvaluationKey& BootstrappingEvaluationKeys::evk_n1_to_n2() const {
 
 const EvaluationKey& BootstrappingEvaluationKeys::evk_n2_to_n1() const {
     return _evk_n2_to_n1;
+}
+
+const EvaluationKey& BootstrappingEvaluationKeys::evk_ci_to_std() const {
+    return _evk_ci_to_std;
+}
+
+const EvaluationKey& BootstrappingEvaluationKeys::evk_std_to_ci() const {
+    return _evk_std_to_ci;
 }
 
 const EvaluationKey& BootstrappingEvaluationKeys::evk_dense_to_sparse() const {
@@ -164,6 +188,30 @@ void BootstrappingEvaluationKeys::set_evk_n2_to_n1(const EvaluationKey& evk) {
     EvaluationKey evk_copy = evk.copy();
     CHECK(SetCkksBootstrappingEvaluationKeyN2ToN1(this->get(), evk_copy.get()));
     _evk_n2_to_n1 = std::move(evk_copy);
+}
+
+void BootstrappingEvaluationKeys::set_evk_ci_to_std(const EvaluationKey& evk) {
+    if (evk.is_empty()) {
+        throw std::runtime_error("CKKS bootstrapping CI-to-standard evaluation key is not set");
+    }
+    if (is_empty()) {
+        throw std::runtime_error("CKKS bootstrapping evaluation keys are not set");
+    }
+    EvaluationKey evk_copy = evk.copy();
+    CHECK(SetCkksBootstrappingEvaluationKeyRealToCmplx(this->get(), evk_copy.get()));
+    _evk_ci_to_std = std::move(evk_copy);
+}
+
+void BootstrappingEvaluationKeys::set_evk_std_to_ci(const EvaluationKey& evk) {
+    if (evk.is_empty()) {
+        throw std::runtime_error("CKKS bootstrapping standard-to-CI evaluation key is not set");
+    }
+    if (is_empty()) {
+        throw std::runtime_error("CKKS bootstrapping evaluation keys are not set");
+    }
+    EvaluationKey evk_copy = evk.copy();
+    CHECK(SetCkksBootstrappingEvaluationKeyCmplxToReal(this->get(), evk_copy.get()));
+    _evk_std_to_ci = std::move(evk_copy);
 }
 
 void BootstrappingEvaluationKeys::set_evk_dense_to_sparse(const EvaluationKey& evk) {
@@ -251,7 +299,8 @@ void CkksContext::set_enable_bootstrapping(bool enable_bootstrapping) {
         _btp_parameter = Handle(std::move(handle));
     }
     if (_bootstrapping_evaluation_keys.is_empty()) {
-        _bootstrapping_evaluation_keys = BootstrappingEvaluationKeys({}, {}, {}, {}, EvaluationKeySet(RelinKey(), {}));
+        _bootstrapping_evaluation_keys =
+            BootstrappingEvaluationKeys({}, {}, {}, {}, {}, {}, EvaluationKeySet(RelinKey(), {}));
     }
 }
 
@@ -368,6 +417,20 @@ void CkksContext::set_evk_n2_to_n1(const EvaluationKey& evk) {
         throw std::runtime_error("CKKS bootstrapping N2-to-N1 evaluation key is not set");
     }
     _bootstrapping_evaluation_keys.set_evk_n2_to_n1(evk);
+}
+
+void CkksContext::set_evk_ci_to_std(const EvaluationKey& evk) {
+    if (evk.is_empty()) {
+        throw std::runtime_error("CKKS bootstrapping CI-to-standard evaluation key is not set");
+    }
+    _bootstrapping_evaluation_keys.set_evk_ci_to_std(evk);
+}
+
+void CkksContext::set_evk_std_to_ci(const EvaluationKey& evk) {
+    if (evk.is_empty()) {
+        throw std::runtime_error("CKKS bootstrapping standard-to-CI evaluation key is not set");
+    }
+    _bootstrapping_evaluation_keys.set_evk_std_to_ci(evk);
 }
 
 void CkksContext::set_evk_dense_to_sparse(const EvaluationKey& evk) {

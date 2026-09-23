@@ -124,6 +124,6 @@ c_set_bfv_parameter(uint64_t N, uint64_t T, const uint64_t* Q, int q_len, const 
 
 inline uint64_t c_set_ckks_parameter(uint64_t N, const unsigned long* Q, int q_len, const unsigned long* P, int p_len) {
     uint64_t handle = 0;
-    CreateCkksCustomParameter(log2_uint64(N), 40, (uint64_t*)Q, q_len, (uint64_t*)P, p_len, &handle);
+    CreateCkksCustomParameter(log2_uint64(N), 40, (uint64_t*)Q, q_len, (uint64_t*)P, p_len, 0, &handle);
     return handle;
 }
