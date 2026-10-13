@@ -89,6 +89,12 @@ TEST_CASE("BTP streaming context", "[streaming]") {
     REQUIRE(compare_double_vectors(client.decode(client.decrypt(bootstrapped)), values, values.size(), 0.001) == false);
     auto restored = CkksBtpContext::deserialize(client.serialize());
     REQUIRE(compare_double_vectors(restored.decode(restored.decrypt(ciphertext)), values, values.size(), 0.001) == false);
+    auto copy = restored.shallow_copy_context();
+    auto copied_ct = copy.encrypt_symmetric(copy.encode(values, 0, scheme.get_default_scale()));
+    REQUIRE(compare_double_vectors(restored.decode(restored.decrypt(copied_ct)), values, values.size(), 0.001) == false);
+    restored.export_eval_context_to_file(files.path());
+    auto restored_server = CkksBtpContext::deserialize(files.read());
+    REQUIRE(compare_double_vectors(restored.decode(restored.decrypt(restored_server.rotate(copied_ct, 1))), values, values.size(), 0.001) == false);
     REQUIRE_THROWS(client.export_eval_context_to_file((files.directory / "missing" / "eval.bin").string()));
 }
 
