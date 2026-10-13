@@ -4,6 +4,7 @@
 [submodule "fhe_ops_lib/lattigo"]
 	path = fhe_ops_lib/lattigo
 	url = https://github.com/cipherflow-fhe/lattigo.git
+	branch = feat/streaming-key-generation
 [submodule "backends/lattisense-fpga/lattisense-fpga-runtime"]
 	path = backends/lattisense-fpga/lattisense-fpga-runtime
 	url = https://github.com/cipherflow-fhe/lattisense-fpga-runtime.git
