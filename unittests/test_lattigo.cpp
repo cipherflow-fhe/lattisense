@@ -23,6 +23,8 @@
 #include <vector>
 #include <mutex>
 #include <atomic>
+#include <filesystem>
+#include <fstream>
 #define CATCH_CONFIG_MAIN
 #include "catch.hpp"
 
@@ -31,6 +33,64 @@
 
 using namespace fhe_ops_lib;
 using namespace std;
+
+namespace {
+struct StreamingFiles {
+    filesystem::path directory = filesystem::temp_directory_path() /
+        ("lattigo-streaming-" + to_string(chrono::steady_clock::now().time_since_epoch().count()));
+    StreamingFiles() { filesystem::create_directory(directory); }
+    ~StreamingFiles() { filesystem::remove_all(directory); }
+    string path() const { return (directory / "eval.bin").string(); }
+    Bytes read() const {
+        ifstream file(path(), ios::binary);
+        return Bytes(istreambuf_iterator<char>(file), istreambuf_iterator<char>());
+    }
+};
+}  // namespace
+
+TEST_CASE("CKKS streaming context", "[streaming]") {
+    StreamingFiles files;
+    auto parameters = CkksParameter::create_parameter(4096);
+    auto client = CkksContext::create_streaming_context(parameters, files.path());
+    auto bytes = files.read();
+    REQUIRE_FALSE(bytes.empty());
+    auto server = CkksContext::deserialize_advanced(bytes);
+    vector<double> values(2048, 0.125);
+    auto ciphertext = client.encrypt_symmetric(client.encode(values, 1, parameters.get_default_scale()));
+    auto rotated = server.rotate(ciphertext, 1);
+    auto decoded = client.decode(client.decrypt(rotated));
+    REQUIRE(compare_double_vectors(decoded, values, values.size(), 0.001) == false);
+    auto restored = CkksContext::deserialize_advanced(client.serialize_advanced());
+    REQUIRE(compare_double_vectors(restored.decode(restored.decrypt(ciphertext)), values, values.size(), 0.001) == false);
+    client.export_eval_context_to_file(files.path());
+    REQUIRE(files.read().size() == bytes.size());
+    REQUIRE_THROWS(client.export_eval_context_to_file((files.directory / "missing" / "eval.bin").string()));
+    REQUIRE_THROWS(CkksContext::create_streaming_context(parameters, (files.directory / "missing" / "eval.bin").string()));
+    // Legacy fully materialized contexts keep their original serialization path.
+    auto legacy = CkksContext::create_random_context(parameters);
+    legacy.gen_rotation_keys();
+    auto public_context = legacy.make_public_context(false, true, true);
+    auto imported = CkksContext::deserialize_advanced(public_context.serialize_advanced());
+    auto legacy_ct = legacy.encrypt_symmetric(legacy.encode(values, 1, parameters.get_default_scale()));
+    REQUIRE(compare_double_vectors(legacy.decode(legacy.decrypt(imported.rotate(legacy_ct, 1))), values, values.size(), 0.001) == false);
+}
+
+TEST_CASE("BTP streaming context", "[streaming]") {
+    StreamingFiles files;
+    auto parameters = CkksBtpParameter::create_toy_parameter();
+    auto client = CkksBtpContext::create_streaming_context(parameters, files.path());
+    auto bytes = files.read();
+    REQUIRE_FALSE(bytes.empty());
+    auto server = CkksBtpContext::deserialize(bytes);
+    auto& scheme = parameters.get_ckks_parameter();
+    vector<double> values(4096, 0.125);
+    auto ciphertext = client.encrypt_symmetric(client.encode(values, 0, scheme.get_default_scale()));
+    auto bootstrapped = server.bootstrap(ciphertext);
+    REQUIRE(compare_double_vectors(client.decode(client.decrypt(bootstrapped)), values, values.size(), 0.001) == false);
+    auto restored = CkksBtpContext::deserialize(client.serialize());
+    REQUIRE(compare_double_vectors(restored.decode(restored.decrypt(ciphertext)), values, values.size(), 0.001) == false);
+    REQUIRE_THROWS(client.export_eval_context_to_file((files.directory / "missing" / "eval.bin").string()));
+}
 
 class LattigoBfvFixture {
 public:

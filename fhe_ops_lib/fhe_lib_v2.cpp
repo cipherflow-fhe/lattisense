@@ -675,6 +675,18 @@ CkksContext CkksContext::create_random_context(const CkksParameter& param, int l
     return CkksContext(CreateRandomCkksContext(param.get(), level, support_big_complex));
 }
 
+CkksContext CkksContext::create_streaming_context(const CkksParameter& param,
+                                                const std::string& filepath,
+                                                bool support_big_complex) {
+    uint64_t handle = 0;
+    CHECK(StreamSetupCkksContextToFile(param.get(), const_cast<char*>(filepath.c_str()), support_big_complex, &handle));
+    return CkksContext(std::move(handle));
+}
+
+void CkksContext::export_eval_context_to_file(const std::string& filepath) const {
+    CHECK(StreamExportCkksEvalContextToFile(this->get(), const_cast<char*>(filepath.c_str())));
+}
+
 CkksContext CkksContext::create_random_context_with_seed(const CkksParameter& param,
                                                          const std::vector<uint8_t>& seed,
                                                          bool support_big_complex) {
@@ -884,6 +896,16 @@ CkksPlaintext CkksContext::decrypt(const CkksCiphertext3& x_ct) {
 // CkksBtpContext
 CkksBtpContext CkksBtpContext::create_random_context(const CkksBtpParameter& param) {
     return CkksBtpContext(CreateRandomCkksBtpContext(param.get()));
+}
+
+CkksBtpContext CkksBtpContext::create_streaming_context(const CkksBtpParameter& param, const std::string& filepath) {
+    uint64_t handle = 0;
+    CHECK(StreamSetupCkksBtpContextToFile(param.get(), const_cast<char*>(filepath.c_str()), &handle));
+    return CkksBtpContext(std::move(handle));
+}
+
+void CkksBtpContext::export_eval_context_to_file(const std::string& filepath) const {
+    CHECK(StreamExportCkksBtpEvalContextToFile(this->get(), const_cast<char*>(filepath.c_str())));
 }
 
 CkksBtpContext CkksBtpContext::create_empty_context(const CkksBtpParameter& param) {

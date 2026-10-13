@@ -843,6 +843,13 @@ public:
     static CkksContext
     create_random_context(const CkksParameter& param, int level = MAX_LEVEL, bool support_big_complex = false);
 
+    /// Generate evaluation keys directly into filepath; retain only client SK/PK and encode/encrypt/decrypt state.
+    static CkksContext create_streaming_context(const CkksParameter& param,
+                                               const std::string& filepath,
+                                               bool support_big_complex = false);
+
+    void export_eval_context_to_file(const std::string& filepath) const;
+
     static CkksContext create_random_context_with_seed(const CkksParameter& param,
                                                        const std::vector<uint8_t>& seed,
                                                        bool support_big_complex = false);
@@ -1175,6 +1182,10 @@ public:
     using CkksContext::CkksContext;
 
     static CkksBtpContext create_random_context(const CkksBtpParameter& param);
+
+    static CkksBtpContext create_streaming_context(const CkksBtpParameter& param, const std::string& filepath);
+
+    void export_eval_context_to_file(const std::string& filepath) const;
 
     static CkksBtpContext create_empty_context(const CkksBtpParameter& param);
 
