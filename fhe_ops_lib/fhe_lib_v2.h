@@ -933,6 +933,10 @@ public:
 
     static CkksContext deserialize_advanced(BytesView data);
 
+    /// Serialize parameters and SK/PK for client persistence.
+    Bytes serialize_client() const;
+    static CkksContext deserialize_client(BytesView data, const CkksParameter& expected);
+
     /**
      * Encode message data into a CKKS plaintext.
      * @param x_mg The input message data.
@@ -1209,6 +1213,9 @@ public:
 
     // cppcheck-suppress duplInheritedMember
     static CkksBtpContext deserialize(BytesView data);
+
+    Bytes serialize_client() const;
+    static CkksBtpContext deserialize_client(BytesView data, const CkksBtpParameter& expected);
 
     KeySwitchKey extract_swk_dts() const;
 

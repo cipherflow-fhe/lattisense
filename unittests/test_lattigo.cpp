@@ -75,6 +75,30 @@ TEST_CASE("CKKS streaming context", "[streaming]") {
     REQUIRE(compare_double_vectors(legacy.decode(legacy.decrypt(imported.rotate(legacy_ct, 1))), values, values.size(), 0.001) == false);
 }
 
+TEST_CASE("Client-only contexts restore persistent key pairs", "[persistence]") {
+    StreamingFiles files;
+    auto params = CkksParameter::create_parameter(4096);
+    auto source = CkksContext::create_random_context(params);
+    source.gen_rotation_keys();
+    auto full = source.serialize_client();
+    auto loaded = CkksContext::deserialize_client(full, params);
+    vector<double> values(2048, 0.125);
+    auto original = source.encrypt_asymmetric(source.encode(values, 1, params.get_default_scale()));
+    REQUIRE(compare_double_vectors(loaded.decode(loaded.decrypt(original)), values, values.size(), 0.001) == false);
+    auto fresh = loaded.encrypt_asymmetric(loaded.encode(values, 1, params.get_default_scale()));
+    REQUIRE(compare_double_vectors(source.decode(source.decrypt(fresh)), values, values.size(), 0.001) == false);
+    REQUIRE(compare_double_vectors(source.decode(source.decrypt(source.rotate(original, 1))), values, values.size(), 0.001) == false);
+    REQUIRE_THROWS(CkksContext::deserialize_client(full, CkksParameter::create_parameter(8192)));
+    REQUIRE_THROWS(CkksContext::deserialize_client(Bytes{}, params));
+
+    auto btp = CkksBtpParameter::create_toy_parameter();
+    auto client = CkksBtpContext::create_streaming_context(btp, files.path());
+    auto restored = CkksBtpContext::deserialize_client(client.serialize_client(), btp);
+    vector<double> btp_values(4096, 0.125);
+    auto ct = client.encrypt_asymmetric(client.encode(btp_values, 0, btp.get_ckks_parameter().get_default_scale()));
+    REQUIRE(compare_double_vectors(restored.decode(restored.decrypt(ct)), btp_values, btp_values.size(), 0.001) == false);
+}
+
 TEST_CASE("BTP streaming context", "[streaming]") {
     StreamingFiles files;
     auto parameters = CkksBtpParameter::create_toy_parameter();

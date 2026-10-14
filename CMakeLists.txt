@@ -330,7 +330,8 @@ set(LIBLATTIGO_H   ${GO_SDK_DIR}/liblattigo.h)
 # all declarations intact but replaces offending #line markers with blank lines.
 set(LIBLATTIGO_H_SANITIZED ${GO_SDK_DIR}/liblattigo_sanitized.h)
 
-set(GO_SOURCES main.go bootstrap.go c_struct_import_export.go conversion.go multiparty.go)
+set(GO_SOURCES main.go bootstrap.go client_context.go c_struct_import_export.go conversion.go multiparty.go)
+file(GLOB CLIENT_CONTEXT_SOURCES CONFIGURE_DEPENDS ${GO_SDK_DIR}/../clientcontext/*.go)
 if(WIN32)
     # Windows: only build c-archive. c-shared fails because bridge_func (defined in
     # bridge.c on the C++ side) is unresolved — Windows linker requires all symbols at
@@ -345,6 +346,8 @@ if(WIN32)
         DEPENDS
             ${GO_SDK_DIR}/main.go
             ${GO_SDK_DIR}/bootstrap.go
+            ${GO_SDK_DIR}/client_context.go
+            ${CLIENT_CONTEXT_SOURCES}
             ${GO_SDK_DIR}/c_struct_import_export.go
             ${GO_SDK_DIR}/conversion.go
             ${GO_SDK_DIR}/multiparty.go
@@ -363,6 +366,8 @@ else()
         DEPENDS
             ${GO_SDK_DIR}/main.go
             ${GO_SDK_DIR}/bootstrap.go
+            ${GO_SDK_DIR}/client_context.go
+            ${CLIENT_CONTEXT_SOURCES}
             ${GO_SDK_DIR}/c_struct_import_export.go
             ${GO_SDK_DIR}/conversion.go
             ${GO_SDK_DIR}/multiparty.go
@@ -375,6 +380,7 @@ add_subdirectory(abi)
 add_dependencies(abi go_libs)
 add_subdirectory(fhe_ops_lib)
 add_dependencies(fhe_ops_lib go_libs)
+add_dependencies(fhe_ops_lib_obj go_libs)
 
 if(NOT LATTISENSE_CLIENT_ONLY)
     add_subdirectory(cxx_sdk_v2)

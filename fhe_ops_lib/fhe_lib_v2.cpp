@@ -784,6 +784,20 @@ CkksContext CkksContext::deserialize_advanced(BytesView data) {
     return context;
 }
 
+Bytes CkksContext::serialize_client() const {
+    return export_raw_data<uint8_t>([&](uint8_t** raw, uint64_t* length) {
+        uint64_t buffer;
+        CHECK(SerializeCkksClientContext(this->get(), false, raw, length, &buffer));
+        return buffer;
+    });
+}
+
+CkksContext CkksContext::deserialize_client(BytesView data, const CkksParameter& expected) {
+    uint64_t context;
+    CHECK(DeserializeCkksClientContext(const_cast<uint8_t*>(data.data()), data.size(), expected.get(), false, &context));
+    return CkksContext(std::move(context));
+}
+
 CkksPlaintext CkksContext::encode(const std::vector<double>& x_mg, int level, double scale) {
     return CkksPlaintext(CkksEncode(this->get(), (double*)x_mg.data(), x_mg.size(), level, scale));
 }
@@ -1098,6 +1112,20 @@ Bytes CkksBtpContext::serialize() const {
 // cppcheck-suppress duplInheritedMember
 CkksBtpContext CkksBtpContext::deserialize(BytesView data) {
     return CkksBtpContext(DeserializeCkksBtpContextAdvanced((uint8_t*)data.data(), data.size()));
+}
+
+Bytes CkksBtpContext::serialize_client() const {
+    return export_raw_data<uint8_t>([&](uint8_t** raw, uint64_t* length) {
+        uint64_t buffer;
+        CHECK(SerializeCkksClientContext(this->get(), true, raw, length, &buffer));
+        return buffer;
+    });
+}
+
+CkksBtpContext CkksBtpContext::deserialize_client(BytesView data, const CkksBtpParameter& expected) {
+    uint64_t context;
+    CHECK(DeserializeCkksClientContext(const_cast<uint8_t*>(data.data()), data.size(), expected.get(), true, &context));
+    return CkksBtpContext(std::move(context));
 }
 
 KeySwitchKey CkksBtpContext::extract_swk_dts() const {
