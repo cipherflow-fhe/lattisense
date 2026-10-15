@@ -36,6 +36,7 @@
 #include "gpu_abi_bridge_executors.h"
 #include "../cpu_task_utils.h"
 #include "../../fhe_ops_lib/fhe_lib_v2.h"
+#include "gpu_mem_pool.h"
 
 #ifdef LATTISENSE_DEV
 #    include "gpu_mem_monitor.h"
@@ -590,3 +591,11 @@ int run_fhe_gpu_task(fhe_task_handle handle,
     return task->run(input_arg_span, output_arg_span, cb, gpu_device);
 }
 }  // extern "C"
+
+namespace lattisense {
+
+void release_device_memory_pool() {
+    heongpu::MemoryPool::instance().release();
+}
+
+} // namespace lattisense
