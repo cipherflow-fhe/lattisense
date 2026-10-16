@@ -28,6 +28,7 @@
 #include <set>
 #include <atomic>
 #include <condition_variable>
+#include <exception>
 #include <functional>
 #include <any>
 #include <unordered_map>
@@ -364,12 +365,46 @@ using BackendTaskSubmitter = std::function<void(NodeIndex,
                                                 std::mutex&,
                                                 std::unordered_map<NodeIndex, std::atomic<int>>&)>;
 
+/**
+ * @brief Shared failure channel between the dispatcher and its workers.
+ *
+ * A compute node that throws must not let the exception escape into a detached
+ * thread-pool task: nothing observes it there, the completion count never
+ * reaches the total, and run_tasks waits forever. Workers therefore record the
+ * exception here instead. The dispatcher stops scheduling as soon as `failed`
+ * is set and run_tasks rethrows the recorded exception once the pools drained.
+ */
+struct TaskFailure {
+    std::atomic<bool> failed{false};
+
+    void record(std::exception_ptr error) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (exception_) {
+            return;  // keep the first failure, it is the root cause
+        }
+        exception_ = std::move(error);
+        failed.store(true, std::memory_order_release);
+    }
+
+    std::exception_ptr exception() {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return exception_;
+    }
+
+private:
+    std::mutex mutex_;
+    std::exception_ptr exception_;
+};
+
 struct RunTasksOptions {
     OtherArgsCallback get_other_args;
     BackendTaskSubmitter submit_backend_task;
     std::function<void()> cleanup;
     ProgressCallback progress_callback;
     const std::atomic<bool>* cancel_flag = nullptr;
+    // Optional channel shared with backend workers. When null, run_tasks owns a
+    // private one so CPU-only callers still surface their failures.
+    TaskFailure* failure = nullptr;
 };
 
 /**
@@ -412,6 +447,11 @@ void run_tasks(const MegaAG& mega_ag,
     std::priority_queue<TaskInfo> task_queue;
     std::set<NodeIndex> queued_computes;
 
+    // Failure channel: CPU tasks and backend workers report into it, the
+    // dispatcher observes it, and run_tasks rethrows at the end.
+    TaskFailure local_failure;
+    TaskFailure& failure = options.failure ? *options.failure : local_failure;
+
     // Progress callback throttle state (best-effort, no mutex)
     using SteadyClock = std::chrono::steady_clock;
     std::atomic<SteadyClock::rep> last_progress_time{0};
@@ -424,7 +464,7 @@ void run_tasks(const MegaAG& mega_ag,
             pool.detach_task(
                 [task_index, &mega_ag, &completed_tasks, &total_tasks, &m_mutex, &completion_mutex, &completion_cv,
                  &available_data, &context_ptrs, &task_queue, &queued_computes, &data_ref_counts, other_args, &options,
-                 &last_progress_time, progress_interval]() {
+                 &last_progress_time, progress_interval, &failure]() {
                     auto thread_id = BS::this_thread::get_index().value();
 
                     const ComputeNode& compute_node = mega_ag.computes.at(task_index);
@@ -453,8 +493,11 @@ void run_tasks(const MegaAG& mega_ag,
                             return;
                         }
                         compute_node.executor(exec_ctx, thread_input_cache, output, compute_node);
-                    } catch (const std::exception& e) {
-                        // Still increment completed_tasks to avoid deadlock
+                    } catch (...) {
+                        // Record the failure so the dispatcher stops scheduling
+                        // and run_tasks can rethrow it. The count still advances
+                        // so the completion handshake stays coherent either way.
+                        failure.record(std::current_exception());
                         if (completed_tasks.fetch_add(1) + 1 >= total_tasks) {
                             std::lock_guard<std::mutex> lock(completion_mutex);
                             completion_cv.notify_all();
@@ -530,6 +573,17 @@ void run_tasks(const MegaAG& mega_ag,
             break;
         }
 
+        // A failed node leaves its outputs missing, so every downstream node
+        // would be re-queued forever. Stop dispatching and let the caller
+        // rethrow the recorded exception.
+        if (failure.failed.load(std::memory_order_acquire)) {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            while (!task_queue.empty()) {
+                task_queue.pop();
+            }
+            break;
+        }
+
         NodeIndex next_task;
         bool has_task = false;
 
@@ -567,10 +621,13 @@ void run_tasks(const MegaAG& mega_ag,
         }
     }
 
-    // Wait for all tasks to complete
+    // Wait for all tasks to complete. A recorded failure also releases the
+    // wait: the remaining tasks will never bring the count up to the total.
     if (!cancelled) {
         std::unique_lock<std::mutex> lock(completion_mutex);
-        completion_cv.wait(lock, [&] { return completed_tasks.load() >= total_tasks; });
+        completion_cv.wait(lock, [&] {
+            return completed_tasks.load() >= total_tasks || failure.failed.load(std::memory_order_acquire);
+        });
     }
 
     pool.wait();
@@ -583,5 +640,9 @@ void run_tasks(const MegaAG& mega_ag,
 
     if (cancelled) {
         throw mega_ag_runner::TaskCancelled();
+    }
+
+    if (failure.failed.load(std::memory_order_acquire)) {
+        std::rethrow_exception(failure.exception());
     }
 }
