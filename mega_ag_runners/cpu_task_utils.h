@@ -67,7 +67,8 @@ using namespace fhe_ops_lib;
  * @tparam TContext Context type (BfvContext or CkksContext)
  * @param param_json Parameter JSON containing: log_n, max_level, q, p, and optionally t (BFV only)
  *                   For CKKS: log_default_scale
- *                   For bootstrap: btp_cts_start_level, btp_eval_mod_start_level, btp_stc_start_level, scale
+ *                   For bootstrap: enable_bootstrapping; the circuit degree is
+ *                   residual log_n + 1
  * @param context Output unique_ptr to store the created context
  *
  * @note This function unifies the following implementations:
@@ -83,7 +84,8 @@ void init_context(const nlohmann::json& param_json, std::unique_ptr<TContext>& c
 
     if constexpr (SchemeType == HEScheme::CKKS) {
         auto log_default_scale = param_json["log_default_scale"].get<int>();
-        CkksParameter param = CkksParameter::create_custom_parameter(log_n, log_default_scale, q, p);
+        auto ring_type = static_cast<RingType>(param_json.value("ring_type", 0));
+        CkksParameter param = CkksParameter::create_custom_parameter(log_n, log_default_scale, q, p, ring_type);
         context = std::make_unique<TContext>(CkksContext::create_empty_context(param));
 
         if (param_json.value("enable_bootstrapping", false)) {

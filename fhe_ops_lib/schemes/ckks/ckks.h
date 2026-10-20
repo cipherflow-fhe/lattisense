@@ -29,6 +29,14 @@
 namespace fhe_ops_lib {
 
 /**
+ * @brief CKKS ring type. Values are aligned with Go ring.Type.
+ */
+enum class RingType : int {
+    Standard = 0,            // Z[X]/(X^N + 1) (default)
+    ConjugateInvariant = 1,  // Z[X + X^-1]/(X^2N + 1)
+};
+
+/**
  * @brief CKKS homomorphic parameters class, containing homomorphic parameters N, q.
  */
 class CkksParameter : public Parameter {
@@ -36,11 +44,12 @@ public:
     using Parameter::Parameter;
 
     // CkksParameter() = delete;
-    static CkksParameter create_parameter(int log_n);
+    static CkksParameter create_parameter(int log_n, RingType ring_type = RingType::Standard);
     static CkksParameter create_custom_parameter(int log_n,
                                                  int log_default_scale,
                                                  const std::vector<uint64_t>& q,
-                                                 const std::vector<uint64_t>& p);
+                                                 const std::vector<uint64_t>& p,
+                                                 RingType ring_type = RingType::Standard);
 
     CkksParameter copy() const;
 
@@ -67,6 +76,16 @@ public:
     double default_scale() const;
 
     int log_default_scale() const;
+
+    /**
+     * Get the CKKS ring type.
+     * @return The ring type (Standard or ConjugateInvariant).
+     */
+    RingType ring_type() const;
+
+    bool is_standard() const;
+
+    bool is_conjugate_invariant() const;
 };
 
 class CkksEncoder : public Handle {
@@ -91,6 +110,8 @@ public:
 
     BootstrappingEvaluationKeys(EvaluationKey&& evk_n1_to_n2,
                                 EvaluationKey&& evk_n2_to_n1,
+                                EvaluationKey&& evk_ci_to_std,
+                                EvaluationKey&& evk_std_to_ci,
                                 EvaluationKey&& evk_dense_to_sparse,
                                 EvaluationKey&& evk_sparse_to_dense,
                                 EvaluationKeySet&& evaluation_key_set);
@@ -102,6 +123,8 @@ public:
 
     const EvaluationKey& evk_n1_to_n2() const;
     const EvaluationKey& evk_n2_to_n1() const;
+    const EvaluationKey& evk_ci_to_std() const;
+    const EvaluationKey& evk_std_to_ci() const;
     const EvaluationKey& evk_dense_to_sparse() const;
     const EvaluationKey& evk_sparse_to_dense() const;
     const EvaluationKeySet& evaluation_key_set() const;
@@ -109,6 +132,8 @@ public:
     void set_evaluation_key_set(EvaluationKeySet&& evaluation_key_set);
     void set_evk_n1_to_n2(const EvaluationKey& evk);
     void set_evk_n2_to_n1(const EvaluationKey& evk);
+    void set_evk_ci_to_std(const EvaluationKey& evk);
+    void set_evk_std_to_ci(const EvaluationKey& evk);
     void set_evk_dense_to_sparse(const EvaluationKey& evk);
     void set_evk_sparse_to_dense(const EvaluationKey& evk);
     void set_relin_key(const RelinKey& rlk);
@@ -119,6 +144,8 @@ private:
 
     EvaluationKey _evk_n1_to_n2;
     EvaluationKey _evk_n2_to_n1;
+    EvaluationKey _evk_ci_to_std;
+    EvaluationKey _evk_std_to_ci;
     EvaluationKey _evk_dense_to_sparse;
     EvaluationKey _evk_sparse_to_dense;
     EvaluationKeySet _evaluation_key_set;
@@ -232,8 +259,18 @@ public:
 
     void set_use_default_rotation_keys(bool use_default_rotation_keys);
 
+    /**
+     * Create the bootstrapping parameter from the residual parameter, and with it
+     * the bootstrapping evaluation keys and evaluator. The circuit ring degree is
+     * the residual ring degree plus one.
+     */
     void create_bootstrapper();
 
+    /**
+     * Enable bootstrapping on this context, creating the bootstrapping parameter
+     * if it is not set yet.
+     * @param enable_bootstrapping Whether to enable bootstrapping.
+     */
     void set_enable_bootstrapping(bool enable_bootstrapping = true);
 
     bool enable_bootstrapping() const {
@@ -273,6 +310,10 @@ public:
     void set_evk_n1_to_n2(const EvaluationKey& evk);
 
     void set_evk_n2_to_n1(const EvaluationKey& evk);
+
+    void set_evk_ci_to_std(const EvaluationKey& evk);
+
+    void set_evk_std_to_ci(const EvaluationKey& evk);
 
     void set_evk_dense_to_sparse(const EvaluationKey& evk);
 

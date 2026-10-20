@@ -47,6 +47,7 @@ from frontend.types import (
     Param,
     Processor,
     RelinKeyNode,
+    RingType,
     RotateColNode,
     RotateRowNode,
     random_id,
@@ -74,22 +75,20 @@ def set_fhe_param(param: 'Param') -> None:
     g_param = param
 
 
-def get_galois_element_for_column_rotation_by(rot: int, poly_degree: int, galois_gen=GALOIS_GEN):
-    poly_degree_mask = (poly_degree << 1) - 1
-    return pow(galois_gen, rot & poly_degree_mask, poly_degree << 1)
+def get_galois_element_for_column_rotation_by(
+    rot: int, poly_degree: int, galois_gen=GALOIS_GEN, ntt_root_factor: int = 2
+):
+    # Galois element 5^rot mod NthRoot, where NthRoot = 2N for the standard ring and 4N for the
+    # conjugate-invariant ring.
+    ntt_root = poly_degree * ntt_root_factor
+    return pow(galois_gen, rot & (ntt_root - 1), ntt_root)
 
 
 def get_galois_element_for_row_rotation(poly_degree: int):
     return (poly_degree << 1) - 1
 
 
-def get_default_column_rotation_steps(log_n: int) -> list[int]:
-    rotations = [1 << i for i in range(log_n - 1)]
-    rotations.extend(-1 * (1 << i) for i in range(log_n - 2))
-    return rotations
-
-
-def get_default_column_rotation_substeps(step: int) -> list[int]:
+def get_default_column_rotation_substeps(step: int, log_slots: int) -> list[int]:
     xh = step >> 1
     x3 = step + xh
     changed_bits = xh ^ x3
@@ -103,7 +102,21 @@ def get_default_column_rotation_substeps(step: int) -> list[int]:
     for idx in range(neg_bits.bit_length() - 1, -1, -1):
         if neg_bits & (1 << idx):
             substeps.append(-(1 << idx))
-    return substeps
+    # Substeps that are multiples of the slot count are the identity rotation (e.g. N/2 for the
+    # standard ring or N for the conjugate-invariant ring) and need no Galois key.
+    limit = 1 << log_slots
+    return [substep for substep in substeps if abs(substep) < limit]
+
+
+def _validate_ckks_scalar(scalar) -> None:
+    """The conjugate-invariant CKKS ring cannot represent a nonzero imaginary scalar."""
+    if (
+        isinstance(scalar, complex)
+        and scalar.imag != 0.0
+        and isinstance(g_param, CkksParam)
+        and g_param.ring_type == RingType.ConjugateInvariant
+    ):
+        raise ValueError('Conjugate-invariant CKKS only supports real scalars (imaginary part must be 0).')
 
 
 def _ckks_scalar_mul_scale_factor(scalar: int | float | complex, level: int) -> float:
@@ -164,6 +177,7 @@ def add(
         else:
             raise ValueError(f'Unsupported input type "{op1.type.value}" for addition.')
     else:
+        _validate_ckks_scalar(op1)
         op.scalar = op1
         g_dag.add_edge(op0, op)
 
@@ -218,6 +232,7 @@ def sub(
             raise ValueError(f'Unsupported input type "{y.type.value}" for subtraction.')
         g_dag.add_edges_from([(x, op), (y, op)])
     else:
+        _validate_ckks_scalar(y)
         op.scalar = y
         g_dag.add_edge(x, op)
 
@@ -288,6 +303,7 @@ def mult(
         else:
             raise ValueError(f'Unsupported input type "{op1.type.value}" for multiplication.')
     else:
+        _validate_ckks_scalar(op1)
         op.scalar = op1
         z_degree = 1
         g_dag.add_edge(op0, op)
@@ -472,19 +488,24 @@ def rotate_cols(
     op = RotateColNode(steps, use_default_rotation_keys=use_default_rotation_keys)
     g_dag.add_edge(x, op)
 
+    # Rotation steps are modulo the slot count: log_n-1 for BFV / standard CKKS (N/2 slots) and
+    # log_n for the conjugate-invariant CKKS ring (N slots).
+    log_slots = g_param.log_max_slots() if isinstance(g_param, CkksParam) else g_param.log_n - 1
     if use_default_rotation_keys:
         key_steps = []
         seen_key_steps = set()
         for step in steps:
-            for substep in get_default_column_rotation_substeps(step):
+            for substep in get_default_column_rotation_substeps(step, log_slots):
                 if substep not in seen_key_steps:
                     key_steps.append(substep)
                     seen_key_steps.add(substep)
     else:
         key_steps = steps
 
+    # NthRoot is 2N for the standard ring and 4N for the conjugate-invariant ring.
+    ntt_root_factor = 4 if (isinstance(g_param, CkksParam) and g_param.ring_type == RingType.ConjugateInvariant) else 2
     for step in key_steps:
-        gal_elem = get_galois_element_for_column_rotation_by(step, g_param.n)
+        gal_elem = get_galois_element_for_column_rotation_by(step, g_param.n, ntt_root_factor=ntt_root_factor)
         glk = f'glk_ntt_col_{gal_elem}'
         if glk not in g_evk_node_dict:
             g_evk_node_dict[glk] = GaloisKeyNode(id=glk, level=x.metadata.level)
@@ -538,6 +559,8 @@ def conjugate(x: CkksCiphertextNode, output_id: Optional[str] = None) -> CkksCip
     global g_dag
     if not isinstance(x, CkksCiphertextNode):
         raise ValueError(f'Unsupported input type "{x.type.value}" for conjugate.')
+    if isinstance(g_param, CkksParam) and g_param.ring_type == RingType.ConjugateInvariant:
+        raise ValueError('Conjugate is not supported for the conjugate-invariant CKKS ring.')
     glk = 'glk_ntt_row'
 
     global g_evk_node_dict
@@ -710,10 +733,6 @@ def ct_pt_mult_accumulate(
     return partial_sum
 
 
-def _default_ckks_bootstrap_extra_levels() -> int:
-    return 3 + 8 + 4
-
-
 def bootstrap(
     x: CkksCiphertextNode | list[CkksCiphertextNode], output_id: Optional[str] = None
 ) -> CkksCiphertextNode | list[CkksCiphertextNode]:
@@ -743,6 +762,14 @@ def bootstrap(
         if xi.metadata.log_slots != first_log_slots:
             raise ValueError('bootstrap inputs must all have the same log_slots.')
 
+    from frontend.bootstrap_params import BootstrappingParameters
+
+    # The circuit always runs in the standard ring; its degree follows the
+    # residual ring (see BootstrappingParameters.default). This also rejects
+    # residual degrees without a bootstrapping parameter set, before anything is
+    # added to the graph.
+    btp = BootstrappingParameters.default(g_param.log_n, g_param.ring_type)
+
     g_param.enable_bootstrapping = True
 
     op = FheComputeNode(OperationType.Bootstrap)
@@ -750,7 +777,9 @@ def bootstrap(
         g_dag.add_edge(xi, op)
 
     global g_evk_node_dict
-    btp_key_level = g_param.max_level + _default_ckks_bootstrap_extra_levels()
+    # The keys are generated over the whole circuit, so their level is the top
+    # level of the bootstrapping parameter set.
+    btp_key_level = g_param.max_level + btp.circuit.depth
 
     evk_rlk = 'evk_rlk'
     if evk_rlk not in g_evk_node_dict:
@@ -760,9 +789,18 @@ def bootstrap(
         g_evk_node_dict[evk_rlk].key_role = 'bootstrap'
     g_dag.add_edge(g_evk_node_dict[evk_rlk], op)
 
-    from frontend.bootstrap_params import DEFAULT_BTP_LOG_N as _btp_log_n
+    btp_log_n = btp.log_n
 
-    if g_param.log_n != _btp_log_n:
+    if g_param.ring_type == RingType.ConjugateInvariant:
+        for evk_id in ('evk_ci_to_std', 'evk_std_to_ci'):
+            evk_level = 0 if evk_id == 'evk_ci_to_std' else g_param.max_level
+            if evk_id not in g_evk_node_dict:
+                g_evk_node_dict[evk_id] = EvaluationKeyNode(id=evk_id, level=evk_level, key_role='bootstrap')
+            else:
+                g_evk_node_dict[evk_id].metadata.level = evk_level
+                g_evk_node_dict[evk_id].key_role = 'bootstrap'
+            g_dag.add_edge(g_evk_node_dict[evk_id], op)
+    elif g_param.log_n != btp_log_n:
         for evk_id in ('evk_n1_to_n2', 'evk_n2_to_n1'):
             evk_level = 0 if evk_id == 'evk_n1_to_n2' else g_param.max_level
             if evk_id not in g_evk_node_dict:
@@ -790,9 +828,7 @@ def bootstrap(
         g_evk_node_dict[evk_sparse_to_dense].key_role = 'bootstrap'
     g_dag.add_edge(g_evk_node_dict[evk_sparse_to_dense], op)
 
-    from frontend.bootstrap_params import bootstrapping_galois_elements as _bge
-
-    _gals = _bge(g_param.log_n)
+    _gals = bootstrapping_galois_elements(g_param.log_n, g_param.ring_type)
     for gal_elem in _gals:
         evk_glk = f'evk_glk_{gal_elem}'
         if evk_glk not in g_evk_node_dict:

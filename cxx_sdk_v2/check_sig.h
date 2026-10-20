@@ -184,6 +184,14 @@ inline void check_context_for_key_signatures(const FheContext& context, const nl
         if (btp_evk.contains("evk_n2_to_n1") && btp_keys.evk_n2_to_n1().is_empty()) {
             throw std::runtime_error("Bootstrap key evk_n2_to_n1 is required by the task signature but is not set.");
         }
+        // Conjugate invariant residual ring: the ring-swap keys take the place of
+        // the evk_n1_to_n2 / evk_n2_to_n1 pair.
+        if (btp_evk.contains("evk_ci_to_std") && btp_keys.evk_ci_to_std().is_empty()) {
+            throw std::runtime_error("Bootstrap key evk_ci_to_std is required by the task signature but is not set.");
+        }
+        if (btp_evk.contains("evk_std_to_ci") && btp_keys.evk_std_to_ci().is_empty()) {
+            throw std::runtime_error("Bootstrap key evk_std_to_ci is required by the task signature but is not set.");
+        }
         if (btp_evk.contains("evk_dense_to_sparse") && btp_keys.evk_dense_to_sparse().is_empty()) {
             throw std::runtime_error(
                 "Bootstrap key evk_dense_to_sparse is required by the task signature but is not set.");

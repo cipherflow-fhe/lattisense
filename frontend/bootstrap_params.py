@@ -19,8 +19,9 @@ from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Dict, List
 
+from frontend.types import RingType
+
 GALOIS_GEN = 5
-DEFAULT_BTP_LOG_N = 16
 
 
 class DftType(Enum):
@@ -121,35 +122,103 @@ class DftMatrixLiteral:
         return [_galois_element(rotation, log_n) for rotation in self.rotations(log_n)]
 
 
+@dataclass(frozen=True)
+class BtpCircuitParams:
+    """!Shape of the bootstrapping circuit."""
+
+    slots_to_coeffs_factorization: List[List[int]]
+    coeffs_to_slots_factorization: List[List[int]]
+    eval_mod_log_scale: int
+
+    @property
+    def depth(self) -> int:
+        """!Levels the circuit consumes.
+
+        One level is consumed per factorization factor, plus the EvalMod depth
+        log2(max(mod1_degree, 2K-1)) + double_angle, with mod1_degree=30, K=16 and
+        double_angle=3.
+        """
+        mod1_depth = max(30, 2 * 16 - 1).bit_length() + 3
+        return len(self.slots_to_coeffs_factorization) + mod1_depth + len(self.coeffs_to_slots_factorization)
+
+
+# Shape of the bootstrapping circuit, indexed by the circuit ring degree.
+BTP_CIRCUIT_PARAMS: Dict[int, BtpCircuitParams] = {
+    16: BtpCircuitParams(
+        slots_to_coeffs_factorization=[[39], [39], [39]],
+        coeffs_to_slots_factorization=[[56], [56], [56], [56]],
+        eval_mod_log_scale=60,
+    ),
+}
+
+# Residual ring degree -> circuit ring degree. The circuit always runs in the
+# standard ring of degree 16; for a residual of log_n 14 or 15 it needs the
+# evk_n1_to_n2 / evk_n2_to_n1 switchkeys, while a residual of log_n 16 shares the
+# ring. The residual parameter sets keep a modulus that leaves room for the
+# circuit within the 128-bit security bound of degree 16 (1761 bits of log2(QP)):
+# with the circuit's 821 bits and the key-switching primes, the residual chains
+# hold 359 bits for log_n 14, 536 for 15 and 558 for 16.
+BTP_LOG_N_BY_RESIDUAL_LOG_N: Dict[int, int] = {
+    14: 16,
+    15: 16,
+    16: 16,
+}
+
+
 @dataclass
 class BootstrappingParameters:
     log_n: int
     log_slots: int
     slots_to_coeffs: DftMatrixLiteral
     coeffs_to_slots: DftMatrixLiteral
+    circuit: BtpCircuitParams
 
     @classmethod
-    def default(cls, residual_log_n: int, btp_log_n: int = DEFAULT_BTP_LOG_N) -> 'BootstrappingParameters':
-        log_slots = btp_log_n - 1
-        if residual_log_n > btp_log_n:
-            raise ValueError(f'Default CKKS bootstrapping only supports residual log_n <= {btp_log_n}.')
+    def default(cls, residual_log_n: int, ring_type: RingType = RingType.Standard) -> 'BootstrappingParameters':
+        """!Bootstrapping parameters for a residual parameter set.
+
+        The circuit runs in the **standard** ring with the degree of
+        BTP_LOG_N_BY_RESIDUAL_LOG_N. When that degree differs from the residual's,
+        the two rings are linked by the evk_n1_to_n2 / evk_n2_to_n1 switchkeys; when
+        it is the residual degree itself, as for a residual of log_n 16, no switch
+        is needed. A conjugate invariant residual shares the primitive root order
+        with a circuit of exactly residual log_n + 1, so only the residual degrees
+        whose mapped degree satisfies that can use it.
+        """
+        boot_log_n = BTP_LOG_N_BY_RESIDUAL_LOG_N.get(residual_log_n)
+        if boot_log_n is None:
+            raise ValueError(
+                f'No bootstrapping parameter set for a residual of log_n={residual_log_n} '
+                f'(supported: {sorted(BTP_LOG_N_BY_RESIDUAL_LOG_N)}).'
+            )
+        if ring_type == RingType.ConjugateInvariant and boot_log_n != residual_log_n + 1:
+            raise ValueError(
+                f'The conjugate invariant ring pins the circuit to residual log_n + 1 '
+                f'({residual_log_n + 1}), which cannot hold the circuit within the security bound, so '
+                f'a conjugate invariant residual of log_n={residual_log_n} cannot be bootstrapped.'
+            )
+
+        circuit = BTP_CIRCUIT_PARAMS[boot_log_n]
+
+        log_slots = boot_log_n - 1
         return cls(
-            log_n=btp_log_n,
+            log_n=boot_log_n,
             log_slots=log_slots,
             slots_to_coeffs=DftMatrixLiteral(
                 type=DftType.HomomorphicDecode,
                 log_slots=log_slots,
                 format=DftFormat.RepackImagAsReal,
                 log_bsgs_ratio=1,
-                levels=[1, 1, 1],
+                levels=[len(level) for level in circuit.slots_to_coeffs_factorization],
             ),
             coeffs_to_slots=DftMatrixLiteral(
                 type=DftType.HomomorphicEncode,
                 log_slots=log_slots,
                 format=DftFormat.RepackImagAsReal,
                 log_bsgs_ratio=1,
-                levels=[1, 1, 1, 1],
+                levels=[len(level) for level in circuit.coeffs_to_slots_factorization],
             ),
+            circuit=circuit,
         )
 
     def galois_elements(self) -> List[int]:
@@ -160,18 +229,23 @@ class BootstrappingParameters:
         return sorted(keys)
 
 
-def bootstrapping_galois_elements(residual_log_n: int) -> List[int]:
-    return BootstrappingParameters.default(residual_log_n).galois_elements()
+def bootstrapping_galois_elements(residual_log_n: int, ring_type: RingType = RingType.Standard) -> List[int]:
+    return BootstrappingParameters.default(residual_log_n, ring_type).galois_elements()
 
 
-def bootstrapping_rotations(residual_log_n: int) -> List[int]:
-    params = BootstrappingParameters.default(residual_log_n)
+def bootstrapping_rotations(residual_log_n: int, ring_type: RingType = RingType.Standard) -> List[int]:
+    params = BootstrappingParameters.default(residual_log_n, ring_type)
     rotations = set()
     for i in range(params.log_slots, params.log_n - 1):
         rotations.add(1 << i)
     rotations.update(params.coeffs_to_slots.rotations(params.log_n))
     rotations.update(params.slots_to_coeffs.rotations(params.log_n))
     return sorted(rotations)
+
+
+def bootstrapping_log_n(residual_log_n: int, ring_type: RingType = RingType.Standard) -> int:
+    """!Bootstrapping (circuit) ring degree log2, see BootstrappingParameters.default."""
+    return BootstrappingParameters.default(residual_log_n, ring_type).log_n
 
 
 def _galois_element(rotation: int, log_n: int) -> int:

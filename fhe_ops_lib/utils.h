@@ -107,6 +107,10 @@ std::vector<std::complex<double>> vec_rotate(const std::vector<std::complex<doub
 // Negacyclic polynomial multiplication in R[x]/(x^n + 1)
 std::vector<double> polynomial_multiplication(int n, const std::vector<double>& x, const std::vector<double>& y);
 
+// Coefficient multiplication in the conjugate-invariant ring Z[X + X^-1]/(X^2n + 1).
+// Inputs and output are the n left-half coefficients of the symmetric ambient polynomial.
+std::vector<double> ci_coefficient_multiplication(int n, const std::vector<double>& x, const std::vector<double>& y);
+
 }  // namespace fhe_ops_lib
 
 namespace lattisense {
