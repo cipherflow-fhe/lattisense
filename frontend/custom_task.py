@@ -2190,6 +2190,7 @@ def process_custom_task(
     offline_input_args: list[Argument] | None = None,
     output_instruction_path: str | None = None,
     fpga_acc: bool = True,
+    extra_signature_fields: dict | None = None,
 ) -> dict:
     """!Process custom task
 
@@ -2292,6 +2293,8 @@ def process_custom_task(
     }
     if len(ckks_btp_swk_signature) != 0:
         interface_json['key']['ckks_btp_swk'] = ckks_btp_swk_signature
+    if extra_signature_fields:
+        interface_json.update(extra_signature_fields)
 
     mag = {}
     mag['name'] = 'Acc task'
