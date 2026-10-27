@@ -883,7 +883,7 @@ class CustomComputeNode(ComputeNode):
     Allows users to create compute nodes with custom attributes and metadata.
     """
 
-    def __init__(self, type: str, attributes: dict | None = None) -> None:
+    def __init__(self, type: str, attributes: dict | None = None, wait_inputs: list[DataNode] | None = None) -> None:
         """
         @brief Constructor.
         @param type: String identifier for the custom operation type.
@@ -891,6 +891,7 @@ class CustomComputeNode(ComputeNode):
         """
         super().__init__(type=type)
         self.attributes = attributes if attributes is not None else {}
+        self.wait_inputs = wait_inputs if wait_inputs is not None else []
 
     def __repr__(self):
         return f'(custom_{self.type}, {self.id})'
@@ -905,6 +906,8 @@ class CustomComputeNode(ComputeNode):
         }
         if self.attributes:
             d['attributes'] = self.attributes
+        if self.wait_inputs:
+            d['wait_inputs'] = [node.index for node in self.wait_inputs]
         return d
 
 
@@ -2009,6 +2012,7 @@ def custom_compute(
     output: DataNode,
     type: str,
     attributes: dict | None = None,
+    wait_inputs: list[DataNode] | None = None,
 ):
     """!Create custom compute node
 
@@ -2026,7 +2030,7 @@ def custom_compute(
     if output is None:
         raise ValueError('Output data node is required for custom compute.')
 
-    op = CustomComputeNode(type=type, attributes=attributes)
+    op = CustomComputeNode(type=type, attributes=attributes, wait_inputs=wait_inputs)
 
     for input_node in inputs:
         g_dag.add_edge(input_node, op)
