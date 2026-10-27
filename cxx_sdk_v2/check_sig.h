@@ -241,9 +241,32 @@ inline int check_signatures(FheContext* context,
 
     check_context_for_key_signatures(*context, task_sig_json["key"]);
 
+    // CxxVectorArgument follows the public task boundary order: online input
+    // arguments, offline arguments, then online output arguments.  The
+    // offline list is intentionally a subset of the signature in
+    // server-provisioned runtime-lazy mode (it contains only the parameter
+    // store handle), so validating against offline alone misidentifies the
+    // first plaintext input as the store.
+    std::vector<nlohmann::json> data_sig_json;
+    const auto& online = task_sig_json["online"];
     const auto& offline = task_sig_json["offline"];
-    auto data_sig_json = offline.empty() ? task_sig_json["online"].get<std::vector<nlohmann::json>>() :
-                                           offline.get<std::vector<nlohmann::json>>();
+    for (const auto& item : online) {
+        if (item.at("phase").get<std::string>() == "in") {
+            data_sig_json.push_back(item);
+        }
+    }
+    for (const auto& item : offline) {
+        data_sig_json.push_back(item);
+    }
+    for (const auto& item : online) {
+        if (item.at("phase").get<std::string>() == "out") {
+            data_sig_json.push_back(item);
+        }
+    }
+
+    if (data_sig_json.size() != cxx_args.size()) {
+        throw std::runtime_error("Task signature argument count does not match C++ arguments");
+    }
 
     int n_in_args = 0;
 
