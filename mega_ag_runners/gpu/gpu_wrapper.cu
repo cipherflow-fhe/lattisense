@@ -223,17 +223,30 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
 
     // GPU-specific data structures
     std::unordered_map<NodeId, cudaEvent_t> data_ready_events;
-    std::shared_ptr<heongpu::Galoiskey<SchemeType>> galois_key;
-    std::mutex galois_key_mutex;
+    // Galois keys are generated per ring: residual (N) and bootstrapping (N2). Each ring
+    // has its own context and Q chain, so they must not share a key object or level.
+    std::shared_ptr<heongpu::Galoiskey<SchemeType>> residual_galois_key;
+    std::shared_ptr<heongpu::Galoiskey<SchemeType>> boot_galois_key;
+    std::mutex residual_galois_key_mutex;
+    std::mutex boot_galois_key_mutex;
 
-    // Collect all galois elements and the shared maximum GLK level from data nodes
-    std::vector<uint64_t> all_galois_elts;
-    int galois_key_level = -1;
+    // Collect galois elements and the maximum GLK level separately for each ring.
+    std::vector<uint64_t> residual_galois_elts;
+    std::vector<uint64_t> boot_galois_elts;
+    int residual_galois_key_level = -1;
+    int boot_galois_key_level = -1;
     for (const auto& [data_id, data_node] : mega_ag.data) {
         if (data_node.datum_type == DataType::TYPE_GALOIS_KEY && data_node.fhe_prop.has_value()) {
-            galois_key_level = std::max(galois_key_level, data_node.fhe_prop->level);
+            const bool is_bootstrap_key =
+                data_node.fhe_prop->p.has_value() && data_node.fhe_prop->p->key_role == "bootstrap";
+            int& level = is_bootstrap_key ? boot_galois_key_level : residual_galois_key_level;
+            level = std::max(level, data_node.fhe_prop->level);
             if (data_node.fhe_prop->p.has_value()) {
-                all_galois_elts.push_back(data_node.fhe_prop->p->galois_element);
+                auto& elts = is_bootstrap_key ? boot_galois_elts : residual_galois_elts;
+                const uint64_t galois_element = data_node.fhe_prop->p->galois_element;
+                if (std::find(elts.begin(), elts.end(), galois_element) == elts.end()) {
+                    elts.push_back(galois_element);
+                }
             }
         }
     }
@@ -253,7 +266,9 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
                 [task_id, pool_priority, device, &gpu_pool, &mega_ag, &m_mutex, &task_queue, &queued_computes,
                  &completed_tasks, &total_tasks, &completion_cv, &completion_mutex, &available_data, &operators,
                  &encoder, &boot_operators, &boot_context, &data_ready_events, &stream_options, &streams, &context,
-                 &galois_key, &galois_key_mutex, &data_ref_counts, &all_galois_elts, &galois_key_level, cancel_flag]() {
+                 &residual_galois_key, &boot_galois_key, &residual_galois_key_mutex, &boot_galois_key_mutex,
+                 &data_ref_counts, &residual_galois_elts, &boot_galois_elts, &residual_galois_key_level,
+                 &boot_galois_key_level, cancel_flag]() {
                     CHECK(cudaSetDevice(device));
                     if (cancel_flag && cancel_flag->load()) {
                         return;
@@ -320,11 +335,15 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
                     }
 
                     if (has_load_to_backend) {
-                        exec_ctx.other_args.push_back(&galois_key);
-                        exec_ctx.other_args.push_back(&galois_key_mutex);
-                        exec_ctx.other_args.push_back(&all_galois_elts);
-                        exec_ctx.other_args.push_back(&galois_key_level);
-                        exec_ctx.other_args.push_back(&boot_context);
+                        exec_ctx.other_args.push_back(&residual_galois_key);        // [2]
+                        exec_ctx.other_args.push_back(&boot_galois_key);            // [3]
+                        exec_ctx.other_args.push_back(&residual_galois_key_mutex);  // [4]
+                        exec_ctx.other_args.push_back(&boot_galois_key_mutex);      // [5]
+                        exec_ctx.other_args.push_back(&residual_galois_elts);       // [6]
+                        exec_ctx.other_args.push_back(&boot_galois_elts);           // [7]
+                        exec_ctx.other_args.push_back(&residual_galois_key_level);  // [8]
+                        exec_ctx.other_args.push_back(&boot_galois_key_level);      // [9]
+                        exec_ctx.other_args.push_back(&boot_context);               // [10]
                     }
 
                     try {
