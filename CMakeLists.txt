@@ -240,6 +240,19 @@ if(LATTISENSE_ENABLE_GPU)
     link_directories("${GPU_CORE_INSTALL_DIR}/lib")
     find_package(CUDAToolkit REQUIRED)
     find_package(HEonGPU REQUIRED)
+
+    # rmm is built against the CCCL that lattisense-gpu-core fetched (3.x). The libcudacxx that
+    # ships with some CUDA toolkits is older and puts cuda::mr in a different inline namespace,
+    # which makes every rmm::device_buffer overload in our TUs mismatch the librmm ABI.
+    # Prefer the bundled CCCL headers ahead of the toolkit's own copies.
+    foreach(_cccl_inc
+            "${GPU_CORE_BUILD_DIR}/_deps/cccl-src/libcudacxx/include"
+            "${GPU_CORE_BUILD_DIR}/_deps/cccl-src/thrust/thrust"
+            "${GPU_CORE_BUILD_DIR}/_deps/cccl-src/cub/cub")
+        if(EXISTS "${_cccl_inc}")
+            include_directories(BEFORE SYSTEM "${_cccl_inc}")
+        endif()
+    endforeach()
     set(CMAKE_CUDA_FLAGS_DEBUG "${CMAKE_CUDA_FLAGS_DEBUG} -g")
     set(CMAKE_CUDA_FLAGS_RELEASE "${CMAKE_CUDA_FLAGS_RELEASE} -O3")
 
