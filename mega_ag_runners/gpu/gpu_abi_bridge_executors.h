@@ -219,7 +219,7 @@ template <heongpu::Scheme SchemeType> ExecutorFunc create_load_to_gpu_executor()
                 const CPlaintext* c_pt = c_pt_ptr.get();
                 auto gpu_plaintext =
                     std::make_shared<heongpu::Plaintext<SchemeType>>(*context, c_pt->level, *stream_option);
-                gpu_plaintext->set_log_slot_count(log_slots);
+                gpu_plaintext->set_log_slot_count(log_slots, stream_option->stream_);
                 gpu_plaintext->set_ringt(is_ringt);
                 gpu_plaintext->set_scale(input_node->fhe_prop->scale);
                 export_plaintext(*c_pt, *gpu_plaintext, stream_option->stream_);
