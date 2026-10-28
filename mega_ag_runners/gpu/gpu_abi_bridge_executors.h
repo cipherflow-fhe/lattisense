@@ -35,6 +35,7 @@
 #include "../cpu_task_utils.h"
 #include <memory>
 #include <stdexcept>
+#include <string>
 #include <any>
 #include <mutex>
 #include <vector>
@@ -87,7 +88,7 @@ template <typename GpuKey> void export_evaluation_key(const CEvaluationKey& src,
 template <heongpu::Scheme SchemeType>
 void export_galois_key(const CEvaluationKey& src,
                        heongpu::Galoiskey<SchemeType>& dest,
-                       uint32_t galois_element,
+                       uint64_t galois_element,
                        int dest_level_q,
                        cudaStream_t stream) {
     if (dest_level_q < src.level_q) {
@@ -100,8 +101,8 @@ void export_galois_key(const CEvaluationKey& src,
     const int src_decomp_count = c_evaluation_key_decomp_rns(&src);
     const int dst_q_size = dest_level_q + 1;
     const int dst_rns_size = dst_q_size + src_p_size;
-    auto* dest_data =
-        galois_element != static_cast<uint32_t>(2 * ring_degree - 1) ? dest.data(galois_element) : dest.c_data();
+
+    auto* dest_data = dest.data(galois_element);
 
     for (int decomp_idx = 0; decomp_idx < src_decomp_count; decomp_idx++) {
         for (int poly_idx = 0; poly_idx < 2; poly_idx++) {
@@ -146,10 +147,15 @@ void import_ciphertext(heongpu::Ciphertext<SchemeType>& src, CCiphertext* dest, 
  * @note Output: std::shared_ptr<GPU type> stored in std::any
  * @note Requires heongpu::ExecutionOptions in ExecutionContext other_args[0]
  * @note Requires heongpu::HEContext in ExecutionContext other_args[1]
- * @note Requires galois_key shared_ptr in ExecutionContext other_args[2]
- * @note Requires galois_key_mutex in ExecutionContext other_args[3]
- * @note Requires all_galois_elts in ExecutionContext other_args[4]
- * @note Requires galois_key_level in ExecutionContext other_args[5]
+ * @note Requires residual galois key shared_ptr in ExecutionContext other_args[2]
+ * @note Requires bootstrap galois key shared_ptr in ExecutionContext other_args[3]
+ * @note Requires residual galois key mutex in ExecutionContext other_args[4]
+ * @note Requires bootstrap galois key mutex in ExecutionContext other_args[5]
+ * @note Requires residual galois elements in ExecutionContext other_args[6]
+ * @note Requires bootstrap galois elements in ExecutionContext other_args[7]
+ * @note Requires residual galois key level in ExecutionContext other_args[8]
+ * @note Requires bootstrap galois key level in ExecutionContext other_args[9]
+ * @note Requires bootstrapping HEContext in ExecutionContext other_args[10]
  */
 template <heongpu::Scheme SchemeType> ExecutorFunc create_load_to_gpu_executor() {
     return [](ExecutionContext& ctx, std::unordered_map<NodeId, std::any>& local_data,
@@ -158,13 +164,18 @@ template <heongpu::Scheme SchemeType> ExecutorFunc create_load_to_gpu_executor()
         auto* operators = ctx.get_arithmetic_context<heongpu::HEArithmeticOperator<SchemeType>>();
         auto* stream_option = ctx.get_other_arg<heongpu::ExecutionOptions>(0);
         auto* context = ctx.get_other_arg<heongpu::HEContext<SchemeType>>(1);
-        auto* galois_key_ptr = ctx.get_other_arg<std::shared_ptr<heongpu::Galoiskey<SchemeType>>>(2);
-        auto* galois_key_mutex = ctx.get_other_arg<std::mutex>(3);
-        auto* all_galois_elts = ctx.get_other_arg<std::vector<uint32_t>>(4);
-        auto* galois_key_level = ctx.get_other_arg<int>(5);
+        auto* residual_galois_key_ptr =
+            ctx.get_other_arg<std::shared_ptr<heongpu::Galoiskey<SchemeType>>>(2);
+        auto* boot_galois_key_ptr = ctx.get_other_arg<std::shared_ptr<heongpu::Galoiskey<SchemeType>>>(3);
+        auto* residual_galois_key_mutex = ctx.get_other_arg<std::mutex>(4);
+        auto* boot_galois_key_mutex = ctx.get_other_arg<std::mutex>(5);
+        auto* residual_galois_elts = ctx.get_other_arg<std::vector<uint64_t>>(6);
+        auto* boot_galois_elts = ctx.get_other_arg<std::vector<uint64_t>>(7);
+        auto* residual_galois_key_level = ctx.get_other_arg<int>(8);
+        auto* boot_galois_key_level = ctx.get_other_arg<int>(9);
         // Bootstrap keys are generated under the bootstrapping (N2) context;
         // it is only present for LOAD_TO_BACKEND nodes.
-        auto* boot_context = ctx.get_other_arg<heongpu::HEContext<SchemeType>>(6);
+        auto* boot_context = ctx.get_other_arg<heongpu::HEContext<SchemeType>>(10);
 
         if (!stream_option || !context) {
             throw std::runtime_error("GPU stream options or context not found in execution context");
@@ -194,7 +205,7 @@ template <heongpu::Scheme SchemeType> ExecutorFunc create_load_to_gpu_executor()
 
         std::any c_struct = local_data.at(input_node->id);
 
-        uint32_t galois_element = 0;
+        uint64_t galois_element = 0;
         if (data_type == TYPE_GALOIS_KEY && input_node->fhe_prop->p.has_value()) {
             galois_element = input_node->fhe_prop->p->galois_element;
         }
@@ -208,7 +219,7 @@ template <heongpu::Scheme SchemeType> ExecutorFunc create_load_to_gpu_executor()
                 const CPlaintext* c_pt = c_pt_ptr.get();
                 auto gpu_plaintext =
                     std::make_shared<heongpu::Plaintext<SchemeType>>(*context, c_pt->level, *stream_option);
-                gpu_plaintext->set_log_slot_count(log_slots);
+                gpu_plaintext->set_log_slot_count(log_slots, stream_option->stream_);
                 gpu_plaintext->set_ringt(is_ringt);
                 gpu_plaintext->set_scale(input_node->fhe_prop->scale);
                 export_plaintext(*c_pt, *gpu_plaintext, stream_option->stream_);
@@ -239,17 +250,27 @@ template <heongpu::Scheme SchemeType> ExecutorFunc create_load_to_gpu_executor()
                 auto c_glk_ptr = std::any_cast<std::shared_ptr<CEvaluationKey>>(c_struct);
                 const CEvaluationKey* c_glk = c_glk_ptr.get();
 
+                // Residual and bootstrapping rings have different contexts/Q chains, so
+                // each ring keeps its own key object, level, element list and mutex.
+                auto& gpu_glk = is_bootstrap_key ? *boot_galois_key_ptr : *residual_galois_key_ptr;
+                auto& glk_elts = is_bootstrap_key ? *boot_galois_elts : *residual_galois_elts;
+                auto& glk_mutex = is_bootstrap_key ? *boot_galois_key_mutex : *residual_galois_key_mutex;
+                const int glk_level = is_bootstrap_key ? *boot_galois_key_level : *residual_galois_key_level;
+
                 {
-                    std::lock_guard<std::mutex> lock(*galois_key_mutex);
-                    if (!(*galois_key_ptr)) {
-                        *galois_key_ptr = std::make_shared<heongpu::Galoiskey<SchemeType>>(
-                            key_context, *all_galois_elts, *galois_key_level, *stream_option);
+                    std::lock_guard<std::mutex> lock(glk_mutex);
+                    if (!gpu_glk) {
+                        if (glk_level < 0) {
+                            throw std::runtime_error(std::string("Galois key level was not resolved for the ") +
+                                                     (is_bootstrap_key ? "bootstrap" : "residual") + " ring");
+                        }
+                        gpu_glk = std::make_shared<heongpu::Galoiskey<SchemeType>>(key_context, glk_elts, glk_level,
+                                                                                  *stream_option);
                     }
 
-                    export_galois_key(*c_glk, **galois_key_ptr, galois_element, *galois_key_level,
-                                      stream_option->stream_);
+                    export_galois_key(*c_glk, *gpu_glk, galois_element, glk_level, stream_option->stream_);
                 }
-                local_data[output_id] = *galois_key_ptr;
+                local_data[output_id] = gpu_glk;
                 break;
             }
             case TYPE_EVALUATION_KEY: {

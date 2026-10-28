@@ -351,6 +351,10 @@ inline ExecutorFunc create_abi_export_executor(Algo algorithm, bool heterogeneou
                                 ckks_ctx->set_evk_n1_to_n2(*evk);
                             } else if (input_node->id == "evk_n2_to_n1") {
                                 ckks_ctx->set_evk_n2_to_n1(*evk);
+                            } else if (input_node->id == "evk_ci_to_std") {
+                                ckks_ctx->set_evk_ci_to_std(*evk);
+                            } else if (input_node->id == "evk_std_to_ci") {
+                                ckks_ctx->set_evk_std_to_ci(*evk);
                             } else if (input_node->id == "evk_dense_to_sparse") {
                                 ckks_ctx->set_evk_dense_to_sparse(*evk);
                             } else if (input_node->id == "evk_sparse_to_dense") {

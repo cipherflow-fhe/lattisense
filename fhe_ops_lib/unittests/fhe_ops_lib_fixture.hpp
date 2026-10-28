@@ -41,6 +41,15 @@ struct CkksTestParams {
     }
 };
 
+struct CkksCITestParams {
+    static CkksParameter create() {
+        // The moduli are generated with LogNthRoot = max(LogN+2, 17), so every prime
+        // is 1 mod 4N and the parameter set works for the conjugate-invariant ring.
+        constexpr int logN = 15;
+        return CkksParameter::create_parameter(logN, RingType::ConjugateInvariant);
+    }
+};
+
 template <typename P> class BfvFixture {
 protected:
     BfvParameter param;

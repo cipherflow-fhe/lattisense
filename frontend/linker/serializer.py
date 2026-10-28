@@ -31,6 +31,8 @@ Two entry points:
         ckks_btp_evk field is only written when non-empty.
 """
 
+import warnings
+
 import networkx as nx
 
 from frontend.types import _CompoundComputeNode, is_compute_node, is_data_node
@@ -40,6 +42,33 @@ from .task_context import _TaskContext
 # ---------------------------------------------------------------------------
 # DAG serialization
 # ---------------------------------------------------------------------------
+
+
+def _check_unique_data_node_ids(dag: nx.DiGraph) -> None:
+    """Warn when distinct data-node objects share an id.
+
+    Generators must keep node ids unique (e.g. prefix lazy "encode_pt" nodes with
+    the layer id). Serialization keys ``data`` by id, so duplicates would merge
+    different plaintexts/ciphertexts into one slot at runtime. This is a check
+    only; the generators own id uniqueness.
+    """
+    seen: dict[str, object] = {}
+    duplicates: list[str] = []
+    for node in dag.nodes():
+        if not is_data_node(node):
+            continue
+        prev = seen.get(node.id)
+        if prev is None:
+            seen[node.id] = node
+        elif prev is not node and node.id not in duplicates:
+            duplicates.append(node.id)
+    if duplicates:
+        warnings.warn(
+            'Duplicate data node ids detected (producers will share one runtime slot): '
+            + ', '.join(sorted(duplicates)[:10]),
+            RuntimeWarning,
+            stacklevel=2,
+        )
 
 
 def serialize_dag(
@@ -69,6 +98,8 @@ def serialize_dag(
         on_cpu and priority fields are included only when set on a node.
         parameter is NOT included; it is written to fhe_parameter.json separately.
     """
+    _check_unique_data_node_ids(dag)
+
     result: dict = {
         'name': meta['name'],
         'algorithm': meta['algorithm'],

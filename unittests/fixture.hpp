@@ -87,6 +87,8 @@ struct BfvTestCustomParams {
 };
 
 struct CkksTestDefaultParams {
+    static constexpr bool has_sparse_slot_cases = true;
+    static constexpr bool is_conjugate_invariant = false;
     static CkksParameter create() {
         constexpr int logN = 14;
         return CkksParameter::create_parameter(logN);
@@ -97,6 +99,8 @@ struct CkksTestDefaultParams {
 };
 
 struct CkksTestCustomParams {
+    static constexpr bool has_sparse_slot_cases = false;
+    static constexpr bool is_conjugate_invariant = false;
     static CkksParameter create() {
         vector<uint64_t> Q = {
             0x1FFFEC001, 0x3FFF4001, 0x3FFE8001, 0x40020001, 0x40038001, 0x3FFC0001,
@@ -109,51 +113,55 @@ struct CkksTestCustomParams {
     }
 };
 
-#if 0
-struct CkksToyBtpParams {
-    static CkksBtpParameter create() {
-        return CkksBtpParameter::create_toy_parameter();
+struct CkksTestCIParams {
+    static constexpr bool has_sparse_slot_cases = true;
+    static constexpr bool is_conjugate_invariant = true;
+    static CkksParameter create() {
+        constexpr int logN = 14;
+        return CkksParameter::create_parameter(logN, RingType::ConjugateInvariant);
     }
     static string get_tag() {
-        int n = create().get_ckks_parameter().n();
-        return "ckks_param_btp_n" + to_string(n);
+        return "ckks_param_ci_default_n16384";
     }
 };
 
-struct CkksBtpParams {
-    static CkksBtpParameter create() {
-        return CkksBtpParameter::create_parameter();
+// Larger residual degrees. The bootstrapping circuit degree is higher than the
+// residual's, so these exercise the bootstrapping parameter sets of degree 17.
+struct CkksTestDefaultParamsN15 {
+    static constexpr bool has_sparse_slot_cases = true;
+    static constexpr bool is_conjugate_invariant = false;
+    static CkksParameter create() {
+        constexpr int logN = 15;
+        return CkksParameter::create_parameter(logN);
     }
     static string get_tag() {
-        int n = create().get_ckks_parameter().n();
-        return "ckks_param_btp_n" + to_string(n);
+        return "ckks_param_default_n32768";
     }
 };
 
-struct CkksToySparseBtpParams {
-    static CkksBtpParameter create() {
-        auto param = CkksBtpParameter::create_toy_parameter();
-        param.set_log_slots(11);  // 2048 slots
-        return param;
+struct CkksTestDefaultParamsN16 {
+    static constexpr bool has_sparse_slot_cases = true;
+    static constexpr bool is_conjugate_invariant = false;
+    static CkksParameter create() {
+        constexpr int logN = 16;
+        return CkksParameter::create_parameter(logN);
     }
     static string get_tag() {
-        int n = create().get_ckks_parameter().n();
-        return "ckks_param_btp_n" + to_string(n) + "_slots2048";
+        return "ckks_param_default_n65536";
     }
 };
 
-struct CkksSparseBtpParams {
-    static CkksBtpParameter create() {
-        auto param = CkksBtpParameter::create_parameter();
-        param.set_log_slots(11);  // 2048 slots
-        return param;
+struct CkksTestCIParamsN15 {
+    static constexpr bool has_sparse_slot_cases = true;
+    static constexpr bool is_conjugate_invariant = true;
+    static CkksParameter create() {
+        constexpr int logN = 15;
+        return CkksParameter::create_parameter(logN, RingType::ConjugateInvariant);
     }
     static string get_tag() {
-        int n = create().get_ckks_parameter().n();
-        return "ckks_param_btp_n" + to_string(n) + "_slots2048";
+        return "ckks_param_ci_default_n32768";
     }
 };
-#endif
 
 template <typename P> class BfvFixture {
 protected:
@@ -186,23 +194,6 @@ public:
         : param(P::create()), ctx(CkksContext::create_random_context(param)), tag(P::get_tag()),
           n_slot(param.max_slots()), max_level(param.max_level()), default_scale(param.default_scale()) {}
 };
-
-#if 0
-template <typename P> class CkksBtpFixture {
-protected:
-    CkksBtpParameter btp_param;
-    CkksBtpContext btp_ctx;
-    string tag;
-    int n_op = 4;
-    int n_slot;
-    double btp_scale;
-
-public:
-    CkksBtpFixture()
-        : btp_param(P::create()), btp_ctx(CkksBtpContext::create_random_context(btp_param)), tag(P::get_tag()),
-          n_slot(1 << btp_param.get_ckks_parameter().get_log_slots()), btp_scale(pow(2.0, 40)) {}
-};
-#endif
 
 #ifdef LATTISENSE_ENABLE_GPU
 

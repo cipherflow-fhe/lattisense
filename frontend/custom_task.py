@@ -47,6 +47,7 @@ from frontend.types import (
     Param,
     Processor,
     RelinKeyNode,
+    RingType,
     RotateColNode,
     RotateRowNode,
     random_id,
@@ -74,22 +75,25 @@ def set_fhe_param(param: 'Param') -> None:
     g_param = param
 
 
-def get_galois_element_for_column_rotation_by(rot: int, poly_degree: int, galois_gen=GALOIS_GEN):
-    poly_degree_mask = (poly_degree << 1) - 1
-    return pow(galois_gen, rot & poly_degree_mask, poly_degree << 1)
+def get_fhe_param() -> Optional['Param']:
+    """Return the FHE parameter currently installed by set_fhe_param()."""
+    return g_param
+
+
+def get_galois_element_for_column_rotation_by(
+    rot: int, poly_degree: int, galois_gen=GALOIS_GEN, ntt_root_factor: int = 2
+):
+    # Galois element 5^rot mod NthRoot, where NthRoot = 2N for the standard ring and 4N for the
+    # conjugate-invariant ring.
+    ntt_root = poly_degree * ntt_root_factor
+    return pow(galois_gen, rot & (ntt_root - 1), ntt_root)
 
 
 def get_galois_element_for_row_rotation(poly_degree: int):
     return (poly_degree << 1) - 1
 
 
-def get_default_column_rotation_steps(log_n: int) -> list[int]:
-    rotations = [1 << i for i in range(log_n - 1)]
-    rotations.extend(-1 * (1 << i) for i in range(log_n - 2))
-    return rotations
-
-
-def get_default_column_rotation_substeps(step: int) -> list[int]:
+def get_default_column_rotation_substeps(step: int, log_slots: int) -> list[int]:
     xh = step >> 1
     x3 = step + xh
     changed_bits = xh ^ x3
@@ -103,7 +107,21 @@ def get_default_column_rotation_substeps(step: int) -> list[int]:
     for idx in range(neg_bits.bit_length() - 1, -1, -1):
         if neg_bits & (1 << idx):
             substeps.append(-(1 << idx))
-    return substeps
+    # Substeps that are multiples of the slot count are the identity rotation (e.g. N/2 for the
+    # standard ring or N for the conjugate-invariant ring) and need no Galois key.
+    limit = 1 << log_slots
+    return [substep for substep in substeps if abs(substep) < limit]
+
+
+def _validate_ckks_scalar(scalar) -> None:
+    """The conjugate-invariant CKKS ring cannot represent a nonzero imaginary scalar."""
+    if (
+        isinstance(scalar, complex)
+        and scalar.imag != 0.0
+        and isinstance(g_param, CkksParam)
+        and g_param.ring_type == RingType.ConjugateInvariant
+    ):
+        raise ValueError('Conjugate-invariant CKKS only supports real scalars (imaginary part must be 0).')
 
 
 def _ckks_scalar_mul_scale_factor(scalar: int | float | complex, level: int) -> float:
@@ -164,6 +182,7 @@ def add(
         else:
             raise ValueError(f'Unsupported input type "{op1.type.value}" for addition.')
     else:
+        _validate_ckks_scalar(op1)
         op.scalar = op1
         g_dag.add_edge(op0, op)
 
@@ -218,6 +237,7 @@ def sub(
             raise ValueError(f'Unsupported input type "{y.type.value}" for subtraction.')
         g_dag.add_edges_from([(x, op), (y, op)])
     else:
+        _validate_ckks_scalar(y)
         op.scalar = y
         g_dag.add_edge(x, op)
 
@@ -288,6 +308,7 @@ def mult(
         else:
             raise ValueError(f'Unsupported input type "{op1.type.value}" for multiplication.')
     else:
+        _validate_ckks_scalar(op1)
         op.scalar = op1
         z_degree = 1
         g_dag.add_edge(op0, op)
@@ -427,6 +448,11 @@ def drop_level(
     global g_dag
     if not isinstance(x, (BfvCiphertextNode, CkksCiphertextNode)):
         raise ValueError(f'Unsupported input type "{x.type.value}" for drop level.')
+    if drop_level < 0:
+        raise ValueError('drop_level must be non-negative.')
+    if drop_level == 0:
+        # Dropping zero levels is the identity: no node or edge is needed.
+        return x
     if x.metadata.level < drop_level:
         raise ValueError('Dropped levels must not be larger than input level.')
 
@@ -469,22 +495,42 @@ def rotate_cols(
     if isinstance(steps, int):
         steps = [steps]
 
-    op = RotateColNode(steps, use_default_rotation_keys=use_default_rotation_keys)
-    g_dag.add_edge(x, op)
+    # No rotation requested: don't emit a rotate_col node with empty steps/outputs,
+    # which the executors reject ("ROTATE_COL requires rotation_steps property").
+    if not steps:
+        return []
 
+    # Rotation steps are modulo the slot count: log_n-1 for BFV / standard CKKS (N/2 slots) and
+    # log_n for the conjugate-invariant CKKS ring (N slots).
+    log_slots = g_param.log_max_slots() if isinstance(g_param, CkksParam) else g_param.log_n - 1
     if use_default_rotation_keys:
+        step_substeps = [get_default_column_rotation_substeps(step, log_slots) for step in steps]
         key_steps = []
         seen_key_steps = set()
-        for step in steps:
-            for substep in get_default_column_rotation_substeps(step):
+        for substeps in step_substeps:
+            for substep in substeps:
                 if substep not in seen_key_steps:
                     key_steps.append(substep)
                     seen_key_steps.add(substep)
     else:
-        key_steps = steps
+        # A zero step is the identity rotation and needs no Galois key.
+        step_substeps = [[step] if step != 0 else [] for step in steps]
+        key_steps = [step for step in steps if step != 0]
 
+    # Steps whose decomposition is empty are identity rotations: return the input
+    # ciphertext itself for them instead of creating a keyless rotate_col node.
+    active = [i for i, substeps in enumerate(step_substeps) if substeps]
+    if not active:
+        return [x for _ in steps]
+
+    active_steps = [steps[i] for i in active]
+    op = RotateColNode(active_steps, use_default_rotation_keys=use_default_rotation_keys)
+    g_dag.add_edge(x, op)
+
+    # NthRoot is 2N for the standard ring and 4N for the conjugate-invariant ring.
+    ntt_root_factor = 4 if (isinstance(g_param, CkksParam) and g_param.ring_type == RingType.ConjugateInvariant) else 2
     for step in key_steps:
-        gal_elem = get_galois_element_for_column_rotation_by(step, g_param.n)
+        gal_elem = get_galois_element_for_column_rotation_by(step, g_param.n, ntt_root_factor=ntt_root_factor)
         glk = f'glk_ntt_col_{gal_elem}'
         if glk not in g_evk_node_dict:
             g_evk_node_dict[glk] = GaloisKeyNode(id=glk, level=x.metadata.level)
@@ -492,10 +538,13 @@ def rotate_cols(
             g_evk_node_dict[glk].metadata.level = x.metadata.level
         g_dag.add_edge(g_evk_node_dict[glk], op)
 
-    output = []
-    for step in steps:
+    output: list = [x for _ in steps]
+    for i in active:
+        step = steps[i]
         output_node_id = (
-            random_id() if output_id is None else (output_id if len(steps) == 1 else f'{output_id}_step{step}')
+            random_id()
+            if output_id is None
+            else (output_id if len(active_steps) == 1 else f'{output_id}_step{step}')
         )
         if isinstance(x, BfvCiphertextNode):
             z = BfvCiphertextNode(id=output_node_id, level=x.metadata.level, degree=x.metadata.degree)
@@ -505,7 +554,7 @@ def rotate_cols(
             raise ValueError()
         z.metadata = x.metadata.copy()
         g_dag.add_edge(op, z)
-        output.append(z)
+        output[i] = z
 
     return output
 
@@ -538,6 +587,8 @@ def conjugate(x: CkksCiphertextNode, output_id: Optional[str] = None) -> CkksCip
     global g_dag
     if not isinstance(x, CkksCiphertextNode):
         raise ValueError(f'Unsupported input type "{x.type.value}" for conjugate.')
+    if isinstance(g_param, CkksParam) and g_param.ring_type == RingType.ConjugateInvariant:
+        raise ValueError('Conjugate is not supported for the conjugate-invariant CKKS ring.')
     glk = 'glk_ntt_row'
 
     global g_evk_node_dict
@@ -710,10 +761,6 @@ def ct_pt_mult_accumulate(
     return partial_sum
 
 
-def _default_ckks_bootstrap_extra_levels() -> int:
-    return 3 + 8 + 4
-
-
 def bootstrap(
     x: CkksCiphertextNode | list[CkksCiphertextNode], output_id: Optional[str] = None
 ) -> CkksCiphertextNode | list[CkksCiphertextNode]:
@@ -743,6 +790,14 @@ def bootstrap(
         if xi.metadata.log_slots != first_log_slots:
             raise ValueError('bootstrap inputs must all have the same log_slots.')
 
+    from frontend.bootstrap_params import BootstrappingParameters
+
+    # The circuit always runs in the standard ring; its degree follows the
+    # residual ring (see BootstrappingParameters.default). This also rejects
+    # residual degrees without a bootstrapping parameter set, before anything is
+    # added to the graph.
+    btp = BootstrappingParameters.default(g_param.log_n, g_param.ring_type)
+
     g_param.enable_bootstrapping = True
 
     op = FheComputeNode(OperationType.Bootstrap)
@@ -750,7 +805,9 @@ def bootstrap(
         g_dag.add_edge(xi, op)
 
     global g_evk_node_dict
-    btp_key_level = g_param.max_level + _default_ckks_bootstrap_extra_levels()
+    # The keys are generated over the whole circuit, so their level is the top
+    # level of the bootstrapping parameter set.
+    btp_key_level = g_param.max_level + btp.circuit.depth
 
     evk_rlk = 'evk_rlk'
     if evk_rlk not in g_evk_node_dict:
@@ -760,9 +817,18 @@ def bootstrap(
         g_evk_node_dict[evk_rlk].key_role = 'bootstrap'
     g_dag.add_edge(g_evk_node_dict[evk_rlk], op)
 
-    from frontend.bootstrap_params import DEFAULT_BTP_LOG_N as _btp_log_n
+    btp_log_n = btp.log_n
 
-    if g_param.log_n != _btp_log_n:
+    if g_param.ring_type == RingType.ConjugateInvariant:
+        for evk_id in ('evk_ci_to_std', 'evk_std_to_ci'):
+            evk_level = 0 if evk_id == 'evk_ci_to_std' else g_param.max_level
+            if evk_id not in g_evk_node_dict:
+                g_evk_node_dict[evk_id] = EvaluationKeyNode(id=evk_id, level=evk_level, key_role='bootstrap')
+            else:
+                g_evk_node_dict[evk_id].metadata.level = evk_level
+                g_evk_node_dict[evk_id].key_role = 'bootstrap'
+            g_dag.add_edge(g_evk_node_dict[evk_id], op)
+    elif g_param.log_n != btp_log_n:
         for evk_id in ('evk_n1_to_n2', 'evk_n2_to_n1'):
             evk_level = 0 if evk_id == 'evk_n1_to_n2' else g_param.max_level
             if evk_id not in g_evk_node_dict:
@@ -790,9 +856,7 @@ def bootstrap(
         g_evk_node_dict[evk_sparse_to_dense].key_role = 'bootstrap'
     g_dag.add_edge(g_evk_node_dict[evk_sparse_to_dense], op)
 
-    from frontend.bootstrap_params import bootstrapping_galois_elements as _bge
-
-    _gals = _bge(g_param.log_n)
+    _gals = bootstrapping_galois_elements(g_param.log_n, g_param.ring_type)
     for gal_elem in _gals:
         evk_glk = f'evk_glk_{gal_elem}'
         if evk_glk not in g_evk_node_dict:
@@ -873,103 +937,104 @@ def process_custom_task(
     @param processor Target processor backend (Processor.CPU or Processor.GPU).
     @return The task abstract computation graph.
     """
-    global g_evk_node_dict, g_dag, g_param
-    if g_param is None:
-        raise RuntimeError('Please call set_fhe_param() before calling process_custom_task().')
-
     try:
-        from .linker.task_context import _TaskContext
-    except ImportError:
-        from linker.task_context import _TaskContext
-    ctx = _TaskContext.build(input_args, output_args, g_evk_node_dict, name='Acc task', algorithm=g_param.algo)
+        global g_evk_node_dict, g_dag, g_param
+        if g_param is None:
+            raise RuntimeError('Please call set_fhe_param() before calling process_custom_task().')
 
-    # Validate all input nodes exist in g_dag and feed at least one operation
-    for x in ctx.inputs:
-        if x not in g_dag.nodes():
-            raise RuntimeError(
-                f'Input data node "{x.id}" is not in the computation graph. '
-                f'This usually happens when you reuse data nodes from a previous '
-                f'process_custom_task() call. The computation graph is cleared after each call. '
-                f'\n\nSolution: Create new data nodes for each task.\n'
-                f'Example: Instead of reusing variables like x, y:\n'
-                f'  # Wrong: reusing nodes across calls\n'
-                f'  x = BfvCiphertextNode("x", level=3)\n'
-                f'  process_custom_task(..., processor=Processor.CPU)  # First call — graph cleared\n'
-                f'  process_custom_task(..., processor=Processor.CPU)  # Error! x is no longer in graph\n'
-                f'\n'
-                f'  # Correct: create new nodes for each call\n'
-                f'  x1 = BfvCiphertextNode("x", level=3)\n'
-                f'  process_custom_task(..., processor=Processor.CPU)\n'
-                f'  x2 = BfvCiphertextNode("x", level=3)  # New nodes for second call\n'
-                f'  process_custom_task(..., processor=Processor.CPU)\n'
-                f'\n'
-                f'Or better: use a function to build the graph:\n'
-                f'  def build_graph():\n'
-                f'      x = BfvCiphertextNode("x", level=3)\n'
-                f'      y = BfvCiphertextNode("y", level=3)\n'
-                f'      z = mult_relin(x, y, "z")\n'
-                f'      return x, y, z\n'
-                f'  \n'
-                f'  x1, y1, z1 = build_graph()\n'
-                f'  process_custom_task(..., processor=Processor.CPU)\n'
-                f'  x2, y2, z2 = build_graph()\n'
-                f'  process_custom_task(..., processor=Processor.CPU)'
-            )
-        if not g_dag.succ[x]:
-            raise ValueError(f'Input data node "{x.id}" is not used for any computation.')
-
-    # Validate all non-output data nodes have consumers
-    output_set = set(ctx.outputs)
-    for node in g_dag.nodes():
-        if isinstance(node, (FheDataNode, CustomDataNode)):
-            if not g_dag.succ[node] and node not in output_set:
-                raise ValueError(
-                    f'Data node "{node.id}" is not used for any computation, nor is it an output data node.'
-                )
-
-    try:
-        from .linker import serialize_dag, serialize_signature
-    except ImportError:
-        from linker import serialize_dag, serialize_signature
-
-    _meta = {'name': ctx.name, 'algorithm': ctx.algorithm.value}
-    mag = serialize_dag(
-        g_dag,
-        inputs=ctx.inputs,
-        outputs=ctx.outputs,
-        meta=_meta,
-    )
-
-    assert output_instruction_path is not None, 'output_instruction_path must be provided'
-    os.makedirs(output_instruction_path, exist_ok=True)
-
-    with open(os.path.join(output_instruction_path, 'fhe_parameter.json'), 'w', encoding='utf-8') as f:
-        json.dump(g_param.to_json_dict(), f, indent=4)
-
-    with open(os.path.join(output_instruction_path, 'task_signature.json'), 'w', encoding='utf-8') as f:
-        json.dump(serialize_signature(ctx), f, indent=4)
-
-    with open(os.path.join(output_instruction_path, 'mega_ag.json'), 'w', encoding='utf-8') as f:
-        json.dump(mag, f, indent=4)
-
-    if processor in (Processor.GPU, Processor.CPU):
         try:
-            from .linker import compile_mega_ag
+            from .linker.task_context import _TaskContext
         except ImportError:
-            from linker import compile_mega_ag
-        compiled_dag = compile_mega_ag(g_dag, processor, ctx)
-        compiled = serialize_dag(
-            compiled_dag,
+            from linker.task_context import _TaskContext
+        ctx = _TaskContext.build(input_args, output_args, g_evk_node_dict, name='Acc task', algorithm=g_param.algo)
+
+        # Validate all input nodes exist in g_dag and feed at least one operation
+        for x in ctx.inputs:
+            if x not in g_dag.nodes():
+                raise RuntimeError(
+                    f'Input data node "{x.id}" is not in the computation graph. '
+                    f'This usually happens when you reuse data nodes from a previous '
+                    f'process_custom_task() call. The computation graph is cleared after each call. '
+                    f'\n\nSolution: Create new data nodes for each task.\n'
+                    f'Example: Instead of reusing variables like x, y:\n'
+                    f'  # Wrong: reusing nodes across calls\n'
+                    f'  x = BfvCiphertextNode("x", level=3)\n'
+                    f'  process_custom_task(..., processor=Processor.CPU)  # First call — graph cleared\n'
+                    f'  process_custom_task(..., processor=Processor.CPU)  # Error! x is no longer in graph\n'
+                    f'\n'
+                    f'  # Correct: create new nodes for each call\n'
+                    f'  x1 = BfvCiphertextNode("x", level=3)\n'
+                    f'  process_custom_task(..., processor=Processor.CPU)\n'
+                    f'  x2 = BfvCiphertextNode("x", level=3)  # New nodes for second call\n'
+                    f'  process_custom_task(..., processor=Processor.CPU)\n'
+                    f'\n'
+                    f'Or better: use a function to build the graph:\n'
+                    f'  def build_graph():\n'
+                    f'      x = BfvCiphertextNode("x", level=3)\n'
+                    f'      y = BfvCiphertextNode("y", level=3)\n'
+                    f'      z = mult_relin(x, y, "z")\n'
+                    f'      return x, y, z\n'
+                    f'  \n'
+                    f'  x1, y1, z1 = build_graph()\n'
+                    f'  process_custom_task(..., processor=Processor.CPU)\n'
+                    f'  x2, y2, z2 = build_graph()\n'
+                    f'  process_custom_task(..., processor=Processor.CPU)'
+                )
+            if not g_dag.succ[x]:
+                raise ValueError(f'Input data node "{x.id}" is not used for any computation.')
+
+        # Validate all non-output data nodes have consumers
+        output_set = set(ctx.outputs)
+        for node in g_dag.nodes():
+            if isinstance(node, (FheDataNode, CustomDataNode)):
+                if not g_dag.succ[node] and node not in output_set:
+                    raise ValueError(
+                        f'Data node "{node.id}" is not used for any computation, nor is it an output data node.'
+                    )
+
+        try:
+            from .linker import serialize_dag, serialize_signature
+        except ImportError:
+            from linker import serialize_dag, serialize_signature
+
+        _meta = {'name': ctx.name, 'algorithm': ctx.algorithm.value}
+        mag = serialize_dag(
+            g_dag,
             inputs=ctx.inputs,
             outputs=ctx.outputs,
             meta=_meta,
-            use_ops=True,
         )
-        with open(os.path.join(output_instruction_path, 'compiled_mega_ag.json'), 'w', encoding='utf-8') as f:
-            json.dump(compiled, f, indent=2)
 
-    g_evk_node_dict.clear()
-    g_dag.clear()
-    reset_node_state()
+        assert output_instruction_path is not None, 'output_instruction_path must be provided'
+        os.makedirs(output_instruction_path, exist_ok=True)
 
-    return mag
+        with open(os.path.join(output_instruction_path, 'fhe_parameter.json'), 'w', encoding='utf-8') as f:
+            json.dump(g_param.to_json_dict(), f, indent=4)
+
+        with open(os.path.join(output_instruction_path, 'task_signature.json'), 'w', encoding='utf-8') as f:
+            json.dump(serialize_signature(ctx), f, indent=4)
+
+        with open(os.path.join(output_instruction_path, 'mega_ag.json'), 'w', encoding='utf-8') as f:
+            json.dump(mag, f, indent=4)
+
+        if processor in (Processor.GPU, Processor.CPU):
+            try:
+                from .linker import compile_mega_ag
+            except ImportError:
+                from linker import compile_mega_ag
+            compiled_dag = compile_mega_ag(g_dag, processor, ctx)
+            compiled = serialize_dag(
+                compiled_dag,
+                inputs=ctx.inputs,
+                outputs=ctx.outputs,
+                meta=_meta,
+                use_ops=True,
+            )
+            with open(os.path.join(output_instruction_path, 'compiled_mega_ag.json'), 'w', encoding='utf-8') as f:
+                json.dump(compiled, f, indent=2)
+
+        return mag
+    finally:
+        g_evk_node_dict.clear()
+        g_dag.clear()
+        reset_node_state()

@@ -16,6 +16,12 @@ target_include_directories(fhe_ops_lib_obj PRIVATE
 )
 target_compile_definitions(fhe_ops_lib_obj PRIVATE CMAKE_CURRENT_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 
+# The sources include the cgo-generated liblattigo_sanitized.h, so the objects must
+# wait for the Go export header to be regenerated (same edge as abi_obj).
+if(TARGET go_libs)
+    add_dependencies(fhe_ops_lib_obj go_libs)
+endif()
+
 add_library(fhe_ops_lib SHARED $<TARGET_OBJECTS:fhe_ops_lib_obj>)
 target_include_directories(fhe_ops_lib PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}

@@ -417,6 +417,9 @@ if(LATTISENSE_BUILD_MODE STREQUAL "SHARED")
         # Build time: source root allows <fhe_ops_lib/xxx.h>, <cxx_sdk_v2/xxx.h>, etc.
         $<BUILD_INTERFACE:${LATTISENSE_ROOT_DIR}>
         $<BUILD_INTERFACE:${LATTISENSE_ROOT_DIR}/lib>
+        # fhe_ops_lib headers include "lattigo/go_sdk/..." relative to fhe_ops_lib.
+        $<BUILD_INTERFACE:${LATTISENSE_ROOT_DIR}/fhe_ops_lib>
+        $<BUILD_INTERFACE:${LATTISENSE_ROOT_DIR}/fhe_ops_lib/lattigo/go_sdk>
         # Install time: installed include dir allows same include style
         $<INSTALL_INTERFACE:include/lattisense>
     )

@@ -189,7 +189,7 @@ static DatumNode::FheProperty parse_fhe_data_property(const nlohmann::json& valu
         has_extra_prop = true;
     }
     if (value.contains("galois_element")) {
-        extra_prop.galois_element = value["galois_element"].get<uint32_t>();
+        extra_prop.galois_element = value["galois_element"].get<uint64_t>();
         has_extra_prop = true;
     }
     if (value.contains("key_role")) {
