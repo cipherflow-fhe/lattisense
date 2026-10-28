@@ -155,34 +155,69 @@ static std::vector<int32_t> get_default_rotation_substeps(int32_t step, int log_
 }
 
 // @company CipherFlow
+// NOTE: the scheme/scalar-type dispatch is kept in a plain function template (not inside the
+// std::visit generic lambda): nvcc 12.2 mis-evaluates `if constexpr` in generic lambdas and
+// instantiates every branch, which made the BFV instantiation require the CKKS overloads.
+template <heongpu::Scheme S, typename T>
+void add_scalar_value_gpu(heongpu::HEArithmeticOperator<S>& operators,
+                          Ct<S>& input,
+                          Ct<S>& output,
+                          const T& scalar_value,
+                          heongpu::ExecutionOptions& options) {
+    if constexpr (S == heongpu::Scheme::BFV) {
+        if constexpr (std::is_integral_v<T>) {
+            operators.add_plain(input, scalar_value, output, options);
+        } else {
+            throw std::runtime_error("Unsupported BFV scalar type for add");
+        }
+    } else if constexpr (S == heongpu::Scheme::CKKS) {
+        if constexpr (std::is_same_v<T, std::complex<double>>) {
+            operators.add_plain(input, Complex64(scalar_value.real(), scalar_value.imag()), output, options);
+        } else if constexpr (std::is_arithmetic_v<T>) {
+            operators.add_plain(input, static_cast<double>(scalar_value), output, options);
+        } else {
+            throw std::runtime_error("Unsupported CKKS scalar type for add");
+        }
+    } else {
+        throw std::runtime_error("Unsupported scheme for scalar add");
+    }
+}
+
+// @company CipherFlow
 template <heongpu::Scheme S>
 void add_scalar_gpu(heongpu::HEArithmeticOperator<S>& operators,
                     Ct<S>& input,
                     Ct<S>& output,
                     const ScalarType& scalar,
                     heongpu::ExecutionOptions& options) {
-    std::visit(
-        [&](auto&& scalar_value) {
-            using T = std::decay_t<decltype(scalar_value)>;
-            if constexpr (S == heongpu::Scheme::BFV) {
-                if constexpr (std::is_integral_v<T>) {
-                    operators.add_plain(input, scalar_value, output, options);
-                } else {
-                    throw std::runtime_error("Unsupported BFV scalar type for add");
-                }
-            } else if constexpr (S == heongpu::Scheme::CKKS) {
-                if constexpr (std::is_same_v<T, std::complex<double>>) {
-                    operators.add_plain(input, Complex64(scalar_value.real(), scalar_value.imag()), output, options);
-                } else if constexpr (std::is_arithmetic_v<T>) {
-                    operators.add_plain(input, static_cast<double>(scalar_value), output, options);
-                } else {
-                    throw std::runtime_error("Unsupported CKKS scalar type for add");
-                }
-            } else {
-                throw std::runtime_error("Unsupported scheme for scalar add");
-            }
-        },
-        scalar);
+    std::visit([&](auto&& scalar_value) { add_scalar_value_gpu<S>(operators, input, output, scalar_value, options); },
+               scalar);
+}
+
+// @company CipherFlow
+template <heongpu::Scheme S, typename T>
+void sub_scalar_value_gpu(heongpu::HEArithmeticOperator<S>& operators,
+                          Ct<S>& input,
+                          Ct<S>& output,
+                          const T& scalar_value,
+                          heongpu::ExecutionOptions& options) {
+    if constexpr (S == heongpu::Scheme::BFV) {
+        if constexpr (std::is_integral_v<T>) {
+            operators.sub_plain(input, scalar_value, output, options);
+        } else {
+            throw std::runtime_error("Unsupported BFV scalar type for sub");
+        }
+    } else if constexpr (S == heongpu::Scheme::CKKS) {
+        if constexpr (std::is_same_v<T, std::complex<double>>) {
+            operators.sub_plain(input, Complex64(scalar_value.real(), scalar_value.imag()), output, options);
+        } else if constexpr (std::is_arithmetic_v<T>) {
+            operators.sub_plain(input, static_cast<double>(scalar_value), output, options);
+        } else {
+            throw std::runtime_error("Unsupported CKKS scalar type for sub");
+        }
+    } else {
+        throw std::runtime_error("Unsupported scheme for scalar sub");
+    }
 }
 
 // @company CipherFlow
@@ -192,28 +227,34 @@ void sub_scalar_gpu(heongpu::HEArithmeticOperator<S>& operators,
                     Ct<S>& output,
                     const ScalarType& scalar,
                     heongpu::ExecutionOptions& options) {
-    std::visit(
-        [&](auto&& scalar_value) {
-            using T = std::decay_t<decltype(scalar_value)>;
-            if constexpr (S == heongpu::Scheme::BFV) {
-                if constexpr (std::is_integral_v<T>) {
-                    operators.sub_plain(input, scalar_value, output, options);
-                } else {
-                    throw std::runtime_error("Unsupported BFV scalar type for sub");
-                }
-            } else if constexpr (S == heongpu::Scheme::CKKS) {
-                if constexpr (std::is_same_v<T, std::complex<double>>) {
-                    operators.sub_plain(input, Complex64(scalar_value.real(), scalar_value.imag()), output, options);
-                } else if constexpr (std::is_arithmetic_v<T>) {
-                    operators.sub_plain(input, static_cast<double>(scalar_value), output, options);
-                } else {
-                    throw std::runtime_error("Unsupported CKKS scalar type for sub");
-                }
-            } else {
-                throw std::runtime_error("Unsupported scheme for scalar sub");
-            }
-        },
-        scalar);
+    std::visit([&](auto&& scalar_value) { sub_scalar_value_gpu<S>(operators, input, output, scalar_value, options); },
+               scalar);
+}
+
+// @company CipherFlow
+template <heongpu::Scheme S, typename T>
+void mult_scalar_value_gpu(heongpu::HEArithmeticOperator<S>& operators,
+                           Ct<S>& input,
+                           Ct<S>& output,
+                           const T& scalar_value,
+                           heongpu::ExecutionOptions& options) {
+    if constexpr (S == heongpu::Scheme::BFV) {
+        if constexpr (std::is_integral_v<T>) {
+            operators.multiply_plain(input, scalar_value, output, options);
+        } else {
+            throw std::runtime_error("Unsupported BFV scalar type for mult");
+        }
+    } else if constexpr (S == heongpu::Scheme::CKKS) {
+        if constexpr (std::is_same_v<T, std::complex<double>>) {
+            operators.multiply_plain(input, Complex64(scalar_value.real(), scalar_value.imag()), output, options);
+        } else if constexpr (std::is_arithmetic_v<T>) {
+            operators.multiply_plain(input, Complex64(static_cast<double>(scalar_value), 0.0), output, options);
+        } else {
+            throw std::runtime_error("Unsupported CKKS scalar type for mult");
+        }
+    } else {
+        throw std::runtime_error("Unsupported scheme for scalar mult");
+    }
 }
 
 // @company CipherFlow
@@ -224,27 +265,7 @@ void mult_scalar_gpu(heongpu::HEArithmeticOperator<S>& operators,
                      const ScalarType& scalar,
                      heongpu::ExecutionOptions& options) {
     std::visit(
-        [&](auto&& scalar_value) {
-            using T = std::decay_t<decltype(scalar_value)>;
-            if constexpr (S == heongpu::Scheme::BFV) {
-                if constexpr (std::is_integral_v<T>) {
-                    operators.multiply_plain(input, scalar_value, output, options);
-                } else {
-                    throw std::runtime_error("Unsupported BFV scalar type for mult");
-                }
-            } else if constexpr (S == heongpu::Scheme::CKKS) {
-                if constexpr (std::is_same_v<T, std::complex<double>>) {
-                    operators.multiply_plain(input, Complex64(scalar_value.real(), scalar_value.imag()), output,
-                                             options);
-                } else if constexpr (std::is_arithmetic_v<T>) {
-                    operators.multiply_plain(input, Complex64(static_cast<double>(scalar_value), 0.0), output, options);
-                } else {
-                    throw std::runtime_error("Unsupported CKKS scalar type for mult");
-                }
-            } else {
-                throw std::runtime_error("Unsupported scheme for scalar mult");
-            }
-        },
+        [&](auto&& scalar_value) { mult_scalar_value_gpu<S>(operators, input, output, scalar_value, options); },
         scalar);
 }
 
