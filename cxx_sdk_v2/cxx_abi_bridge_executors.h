@@ -509,6 +509,7 @@ inline ExecutorFunc create_abi_import_executor(Algo algorithm, bool heterogeneou
                                 auto* dest = static_cast<CkksCiphertext*>(dest_raw);
                                 CHECK(import_ciphertext(ckks_ctx->parameter().get(), dest->get(), &source_metadata,
                                                         &target_metadata, c_ct_ptr.get()));
+                                dest->sync_metadata();
                                 local_data[self.output_nodes[0]->id] = std::shared_ptr<void>(dest_raw, [](void*) {});
                             } else {
                                 // intermediate data: create new handle then import inplace
@@ -517,6 +518,7 @@ inline ExecutorFunc create_abi_import_executor(Algo algorithm, bool heterogeneou
                                 auto* ckks_ct = new CkksCiphertext(ckks_ctx->parameter(), level, degree);
                                 CHECK(import_ciphertext(ckks_ctx->parameter().get(), ckks_ct->get(), &source_metadata,
                                                         &target_metadata, c_ct_ptr.get()));
+                                ckks_ct->sync_metadata();
                                 local_data[self.output_nodes[0]->id] =
                                     std::shared_ptr<CkksCiphertext>(ckks_ct, [](CkksCiphertext* p) { delete p; });
                             }
