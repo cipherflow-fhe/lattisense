@@ -350,7 +350,27 @@ inline int check_signatures(FheContext* context,
 
     check_context_for_key_signatures(*context, task_sig_json["key"]);
 
-    auto data_sig_json = task_sig_json["online"].get<std::vector<nlohmann::json>>();
+    // Arguments follow the graph boundary: online inputs, offline inputs, outputs.
+    std::vector<nlohmann::json> data_sig_json;
+    const auto& online = task_sig_json.at("online");
+    for (const auto& item : online) {
+        if (item.at("phase").get<std::string>() == "in") {
+            data_sig_json.push_back(item);
+        }
+    }
+    if (task_sig_json.contains("offline")) {
+        for (const auto& item : task_sig_json.at("offline")) {
+            data_sig_json.push_back(item);
+        }
+    }
+    for (const auto& item : online) {
+        if (item.at("phase").get<std::string>() == "out") {
+            data_sig_json.push_back(item);
+        }
+    }
+    if (data_sig_json.size() != cxx_args.size()) {
+        throw std::runtime_error("Task signature argument count does not match C++ arguments");
+    }
 
     int n_in_args = 0;
 
