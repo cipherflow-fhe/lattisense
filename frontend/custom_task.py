@@ -904,7 +904,7 @@ def custom_compute(
     """
     global g_dag
 
-    if not inputs:
+    if not inputs and type != 'encode_pt':
         raise ValueError('At least one input data node is required for custom compute.')
     if output is None:
         raise ValueError('Output data node is required for custom compute.')
