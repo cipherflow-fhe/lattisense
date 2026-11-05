@@ -892,6 +892,7 @@ def custom_compute(
     output: DataNode,
     type: str,
     attributes: dict | None = None,
+    wait_inputs: list[DataNode] | None = None,
 ):
     """!Create opaque custom compute node
 
@@ -901,6 +902,7 @@ def custom_compute(
     @param output Output data node (specifies the type and attributes of the output node).
     @param type String identifier for the custom operation type.
     @param attributes Custom attribute dictionary; can contain arbitrary key-value pairs (e.g., parameters, config).
+    @param wait_inputs Scheduling dependencies appended as regular v6 graph inputs.
     """
     global g_dag
 
@@ -912,6 +914,8 @@ def custom_compute(
     op = CustomComputeNode(type=type, attributes=attributes)
 
     for input_node in inputs:
+        g_dag.add_edge(input_node, op)
+    for input_node in wait_inputs or []:
         g_dag.add_edge(input_node, op)
 
     g_dag.add_edge(op, output)
