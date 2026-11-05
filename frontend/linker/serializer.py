@@ -31,8 +31,6 @@ Two entry points:
         ckks_btp_evk field is only written when non-empty.
 """
 
-import warnings
-
 import networkx as nx
 
 from frontend.types import _CompoundComputeNode, is_compute_node, is_data_node
@@ -45,7 +43,7 @@ from .task_context import _TaskContext
 
 
 def _check_unique_data_node_ids(dag: nx.DiGraph) -> None:
-    """Warn when distinct data-node objects share an id.
+    """Reject distinct data-node objects sharing an id.
 
     Generators must keep node ids unique (e.g. prefix lazy "encode_pt" nodes with
     the layer id). Serialization keys ``data`` by id, so duplicates would merge
@@ -63,11 +61,9 @@ def _check_unique_data_node_ids(dag: nx.DiGraph) -> None:
         elif prev is not node and node.id not in duplicates:
             duplicates.append(node.id)
     if duplicates:
-        warnings.warn(
+        raise ValueError(
             'Duplicate data node ids detected (producers will share one runtime slot): '
-            + ', '.join(sorted(duplicates)[:10]),
-            RuntimeWarning,
-            stacklevel=2,
+            + ', '.join(sorted(duplicates)[:10])
         )
 
 
