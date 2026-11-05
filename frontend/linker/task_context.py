@@ -62,6 +62,7 @@ class _TaskContext:
     ckks_btp_glk_order: list[int]  # bootstrap galois elements in graph input order
     input_sigdata: list  # list of sigdata dicts for online inputs
     output_sigdata: list  # list of sigdata dicts for outputs
+    offline_sigdata: list
 
     @classmethod
     def build(
@@ -71,6 +72,7 @@ class _TaskContext:
         evk_node_dict: dict,
         name: str,
         algorithm: 'Algo',
+        offline_input_args=None,
     ) -> _TaskContext:
         """Resolve Argument objects into a _TaskContext.
 
@@ -126,8 +128,9 @@ class _TaskContext:
             return node_list, sigdata_list
 
         input_nodes, input_sigdata = _process_args(input_args, 'in')
+        offline_nodes, offline_sigdata = _process_args(offline_input_args, 'in')
         output_nodes, output_sigdata = _process_args(output_args, 'out')
-        all_inputs = input_nodes
+        all_inputs = input_nodes + offline_nodes
 
         # Collect key nodes and build key signatures
         rlk_sig = -1
@@ -177,4 +180,5 @@ class _TaskContext:
             ckks_btp_glk_order=ckks_btp_glk_order,
             input_sigdata=input_sigdata,
             output_sigdata=output_sigdata,
+            offline_sigdata=offline_sigdata,
         )

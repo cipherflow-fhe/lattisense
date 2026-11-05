@@ -924,6 +924,8 @@ def process_custom_task(
     output_args: list[Argument] | None = None,
     output_instruction_path: str | None = None,
     processor: Processor = Processor.CPU,
+    offline_input_args: list[Argument] | None = None,
+    extra_signature_fields: dict | None = None,
 ) -> dict:
     """!Process custom task
 
@@ -946,7 +948,10 @@ def process_custom_task(
             from .linker.task_context import _TaskContext
         except ImportError:
             from linker.task_context import _TaskContext
-        ctx = _TaskContext.build(input_args, output_args, g_evk_node_dict, name='Acc task', algorithm=g_param.algo)
+        ctx = _TaskContext.build(
+            input_args, output_args, g_evk_node_dict, name='Acc task', algorithm=g_param.algo,
+            offline_input_args=offline_input_args,
+        )
 
         # Validate all input nodes exist in g_dag and feed at least one operation
         for x in ctx.inputs:
@@ -1011,8 +1016,11 @@ def process_custom_task(
         with open(os.path.join(output_instruction_path, 'fhe_parameter.json'), 'w', encoding='utf-8') as f:
             json.dump(g_param.to_json_dict(), f, indent=4)
 
+        signature = serialize_signature(ctx)
+        if extra_signature_fields:
+            signature.update(extra_signature_fields)
         with open(os.path.join(output_instruction_path, 'task_signature.json'), 'w', encoding='utf-8') as f:
-            json.dump(serialize_signature(ctx), f, indent=4)
+            json.dump(signature, f, indent=4)
 
         with open(os.path.join(output_instruction_path, 'mega_ag.json'), 'w', encoding='utf-8') as f:
             json.dump(mag, f, indent=4)

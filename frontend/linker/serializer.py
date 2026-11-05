@@ -161,6 +161,7 @@ def serialize_signature(ctx: _TaskContext) -> dict:
             'glk_order': ctx.glk_order,
         },
         'online': ctx.input_sigdata + ctx.output_sigdata,
+        'offline': ctx.offline_sigdata,
     }
     if ctx.ckks_btp_evk_sig or ctx.ckks_btp_glk_order:
         if ctx.ckks_btp_evk_sig:
