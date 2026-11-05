@@ -504,6 +504,15 @@ Bytes CkksContext::serialize() const {
     return data;
 }
 
+void CkksContext::set_secret_key(SecretKey&& secret_key) {
+    Decryptor decryptor(_parameter, secret_key);
+    _secret_key = std::move(secret_key);
+    _decryptor = std::move(decryptor);
+    if (_public_key.is_empty()) {
+        _encryptor = Encryptor(_parameter, _secret_key);
+    }
+}
+
 CkksContext CkksContext::deserialize(BytesView data) {
     size_t offset = 0;
     if (data.size() < sizeof(CONTEXT_MAGIC)) {

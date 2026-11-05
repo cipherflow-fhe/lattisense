@@ -251,6 +251,9 @@ public:
 
     const SecretKey& secret_key() const override;
 
+    // Restore separately persisted secret material; context serialization excludes it.
+    void set_secret_key(SecretKey&& secret_key);
+
     const PublicKey& public_key() const override;
 
     void gen_rotation_keys(int level = -1);

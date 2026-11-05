@@ -1018,6 +1018,10 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS context serialization", "", CkksTes
 
     CkksRealTestCt lhs = new_real_ct(this->ctx, this->level);
     CkksRealTestCt rhs = new_real_ct(this->ctx, this->level);
+    REQUIRE_THROWS(restored.secret_key());
+    REQUIRE_THROWS(restored.decrypt(lhs.ciphertext));
+    restored.set_secret_key(SecretKey::deserialize(this->ctx.secret_key().serialize()));
+    verify_ckks_precision(restored, lhs.message, lhs.ciphertext);
     vector<double> expected_mult = vec_mul(lhs.message, rhs.message);
 
     CkksCiphertext product = restored.mult(lhs.ciphertext, rhs.ciphertext);
