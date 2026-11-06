@@ -235,6 +235,13 @@ public:
 
     static CkksContext create_empty_context(const CkksParameter& param);
 
+    /// Create only the client SK/PK pair; no residual or bootstrap evaluation keys.
+    static CkksContext create_client_context(const CkksParameter& param, bool enable_bootstrapping = false);
+
+    /// Restore a client-only full context after validating its keys and task parameters.
+    static CkksContext restore_client_context(const CkksParameter& param, BytesView data,
+                                               bool enable_bootstrapping = false);
+
     /**
      * Create a new CkksContextHandle with randomly generated secret key, encryption public key, relinearization key,
      * and Galois key.
@@ -326,7 +333,13 @@ public:
      * Serialize a CKKS context to binary. Secret key material is not serialized.
      * @return The serialized byte array.
      */
-    Bytes serialize() const;
+    Bytes serialize(bool include_evaluation_keys = true) const;
+
+    /// Generate evaluation keys sequentially into a new, unpublished file.
+    void export_eval_context_to_file(const std::string& path) const;
+
+    /// Write client-only context plus the independent secret key to a new file.
+    void export_full_context_to_file(const std::string& path) const;
 
     /**
      * Deserialize a CKKS context from binary.

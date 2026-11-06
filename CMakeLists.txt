@@ -328,10 +328,14 @@ set(GO_SOURCES
     bfv.go
     ckks.go
     bootstrap.go
+    client_context.go
     c_struct_import_export.go
     conversion.go
     multiparty.go
 )
+file(GLOB_RECURSE LATTIGO_GO_DEPENDENCIES CONFIGURE_DEPENDS
+    ${LATTISENSE_ROOT_DIR}/fhe_ops_lib/lattigo/*.go)
+list(FILTER LATTIGO_GO_DEPENDENCIES EXCLUDE REGEX "_test\\.go$")
 if(WIN32)
     # Windows: only build c-archive. c-shared fails because bridge_func (defined in
     # bridge.c on the C++ side) is unresolved — Windows linker requires all symbols at
@@ -344,6 +348,7 @@ if(WIN32)
         COMMAND ${CMAKE_COMMAND} -P ${GO_SDK_DIR}/strip_cgo_line.cmake
         WORKING_DIRECTORY ${GO_SDK_DIR}
         DEPENDS
+            ${LATTIGO_GO_DEPENDENCIES}
             ${GO_SDK_DIR}/main.go
             ${GO_SDK_DIR}/objects.go
             ${GO_SDK_DIR}/rlwe.go
@@ -366,6 +371,7 @@ else()
         COMMAND ${CMAKE_COMMAND} -P ${GO_SDK_DIR}/strip_cgo_line.cmake
         WORKING_DIRECTORY ${GO_SDK_DIR}
         DEPENDS
+            ${LATTIGO_GO_DEPENDENCIES}
             ${GO_SDK_DIR}/main.go
             ${GO_SDK_DIR}/objects.go
             ${GO_SDK_DIR}/rlwe.go

@@ -335,6 +335,34 @@ CkksContext CkksContext::create_empty_context(const CkksParameter& param) {
     return context;
 }
 
+CkksContext CkksContext::create_client_context(const CkksParameter& param, bool enable_bootstrapping) {
+    CkksContext context = create_empty_context(param);
+    uint64_t sk_handle = 0, pk_handle = 0;
+    CHECK(GenCkksClientKeys(context._parameter.get(), enable_bootstrapping, &sk_handle, &pk_handle));
+    context._secret_key = SecretKey(std::move(sk_handle));
+    context._public_key = PublicKey(std::move(pk_handle));
+    context._encryptor = Encryptor(context._parameter, context._public_key);
+    context._decryptor = Decryptor(context._parameter, context._secret_key);
+    context._use_default_rotation_keys = true;
+    context._enable_bootstrapping = enable_bootstrapping;
+    return context;
+}
+
+CkksContext CkksContext::restore_client_context(const CkksParameter& param, BytesView data,
+                                                  bool enable_bootstrapping) {
+    CkksContext context = create_empty_context(param);
+    uint64_t sk_handle = 0, pk_handle = 0;
+    CHECK(RestoreCkksClientKeys(context._parameter.get(), enable_bootstrapping,
+                                const_cast<uint8_t*>(data.data()), data.size(), &sk_handle, &pk_handle));
+    context._secret_key = SecretKey(std::move(sk_handle));
+    context._public_key = PublicKey(std::move(pk_handle));
+    context._encryptor = Encryptor(context._parameter, context._public_key);
+    context._decryptor = Decryptor(context._parameter, context._secret_key);
+    context._use_default_rotation_keys = true;
+    context._enable_bootstrapping = enable_bootstrapping;
+    return context;
+}
+
 CkksContext CkksContext::create_random_context(const CkksParameter& param,
                                                EncryptorType encryptor_type,
                                                bool enable_bootstrapping) {
@@ -472,7 +500,25 @@ void CkksContext::set_galois_key(const GaloisKey& gk) {
     _evaluator.update_evaluation_key_set(_evaluation_key_set);
 }
 
-Bytes CkksContext::serialize() const {
+void CkksContext::export_eval_context_to_file(const std::string& path) const {
+    if (_secret_key.is_empty() || _public_key.is_empty()) {
+        throw std::runtime_error("client secret/public keys are required for streaming export");
+    }
+    CHECK(WriteCkksEvaluationContextFile(_parameter.get(), _secret_key.get(), _public_key.get(),
+                                       _use_default_rotation_keys, _enable_bootstrapping,
+                                       const_cast<char*>(path.c_str())));
+}
+
+void CkksContext::export_full_context_to_file(const std::string& path) const {
+    if (_secret_key.is_empty() || _public_key.is_empty()) {
+        throw std::runtime_error("client secret/public keys are required for full export");
+    }
+    CHECK(WriteCkksFullContextFile(_parameter.get(), _secret_key.get(), _public_key.get(),
+                                 _use_default_rotation_keys, _enable_bootstrapping,
+                                 const_cast<char*>(path.c_str())));
+}
+
+Bytes CkksContext::serialize(bool include_evaluation_keys) const {
     if (_parameter.is_empty()) {
         throw std::runtime_error("CKKS parameter is not set");
     }
@@ -490,13 +536,13 @@ Bytes CkksContext::serialize() const {
         append_bytes(data, _public_key.serialize());
     }
 
-    const bool has_evaluation_key_set = !_evaluation_key_set.is_empty();
+    const bool has_evaluation_key_set = include_evaluation_keys && !_evaluation_key_set.is_empty();
     append_u8(data, has_evaluation_key_set ? 1 : 0);
     if (has_evaluation_key_set) {
         append_bytes(data, _evaluation_key_set.serialize());
     }
 
-    const bool has_bootstrapping_evaluation_keys = !_bootstrapping_evaluation_keys.is_empty();
+    const bool has_bootstrapping_evaluation_keys = include_evaluation_keys && !_bootstrapping_evaluation_keys.is_empty();
     append_u8(data, has_bootstrapping_evaluation_keys ? 1 : 0);
     if (has_bootstrapping_evaluation_keys) {
         append_bytes(data, _bootstrapping_evaluation_keys.serialize());
