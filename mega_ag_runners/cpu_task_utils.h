@@ -206,6 +206,81 @@ struct TaskInfo {
     }
 };
 
+struct TaskFailureState {
+    std::atomic<bool> failed{false};
+    std::exception_ptr first_exception;
+    std::mutex exception_mutex;
+    std::mutex& queue_mutex;
+    std::priority_queue<TaskInfo>& queue;
+    std::mutex& completion_mutex;
+    std::condition_variable& completion_cv;
+
+    void report_locked(std::exception_ptr error) {
+        {
+            std::lock_guard<std::mutex> lock(exception_mutex);
+            if (!first_exception) {
+                first_exception = error;
+            }
+        }
+        failed.store(true);
+        while (!queue.empty()) {
+            queue.pop();
+        }
+    }
+
+    void report(std::exception_ptr error) {
+        {
+            std::lock_guard<std::mutex> lock(queue_mutex);
+            report_locked(error);
+        }
+        std::lock_guard<std::mutex> lock(completion_mutex);
+        completion_cv.notify_all();
+    }
+};
+
+template <typename Finalize>
+void publish_task_outputs(const CompoundComputeNode& compute_node,
+                          const std::unordered_map<NodeId, std::any>& source,
+                          std::unordered_map<NodeId, std::any>& destination,
+                          Finalize&& finalize) {
+    struct Output {
+        const NodeId* id;
+        std::any value;
+        bool applied = false;
+        bool inserted = false;
+    };
+    std::vector<Output> outputs;
+    outputs.reserve(compute_node.output_nodes.size());
+    std::unordered_set<NodeId> ids;
+    for (const auto* node : compute_node.output_nodes) {
+        if (!ids.insert(node->id).second) {
+            throw std::invalid_argument("duplicate task output");
+        }
+        outputs.push_back({&node->id, source.at(node->id)});
+    }
+    destination.reserve(destination.size() + outputs.size());
+    try {
+        for (auto& output : outputs) {
+            auto result = destination.try_emplace(*output.id);
+            output.inserted = result.second;
+            result.first->second.swap(output.value);
+            output.applied = true;
+        }
+        finalize();
+    } catch (...) {
+        for (auto& output : outputs) {
+            if (output.applied) {
+                if (output.inserted) {
+                    destination.erase(*output.id);
+                } else {
+                    destination.at(*output.id).swap(output.value);
+                }
+            }
+        }
+        throw;
+    }
+}
+
 using OtherArgsCallback = std::function<std::vector<std::any>(const CompoundComputeNode&)>;
 using BackendTaskSubmitter = std::function<void(NodeId,
                                                 std::mutex&,
@@ -213,9 +288,11 @@ using BackendTaskSubmitter = std::function<void(NodeId,
                                                 std::set<NodeId>&,
                                                 std::atomic<size_t>&,
                                                 std::atomic<size_t>&,
+                                                std::atomic<size_t>&,
                                                 std::condition_variable&,
                                                 std::mutex&,
-                                                std::unordered_map<NodeId, std::atomic<int>>&)>;
+                                                std::unordered_map<NodeId, std::atomic<int>>&,
+                                                TaskFailureState&)>;
 
 struct RunTasksOptions {
     OtherArgsCallback get_other_args;
@@ -258,13 +335,12 @@ void run_tasks(const MegaAG& mega_ag,
     std::mutex abi_export_mutex;
     std::atomic<size_t> total_tasks(task_count);
     std::atomic<size_t> completed_tasks(0);
+    std::atomic<size_t> progress_tasks(0);
     std::condition_variable completion_cv;
     std::mutex completion_mutex;
     std::priority_queue<TaskInfo> task_queue;
     std::set<NodeId> queued_computes;
-    std::exception_ptr first_exception;
-    std::mutex exception_mutex;
-    std::atomic<bool> failed(false);
+    TaskFailureState failure{{false}, nullptr, {}, m_mutex, task_queue, completion_mutex, completion_cv};
 
     // Progress callback throttle state (best-effort, no mutex)
     using SteadyClock = std::chrono::steady_clock;
@@ -276,97 +352,90 @@ void run_tasks(const MegaAG& mega_ag,
         [&](NodeId task_id, const std::vector<std::any>& other_args) {
             const BS::priority_t pool_priority = mega_ag.computes.at(task_id).priority;
             pool.detach_task(
-                [task_id, &mega_ag, &completed_tasks, &total_tasks, &m_mutex, &abi_export_mutex, &completion_mutex,
-                 &completion_cv, &available_data, &base_context, &task_queue, &queued_computes, &data_ref_counts,
-                 other_args, &options, &last_progress_time, progress_interval, &first_exception, &exception_mutex,
-                 &failed]() {
-                    const CompoundComputeNode& compute_node = mega_ag.computes.at(task_id);
-                    const std::vector<DatumNode*>& compute_input_nodes = compute_node.input_nodes;
-
-                    // Cache input data for this thread
-                    std::unordered_map<NodeId, std::any> thread_data_cache;
-                    {
-                        std::lock_guard<std::mutex> lock(m_mutex);
-
-                        for (const auto* input_node : compute_input_nodes) {
-                            thread_data_cache[input_node->id] = available_data.at(input_node->id);
-                        }
-                    }
-
-                    // Prepare execution context
-                    std::vector<std::any> exec_other_args = other_args;
-                    if (compute_contains_operation(compute_node, OperationType::EXPORT_TO_ABI)) {
-                        exec_other_args.push_back(&abi_export_mutex);
-                    }
-
-                    ExecutionContext exec_ctx;
-                    exec_ctx.context = base_context.get();
-                    exec_ctx.other_args = std::move(exec_other_args);
-
+                [task_id, &mega_ag, &completed_tasks, &progress_tasks, &total_tasks, &m_mutex, &abi_export_mutex,
+                 &completion_mutex, &completion_cv, &available_data, &base_context, &task_queue, &queued_computes,
+                 &data_ref_counts, other_args, &options, &last_progress_time, progress_interval, &failure]() {
                     try {
-                        if (options.cancel_flag && options.cancel_flag->load()) {
+                        const CompoundComputeNode& compute_node = mega_ag.computes.at(task_id);
+                        const std::vector<DatumNode*>& compute_input_nodes = compute_node.input_nodes;
+
+                        // Cache input data for this thread
+                        std::unordered_map<NodeId, std::any> thread_data_cache;
+                        {
+                            std::lock_guard<std::mutex> lock(m_mutex);
+
+                            if (failure.failed.load() || (options.cancel_flag && options.cancel_flag->load())) {
+                                return;
+                            }
+                            for (const auto* input_node : compute_input_nodes) {
+                                thread_data_cache[input_node->id] = available_data.at(input_node->id);
+                            }
+                        }
+
+                        // Prepare execution context
+                        std::vector<std::any> exec_other_args = other_args;
+                        if (compute_contains_operation(compute_node, OperationType::EXPORT_TO_ABI)) {
+                            exec_other_args.push_back(&abi_export_mutex);
+                        }
+
+                        ExecutionContext exec_ctx;
+                        exec_ctx.context = base_context.get();
+                        exec_ctx.other_args = std::move(exec_other_args);
+
+                        if (failure.failed.load() || (options.cancel_flag && options.cancel_flag->load())) {
                             return;
                         }
                         compute_node.execute(exec_ctx, thread_data_cache);
-                    } catch (...) {
-                        {
-                            std::lock_guard<std::mutex> lock(exception_mutex);
-                            if (!first_exception) {
-                                first_exception = std::current_exception();
+
+                        size_t prev = progress_tasks.fetch_add(1);
+                        if (options.progress_callback) {
+                            auto now = SteadyClock::now().time_since_epoch().count();
+                            auto last = last_progress_time.load(std::memory_order_relaxed);
+                            bool is_final = (prev + 1 >= total_tasks);
+                            bool throttle_ok =
+                                (now - last) >=
+                                std::chrono::duration_cast<SteadyClock::duration>(progress_interval).count();
+                            if (is_final || throttle_ok) {
+                                last_progress_time.store(now, std::memory_order_relaxed);
+                                options.progress_callback(static_cast<int>(prev + 1),
+                                                          static_cast<int>(total_tasks.load()));
                             }
                         }
-                        failed.store(true);
+
+                        // Update results and find newly available tasks
                         {
                             std::lock_guard<std::mutex> lock(m_mutex);
-                            while (!task_queue.empty()) {
-                                task_queue.pop();
+
+                            if (failure.failed.load() || (options.cancel_flag && options.cancel_flag->load())) {
+                                return;
+                            }
+
+                            try {
+                                publish_task_outputs(compute_node, thread_data_cache, available_data, [&] {
+                                    auto newly_available_computes =
+                                        mega_ag.step_available_computes(compute_node, available_data);
+
+                                    for (const auto& new_task_id : newly_available_computes) {
+                                        if (queued_computes.find(new_task_id) == queued_computes.end()) {
+                                            int pri = mega_ag.computes.at(new_task_id).priority;
+                                            task_queue.push({pri, new_task_id});
+                                            queued_computes.insert(new_task_id);
+                                        }
+                                    }
+                                    // Keep inputs intact if publishing/scheduling fails.
+                                    mega_ag.purge_unused_data(compute_node, data_ref_counts, available_data);
+                                });
+                            } catch (...) {
+                                failure.report_locked(std::current_exception());
+                                throw;
                             }
                         }
-                        completed_tasks.fetch_add(1);
-                        std::lock_guard<std::mutex> lock(completion_mutex);
-                        completion_cv.notify_all();
-                        return;
-                    }
 
-                    // Update results and find newly available tasks
-                    {
-                        std::lock_guard<std::mutex> lock(m_mutex);
-
-                        for (const auto* output_node : compute_node.output_nodes) {
-                            available_data[output_node->id] = thread_data_cache.at(output_node->id);
+                        if (completed_tasks.fetch_add(1) + 1 >= total_tasks) {
+                            std::lock_guard<std::mutex> lock(completion_mutex);
+                            completion_cv.notify_all();
                         }
-
-                        // Clean up unreferenced data
-                        mega_ag.purge_unused_data(compute_node, data_ref_counts, available_data);
-
-                        auto newly_available_computes = mega_ag.step_available_computes(compute_node, available_data);
-
-                        for (const auto& new_task_id : newly_available_computes) {
-                            if (queued_computes.find(new_task_id) == queued_computes.end()) {
-                                int pri = mega_ag.computes.at(new_task_id).priority;
-                                task_queue.push({pri, new_task_id});
-                                queued_computes.insert(new_task_id);
-                            }
-                        }
-                    }
-
-                    // Check if all tasks are completed
-                    size_t prev = completed_tasks.fetch_add(1);
-                    if (options.progress_callback) {
-                        auto now = SteadyClock::now().time_since_epoch().count();
-                        auto last = last_progress_time.load(std::memory_order_relaxed);
-                        bool is_final = (prev + 1 >= total_tasks);
-                        bool throttle_ok = (now - last) >=
-                                           std::chrono::duration_cast<SteadyClock::duration>(progress_interval).count();
-                        if (is_final || throttle_ok) {
-                            last_progress_time.store(now, std::memory_order_relaxed);
-                            options.progress_callback(static_cast<int>(prev + 1), static_cast<int>(total_tasks.load()));
-                        }
-                    }
-                    if (prev + 1 >= total_tasks) {
-                        std::lock_guard<std::mutex> lock(completion_mutex);
-                        completion_cv.notify_all();
-                    }
+                    } catch (...) { failure.report(std::current_exception()); }
                 },
                 pool_priority);
         };
@@ -382,80 +451,89 @@ void run_tasks(const MegaAG& mega_ag,
     bool cancelled = false;
 
     // Main task dispatcher loop
-    while (true) {
-        if (failed.load()) {
-            std::lock_guard<std::mutex> lock(m_mutex);
-            while (!task_queue.empty()) {
-                task_queue.pop();
-            }
-            break;
-        }
-
-        if (options.cancel_flag && options.cancel_flag->load()) {
-            std::lock_guard<std::mutex> lock(m_mutex);
-            while (!task_queue.empty()) {
-                task_queue.pop();
-            }
-            cancelled = true;
-            break;
-        }
-
-        NodeId next_task;
-        bool has_task = false;
-
-        {
-            std::lock_guard<std::mutex> lock(m_mutex);
-            if (!task_queue.empty()) {
-                next_task = task_queue.top().id;
-                task_queue.pop();
-                has_task = true;
-            }
-        }
-
-        if (has_task) {
-            progress_bar.update(completed_tasks.load());
-
-            const CompoundComputeNode& compute_node = mega_ag.computes.at(next_task);
-            if (compute_node.on_cpu) {
-                // Submit to CPU thread pool
-                std::vector<std::any> other_args_vec;
-                if (options.get_other_args) {
-                    other_args_vec = options.get_other_args(compute_node);
+    try {
+        while (true) {
+            if (failure.failed.load()) {
+                std::lock_guard<std::mutex> lock(m_mutex);
+                while (!task_queue.empty()) {
+                    task_queue.pop();
                 }
-                submit_task(next_task, other_args_vec);
-            } else if (options.submit_backend_task) {
-                // Submit to backend handler (GPU/FPGA) with shared state references
-                options.submit_backend_task(next_task, m_mutex, task_queue, queued_computes, completed_tasks,
-                                            total_tasks, completion_cv, completion_mutex, data_ref_counts);
-            }
-            // else: skip non-CPU tasks if no handler provided (shouldn't happen in well-formed graphs)
-        } else {
-            if (completed_tasks.load() >= total_tasks) {
                 break;
             }
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+
+            if (options.cancel_flag && options.cancel_flag->load()) {
+                std::lock_guard<std::mutex> lock(m_mutex);
+                while (!task_queue.empty()) {
+                    task_queue.pop();
+                }
+                cancelled = true;
+                break;
+            }
+
+            NodeId next_task;
+            bool has_task = false;
+
+            {
+                std::lock_guard<std::mutex> lock(m_mutex);
+                if (!task_queue.empty()) {
+                    next_task = task_queue.top().id;
+                    task_queue.pop();
+                    has_task = true;
+                }
+            }
+
+            if (has_task) {
+                progress_bar.update(completed_tasks.load());
+
+                const CompoundComputeNode& compute_node = mega_ag.computes.at(next_task);
+                if (compute_node.on_cpu) {
+                    // Submit to CPU thread pool
+                    std::vector<std::any> other_args_vec;
+                    if (options.get_other_args) {
+                        other_args_vec = options.get_other_args(compute_node);
+                    }
+                    submit_task(next_task, other_args_vec);
+                } else if (options.submit_backend_task) {
+                    // Submit to backend handler (GPU/FPGA) with shared state references
+                    options.submit_backend_task(next_task, m_mutex, task_queue, queued_computes, completed_tasks,
+                                                progress_tasks, total_tasks, completion_cv, completion_mutex,
+                                                data_ref_counts, failure);
+                }
+                // else: skip non-CPU tasks if no handler provided (shouldn't happen in well-formed graphs)
+            } else {
+                if (completed_tasks.load() >= total_tasks) {
+                    break;
+                }
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            }
         }
+    } catch (...) {
+        failure.report(std::current_exception());
     }
 
     // Wait for all tasks to complete
-    if (!cancelled && !failed.load()) {
+    if (!cancelled && !failure.failed.load()) {
         std::unique_lock<std::mutex> lock(completion_mutex);
-        completion_cv.wait(lock, [&] { return completed_tasks.load() >= total_tasks; });
+        completion_cv.wait(lock, [&] { return failure.failed.load() || completed_tasks.load() >= total_tasks; });
     }
 
     pool.wait();
 
     if (options.cleanup) {
-        options.cleanup();
+        try {
+            options.cleanup();
+        } catch (...) {
+            failure.report(std::current_exception());
+        }
     }
 
     progress_bar.finalize();
 
-    if (cancelled) {
-        throw mega_ag_runner::TaskCancelled();
+    if (failure.first_exception) {
+        std::rethrow_exception(failure.first_exception);
     }
 
-    if (first_exception) {
-        std::rethrow_exception(first_exception);
+    if (cancelled) {
+        throw mega_ag_runner::TaskCancelled();
     }
 }

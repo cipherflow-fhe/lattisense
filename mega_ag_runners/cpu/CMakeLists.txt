@@ -11,6 +11,9 @@ target_include_directories(cpu_mega_ag_runner_obj PUBLIC
 target_compile_definitions(cpu_mega_ag_runner_obj PRIVATE
     LATTISENSE_MEM_PROFILE_DIR="${CMAKE_BINARY_DIR}/mem_profile"
 )
+if(LATTISENSE_ENABLE_GPU)
+    target_compile_definitions(cpu_mega_ag_runner_obj PRIVATE LATTISENSE_ENABLE_GPU)
+endif()
 add_library(cpu_mega_ag_runner SHARED
     $<TARGET_OBJECTS:cpu_mega_ag_runner_obj>
     $<TARGET_OBJECTS:mega_ag_obj>

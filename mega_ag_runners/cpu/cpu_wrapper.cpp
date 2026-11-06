@@ -183,10 +183,34 @@ protected:
 };
 };  // namespace cpu_wrapper
 
+namespace {
+thread_local std::exception_ptr cpu_task_error;
+}
+
+void rethrow_fhe_cpu_task_error() {
+    if (cpu_task_error) std::rethrow_exception(cpu_task_error);
+    throw std::runtime_error("CPU task failed without an error");
+}
+
 extern "C" {
-fhe_task_handle create_fhe_cpu_task(const char* project_path) {
+#ifndef LATTISENSE_ENABLE_GPU
+int begin_fhe_gpu_resource_release(int) { return FHE_TASK_OK; }
+int finish_fhe_gpu_resource_release(int) { return FHE_TASK_OK; }
+#endif
+
+const char* fhe_cpu_task_last_error(void) {
+    if (!cpu_task_error) return "";
+    try { std::rethrow_exception(cpu_task_error); }
+    catch (const std::exception& error) { return error.what(); }
+    catch (...) { return "Unknown CPU task exception"; }
+}
+
+fhe_task_handle create_fhe_cpu_task(const char* project_path) try {
     cpu_wrapper::FheCpuTask* task = new cpu_wrapper::FheCpuTask(project_path);
     return (fhe_task_handle)task;
+} catch (...) {
+    cpu_task_error = std::current_exception();
+    return nullptr;
 }
 
 void release_fhe_cpu_task(fhe_task_handle handle) {
@@ -201,10 +225,10 @@ void cancel_fhe_cpu_task(fhe_task_handle handle) {
     }
 }
 
-void bind_cpu_task_custom_executors(fhe_task_handle handle,
+int bind_cpu_task_custom_executors(fhe_task_handle handle,
                                     const char** custom_types,
                                     void** executors,
-                                    uint64_t n_executors) {
+                                    uint64_t n_executors) try {
     cpu_wrapper::FheCpuTask* task = (cpu_wrapper::FheCpuTask*)handle;
     std::unordered_map<std::string, ExecutorFunc> custom_executors;
     for (uint64_t i = 0; i < n_executors; i++) {
@@ -212,13 +236,21 @@ void bind_cpu_task_custom_executors(fhe_task_handle handle,
         custom_executors[std::string(custom_types[i])] = *executor_ptr;
     }
     task->bind_custom_executors(custom_executors);
+    return FHE_TASK_OK;
+} catch (...) {
+    cpu_task_error = std::current_exception();
+    return FHE_TASK_ERROR;
 }
 
-void bind_cpu_task_abi_bridge_executors(fhe_task_handle handle, void* abi_export_executor, void* abi_import_executor) {
+int bind_cpu_task_abi_bridge_executors(fhe_task_handle handle, void* abi_export_executor, void* abi_import_executor) try {
     cpu_wrapper::FheCpuTask* task = (cpu_wrapper::FheCpuTask*)handle;
     ExecutorFunc* export_executor = reinterpret_cast<ExecutorFunc*>(abi_export_executor);
     ExecutorFunc* import_executor = reinterpret_cast<ExecutorFunc*>(abi_import_executor);
     task->bind_abi_bridge_executors(*export_executor, *import_executor);
+    return FHE_TASK_OK;
+} catch (...) {
+    cpu_task_error = std::current_exception();
+    return FHE_TASK_ERROR;
 }
 
 int run_fhe_cpu_task(fhe_task_handle handle,
@@ -227,7 +259,7 @@ int run_fhe_cpu_task(fhe_task_handle handle,
                      CArgument* output_args,
                      uint64_t n_out_args,
                      progress_callback_t progress_cb,
-                     void* user_data) {
+                     void* user_data) try {
     cpu_wrapper::FheCpuTask* task = (cpu_wrapper::FheCpuTask*)handle;
     gsl::span<CArgument> input_arg_span{input_args, n_in_args};
     gsl::span<CArgument> output_arg_span{output_args, n_out_args};
@@ -238,5 +270,8 @@ int run_fhe_cpu_task(fhe_task_handle handle,
         cb = [progress_cb, user_data](int completed, int total) { progress_cb(completed, total, user_data); };
     }
     return task->run(input_arg_span, output_arg_span, cb);
+} catch (...) {
+    cpu_task_error = std::current_exception();
+    return FHE_TASK_ERROR;
 }
 }  // extern "C"

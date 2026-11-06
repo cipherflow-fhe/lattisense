@@ -32,15 +32,23 @@ namespace lattisense {
 
 FheTaskCpu::FheTaskCpu(const std::string& project_path) : FheTask{project_path} {
     task_handle = create_fhe_cpu_task(project_path.c_str());
+    if (!task_handle) rethrow_fhe_cpu_task_error();
 
-    bind_abi_executors();
+    try {
+        bind_abi_executors();
+    } catch (...) {
+        release_fhe_cpu_task(task_handle);
+        throw;
+    }
 }
 
 void FheTaskCpu::bind_abi_executors() {
     ExecutorFunc abi_export = create_abi_export_executor(_algo, false);
     ExecutorFunc abi_import = create_abi_import_executor(_algo, false);
-    bind_cpu_task_abi_bridge_executors(task_handle, reinterpret_cast<void*>(&abi_export),
-                                       reinterpret_cast<void*>(&abi_import));
+    if (bind_cpu_task_abi_bridge_executors(task_handle, reinterpret_cast<void*>(&abi_export),
+                                           reinterpret_cast<void*>(&abi_import)) != FHE_TASK_OK) {
+        rethrow_fhe_cpu_task_error();
+    }
 }
 
 FheTaskCpu::~FheTaskCpu() {
@@ -56,7 +64,10 @@ void FheTaskCpu::bind_custom_executors(const std::unordered_map<std::string, Exe
         executor_ptrs.push_back(reinterpret_cast<void*>(const_cast<ExecutorFunc*>(&executor)));
     }
 
-    bind_cpu_task_custom_executors(task_handle, custom_types.data(), executor_ptrs.data(), custom_types.size());
+    if (bind_cpu_task_custom_executors(task_handle, custom_types.data(), executor_ptrs.data(),
+                                        custom_types.size()) != FHE_TASK_OK) {
+        rethrow_fhe_cpu_task_error();
+    }
 }
 
 void FheTaskCpu::request_cancel() noexcept {
@@ -100,7 +111,7 @@ FheTaskCpu::run(FheContext* context, const std::vector<CxxVectorArgument>& cxx_a
         throw TaskCancelledException();
     }
     if (ret != FHE_TASK_OK) {
-        throw std::runtime_error("Failed to run CPU project");
+        rethrow_fhe_cpu_task_error();
     }
 
     auto end = std::chrono::high_resolution_clock::now();

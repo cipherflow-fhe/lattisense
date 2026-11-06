@@ -32,6 +32,9 @@ typedef struct fhe_task_handle_st* fhe_task_handle;
 
 #define FHE_TASK_OK 0
 #define FHE_TASK_CANCELLED -1
+#define FHE_TASK_RESOURCE_BUSY -2
+#define FHE_TASK_RESOURCE_ERROR -3
+#define FHE_TASK_ERROR -4
 
 /**
  * @brief Progress callback function type for tracking mega_ag execution progress.
@@ -46,18 +49,21 @@ typedef void (*progress_callback_t)(int completed, int total, void* user_data);
 
 // ========== CPU Task Functions ==========
 
+// Last error belongs to the calling thread and remains valid until its next failed call.
+const char* fhe_cpu_task_last_error(void);
+
 fhe_task_handle create_fhe_cpu_task(const char* project_path);
 
 void release_fhe_cpu_task(fhe_task_handle handle);
 
 void cancel_fhe_cpu_task(fhe_task_handle handle);
 
-void bind_cpu_task_custom_executors(fhe_task_handle handle,
+int bind_cpu_task_custom_executors(fhe_task_handle handle,
                                     const char** custom_types,
                                     void** executors,
                                     uint64_t n_executors);
 
-void bind_cpu_task_abi_bridge_executors(fhe_task_handle handle, void* abi_export_executor, void* abi_import_executor);
+int bind_cpu_task_abi_bridge_executors(fhe_task_handle handle, void* abi_export_executor, void* abi_import_executor);
 
 int run_fhe_cpu_task(fhe_task_handle handle,
                      CArgument* input_args,
@@ -69,15 +75,18 @@ int run_fhe_cpu_task(fhe_task_handle handle,
 
 // ========== GPU Task Functions ==========
 
+// Last error belongs to the calling thread and remains valid until its next failed call.
+const char* fhe_gpu_task_last_error(void);
+
 fhe_task_handle create_fhe_gpu_task(const char* project_path);
 
 void release_fhe_gpu_task(fhe_task_handle handle);
 
 void cancel_fhe_gpu_task(fhe_task_handle handle);
 
-void bind_gpu_task_abi_bridge_executors(fhe_task_handle handle, void* abi_export_executor, void* abi_import_executor);
+int bind_gpu_task_abi_bridge_executors(fhe_task_handle handle, void* abi_export_executor, void* abi_import_executor);
 
-void bind_gpu_task_custom_executors(fhe_task_handle handle,
+int bind_gpu_task_custom_executors(fhe_task_handle handle,
                                     const char** custom_types,
                                     void** executors,
                                     uint64_t n_executors);
@@ -90,6 +99,12 @@ int run_fhe_gpu_task(fhe_task_handle handle,
                      progress_callback_t progress_cb,
                      void* user_data,
                      int gpu_device);
+
+// SDK-wide GPU pool admission. A release may proceed only after the caller
+// is idle and no other task owns device resources. After begin succeeds,
+// destroy the caller task before finish; finish always ends release admission.
+int begin_fhe_gpu_resource_release(int caller_has_owner);
+int finish_fhe_gpu_resource_release(int gpu_device);
 
 // ========== FPGA Task Functions ==========
 
@@ -111,5 +126,13 @@ int run_fhe_fpga_task(fhe_task_handle handle,
                       uint64_t n_out_args);
 
 #ifdef __cplusplus
+}
+#endif
+
+#ifdef __cplusplus
+// Rethrow the captured C-boundary error with its original C++ type.
+extern "C++" {
+void rethrow_fhe_cpu_task_error();
+void rethrow_fhe_gpu_task_error();
 }
 #endif

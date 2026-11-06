@@ -24,9 +24,13 @@
 
 #include <atomic>
 #include <condition_variable>
+#include <cstdlib>
 #include <exception>
+#include <filesystem>
+#include <fstream>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <thread>
 #include <unordered_map>
@@ -163,6 +167,33 @@ TEST_CASE("CPU cancellation public API symbols compile", "[cancel][cpu][api]") {
     REQUIRE(std::string(ex.what()) == "FHE task was cancelled");
 }
 
+TEST_CASE("CPU C boundary reports failures and preserves the C++ error", "[failure][cpu][abi]") {
+    const auto path = std::filesystem::temp_directory_path() /
+                      ("latti-task-abi-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    std::filesystem::create_directories(path);
+    struct Cleanup {
+        std::filesystem::path path;
+        ~Cleanup() { std::filesystem::remove_all(path); }
+    } cleanup{path};
+
+    REQUIRE(create_fhe_cpu_task(path.c_str()) == nullptr);
+    REQUIRE(std::string(fhe_cpu_task_last_error()).find("Cannot open MegaAG file") != std::string::npos);
+    REQUIRE_THROWS_AS(rethrow_fhe_cpu_task_error(), std::runtime_error);
+
+    std::ofstream(path / "compiled_mega_ag.json") << R"({"algorithm":"CKKS","data":{},"compute":{},"inputs":[],"outputs":[]})";
+    std::ofstream(path / "fhe_parameter.json") << R"({"log_n":"invalid","q":[],"p":[]})";
+    const auto task = create_fhe_cpu_task(path.c_str());
+    REQUIRE(task != nullptr);
+    REQUIRE(run_fhe_cpu_task(task, nullptr, 0, nullptr, 0, nullptr, nullptr) == FHE_TASK_ERROR);
+    REQUIRE(std::string(fhe_cpu_task_last_error()).size() > 0);
+    REQUIRE_THROWS(rethrow_fhe_cpu_task_error());
+    release_fhe_cpu_task(task);
+#ifndef LATTISENSE_ENABLE_GPU
+    REQUIRE(begin_fhe_gpu_resource_release(0) == FHE_TASK_OK);
+    REQUIRE(finish_fhe_gpu_resource_release(0) == FHE_TASK_OK);
+#endif
+}
+
 TEST_CASE("FheTaskCpu cancels real BFV poly task", "[cancel][cpu][real]") {
     BfvParameter parameter = BfvTestDefaultParams::create();
     BfvContext context = BfvContext::create_random_context(parameter);
@@ -172,6 +203,57 @@ TEST_CASE("FheTaskCpu cancels real BFV poly task", "[cancel][cpu][real]") {
 }
 
 #ifdef LATTISENSE_ENABLE_GPU
+TEST_CASE("GPU resource gate rejects other owners and recovers after release errors", "[failure][gpu][resources]") {
+    const auto path = std::filesystem::temp_directory_path() /
+                      ("latti-gpu-gate-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    std::filesystem::create_directories(path);
+    struct Cleanup {
+        std::filesystem::path path;
+        fhe_task_handle first = nullptr, second = nullptr;
+        std::vector<std::pair<std::string, std::optional<std::string>>> environment;
+        ~Cleanup() {
+            release_fhe_gpu_task(first);
+            release_fhe_gpu_task(second);
+            if (begin_fhe_gpu_resource_release(0) == FHE_TASK_OK) finish_fhe_gpu_resource_release(0);
+            for (const auto& [name, value] : environment) {
+                if (value) setenv(name.c_str(), value->c_str(), 1);
+                else unsetenv(name.c_str());
+            }
+            std::filesystem::remove_all(path);
+        }
+    } cleanup{path};
+    for (const auto* name : {"HEONGPU_DEVICE_POOL_INITIAL_BYTES", "HEONGPU_DEVICE_POOL_MAX_BYTES",
+                             "HEONGPU_HOST_POOL_INITIAL_BYTES", "HEONGPU_HOST_POOL_MAX_BYTES"}) {
+        const char* old = std::getenv(name);
+        cleanup.environment.emplace_back(name, old ? std::optional<std::string>(old) : std::nullopt);
+        setenv(name, std::string(name).find("INITIAL") != std::string::npos ? "1048576" : "268435456", 1);
+    }
+    REQUIRE(create_fhe_gpu_task(path.c_str()) == nullptr);
+    REQUIRE(begin_fhe_gpu_resource_release(0) == FHE_TASK_OK);
+    REQUIRE(finish_fhe_gpu_resource_release(0) == FHE_TASK_OK);
+
+    std::ofstream(path / "compiled_mega_ag.json") << R"({"algorithm":"CKKS","data":{},"compute":{},"inputs":[],"outputs":[]})";
+    std::ofstream(path / "fhe_parameter.json") << "{}";
+    cleanup.first = create_fhe_gpu_task(path.c_str());
+    REQUIRE(cleanup.first != nullptr);
+    cleanup.second = create_fhe_gpu_task(path.c_str());
+    REQUIRE(cleanup.second != nullptr);
+    REQUIRE(begin_fhe_gpu_resource_release(1) == FHE_TASK_RESOURCE_BUSY);
+    release_fhe_gpu_task(cleanup.second);
+    cleanup.second = nullptr;
+    REQUIRE(begin_fhe_gpu_resource_release(0) == FHE_TASK_RESOURCE_BUSY);
+    REQUIRE(begin_fhe_gpu_resource_release(1) == FHE_TASK_OK);
+    REQUIRE(begin_fhe_gpu_resource_release(1) == FHE_TASK_RESOURCE_BUSY);
+    REQUIRE(create_fhe_gpu_task(path.c_str()) == nullptr);
+    release_fhe_gpu_task(cleanup.first);
+    cleanup.first = nullptr;
+    REQUIRE(finish_fhe_gpu_resource_release(-1) == FHE_TASK_RESOURCE_ERROR);
+    REQUIRE(begin_fhe_gpu_resource_release(0) == FHE_TASK_OK);
+    REQUIRE(finish_fhe_gpu_resource_release(0) == FHE_TASK_OK);
+    cleanup.first = create_fhe_gpu_task(path.c_str());
+    REQUIRE(cleanup.first != nullptr);
+}
+
 TEST_CASE("FheTaskGpu cancels real BFV poly task", "[cancel][gpu][real]") {
     BfvParameter parameter = BfvTestDefaultParams::create();
     BfvContext context = BfvContext::create_random_context(parameter);
@@ -208,6 +290,151 @@ TEST_CASE("run_tasks throws cancellation after draining active CPU node", "[canc
     REQUIRE(runner_exception != nullptr);
     REQUIRE_THROWS_AS(std::rethrow_exception(runner_exception), mega_ag_runner::TaskCancelled);
     REQUIRE(executed.load() == 1);
+    REQUIRE(available_data.find("output") == available_data.end());
+}
+
+TEST_CASE("run_tasks drains failures and permits pool reuse", "[failure][cpu]") {
+    Barrier barrier;
+    barrier.release = true;
+    std::atomic<int> executed{0};
+    MegaAG ag = make_chain_ag(&barrier, &executed);
+    BS::priority_thread_pool pool(2);
+    auto context = std::make_unique<DummyContext>();
+    std::unordered_map<NodeId, std::any> available_data;
+    available_data["input"] = std::make_shared<int>(0);
+
+    RunTasksOptions options;
+    options.progress_callback = [](int, int) { throw std::runtime_error("progress failed"); };
+    REQUIRE_THROWS_WITH(run_tasks(ag, pool, context, available_data, options), "progress failed");
+    REQUIRE(executed.load() == 1);
+    REQUIRE(available_data.find("mid") == available_data.end());
+    REQUIRE(available_data.find("output") == available_data.end());
+
+    run_tasks(ag, pool, context, available_data);
+    REQUIRE(executed.load() == 3);
+    REQUIRE(available_data.find("output") != available_data.end());
+}
+
+TEST_CASE("run_tasks drains workers when dispatcher submission fails", "[failure][cpu]") {
+    Barrier barrier;
+    barrier.release = true;
+    std::atomic<int> executed{0};
+    MegaAG ag = make_chain_ag(&barrier, &executed);
+    BS::priority_thread_pool pool(1);
+    auto context = std::make_unique<DummyContext>();
+    std::unordered_map<NodeId, std::any> available_data;
+    available_data["input"] = std::make_shared<int>(0);
+
+    RunTasksOptions options;
+    options.get_other_args = [](const CompoundComputeNode&) -> std::vector<std::any> {
+        throw std::runtime_error("submission failed");
+    };
+    options.cleanup = [] { throw std::runtime_error("cleanup failed"); };
+    REQUIRE_THROWS_WITH(run_tasks(ag, pool, context, available_data, options), "submission failed");
+    REQUIRE(executed.load() == 0);
+
+    run_tasks(ag, pool, context, available_data);
+    REQUIRE(executed.load() == 2);
+}
+
+TEST_CASE("run_tasks reports missing CPU output", "[failure][cpu]") {
+    Barrier barrier;
+    std::atomic<int> executed{0};
+    MegaAG ag = make_chain_ag(&barrier, &executed);
+    ag.computes.at("first").ops.at(0).executor =
+        [&executed](ExecutionContext&, std::unordered_map<NodeId, std::any>&, const ComputeNode&) {
+            executed.fetch_add(1);
+        };
+    BS::priority_thread_pool pool(1);
+    auto context = std::make_unique<DummyContext>();
+    std::unordered_map<NodeId, std::any> available_data;
+    available_data["input"] = std::make_shared<int>(0);
+
+    REQUIRE_THROWS_AS(run_tasks(ag, pool, context, available_data), std::out_of_range);
+    REQUIRE(executed.load() == 1);
+    REQUIRE(available_data.find("output") == available_data.end());
+}
+
+TEST_CASE("missing multi-output result publishes none", "[failure][cpu]") {
+    Barrier barrier;
+    barrier.release = true;
+    std::atomic<int> executed{0};
+    MegaAG ag = make_chain_ag(&barrier, &executed);
+    ag.data.emplace("missing", DatumNode{"missing"});
+    ag.computes.at("first").output_nodes.push_back(&ag.data.at("missing"));
+    BS::priority_thread_pool pool(1);
+    auto context = std::make_unique<DummyContext>();
+    std::unordered_map<NodeId, std::any> available_data;
+    available_data["input"] = std::make_shared<int>(0);
+
+    REQUIRE_THROWS_AS(run_tasks(ag, pool, context, available_data), std::out_of_range);
+    REQUIRE(executed.load() == 1);
+    REQUIRE(available_data.find("mid") == available_data.end());
+    REQUIRE(available_data.find("missing") == available_data.end());
+    REQUIRE(available_data.find("output") == available_data.end());
+}
+
+TEST_CASE("dependency scheduling failure rolls back outputs", "[failure][cpu]") {
+    Barrier barrier;
+    barrier.release = true;
+    std::atomic<int> executed{0};
+    MegaAG ag = make_chain_ag(&barrier, &executed);
+    CompoundComputeNode invalid_successor{"not_in_graph"};
+    invalid_successor.input_nodes = {&ag.data.at("mid")};
+    ag.data.at("mid").successors.push_back(&invalid_successor);
+    BS::priority_thread_pool pool(1);
+    auto context = std::make_unique<DummyContext>();
+    std::unordered_map<NodeId, std::any> available_data;
+    available_data["input"] = std::make_shared<int>(0);
+
+    REQUIRE_THROWS_AS(run_tasks(ag, pool, context, available_data), std::out_of_range);
+    REQUIRE(executed.load() == 1);
+    REQUIRE(available_data.find("input") != available_data.end());
+    REQUIRE(available_data.find("mid") == available_data.end());
+    REQUIRE(available_data.find("output") == available_data.end());
+}
+
+TEST_CASE("failed output publication restores existing values", "[failure][cpu]") {
+    DatumNode first{"first"};
+    DatumNode second{"second"};
+    CompoundComputeNode node{"node"};
+    node.output_nodes = {&first, &second};
+    std::unordered_map<NodeId, std::any> source{{"first", 1}, {"second", 2}};
+    std::unordered_map<NodeId, std::any> destination{{"first", 9}};
+
+    REQUIRE_THROWS_WITH(publish_task_outputs(node, source, destination, [] { throw std::runtime_error("schedule"); }),
+                        "schedule");
+    REQUIRE(std::any_cast<int>(destination.at("first")) == 9);
+    REQUIRE(destination.find("second") == destination.end());
+}
+
+TEST_CASE("run_tasks propagates asynchronous backend failure after drain", "[failure][cpu]") {
+    Barrier barrier;
+    std::atomic<int> executed{0};
+    MegaAG ag = make_chain_ag(&barrier, &executed);
+    ag.computes.at("first").on_cpu = false;
+    BS::priority_thread_pool pool(1);
+    auto context = std::make_unique<DummyContext>();
+    std::unordered_map<NodeId, std::any> available_data;
+    available_data["input"] = std::make_shared<int>(0);
+    std::thread backend;
+    bool drained = false;
+
+    RunTasksOptions options;
+    options.submit_backend_task = [&](NodeId, std::mutex&, std::priority_queue<TaskInfo>&, std::set<NodeId>&,
+                                      std::atomic<size_t>&, std::atomic<size_t>&, std::atomic<size_t>&,
+                                      std::condition_variable&,
+                                      std::mutex&, std::unordered_map<NodeId, std::atomic<int>>&,
+                                      TaskFailureState& failure) {
+        backend = std::thread([&failure] {
+            failure.report(std::make_exception_ptr(std::runtime_error("backend failed")));
+        });
+    };
+    options.cleanup = [&] { backend.join(); drained = true; };
+
+    REQUIRE_THROWS_WITH(run_tasks(ag, pool, context, available_data, options), "backend failed");
+    REQUIRE(drained);
+    REQUIRE(executed.load() == 0);
     REQUIRE(available_data.find("output") == available_data.end());
 }
 

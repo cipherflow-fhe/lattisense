@@ -29,8 +29,14 @@ namespace lattisense {
 
 FheTaskGpu::FheTaskGpu(const std::string& project_path) : FheTask{project_path} {
     task_handle = create_fhe_gpu_task(project_path.c_str());
+    if (!task_handle) rethrow_fhe_gpu_task_error();
 
-    bind_abi_executors();
+    try {
+        bind_abi_executors();
+    } catch (...) {
+        release_fhe_gpu_task(task_handle);
+        throw;
+    }
 }
 
 FheTaskGpu::~FheTaskGpu() {
@@ -46,8 +52,10 @@ void FheTaskGpu::bind_abi_executors() {
 
     // Call C interface to bind these executors
     // GPU uses both: export for inputs (Handle → c_struct), import for intermediate and output nodes
-    bind_gpu_task_abi_bridge_executors(task_handle, reinterpret_cast<void*>(&abi_export),
-                                       reinterpret_cast<void*>(&abi_import));
+    if (bind_gpu_task_abi_bridge_executors(task_handle, reinterpret_cast<void*>(&abi_export),
+                                           reinterpret_cast<void*>(&abi_import)) != FHE_TASK_OK) {
+        rethrow_fhe_gpu_task_error();
+    }
 }
 
 void FheTaskGpu::bind_custom_executors(const std::unordered_map<std::string, ExecutorFunc>& custom_executors) {
@@ -61,7 +69,10 @@ void FheTaskGpu::bind_custom_executors(const std::unordered_map<std::string, Exe
     }
 
     // Call C interface
-    bind_gpu_task_custom_executors(task_handle, custom_types.data(), executor_ptrs.data(), custom_types.size());
+    if (bind_gpu_task_custom_executors(task_handle, custom_types.data(), executor_ptrs.data(),
+                                        custom_types.size()) != FHE_TASK_OK) {
+        rethrow_fhe_gpu_task_error();
+    }
 }
 
 void FheTaskGpu::request_cancel() noexcept {
@@ -110,7 +121,7 @@ uint64_t FheTaskGpu::run(FheContext* context,
         throw TaskCancelledException();
     }
     if (ret != FHE_TASK_OK) {
-        throw std::runtime_error("Failed to run GPU project");
+        rethrow_fhe_gpu_task_error();
     }
 
     auto end = std::chrono::high_resolution_clock::now();

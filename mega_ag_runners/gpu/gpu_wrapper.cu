@@ -52,6 +52,28 @@ namespace gpu_wrapper {
 using namespace fhe_ops_lib;
 
 namespace {
+std::mutex resource_gate_mutex;
+size_t active_resource_owners = 0;
+bool resource_release_in_progress = false;
+
+bool acquire_resource_owner() {
+    std::lock_guard<std::mutex> lock(resource_gate_mutex);
+    if (resource_release_in_progress) {
+        return false;
+    }
+    ++active_resource_owners;
+    return true;
+}
+
+void release_resource_owner() noexcept {
+    std::lock_guard<std::mutex> lock(resource_gate_mutex);
+    if (active_resource_owners != 0) {
+        --active_resource_owners;
+    }
+}
+}  // namespace
+
+namespace {
 
     /// Bootstrapping circuit shape for one residual ring degree.
     struct BtpCircuitParams {
@@ -195,6 +217,17 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
     // GPU streams for FHE computations
     const int num_streams = 2;
     std::vector<cudaStream_t> streams(num_streams);
+    struct StreamGuard {
+        std::vector<cudaStream_t>& streams;
+        ~StreamGuard() {
+            for (auto stream : streams) {
+                if (stream) {
+                    cudaStreamSynchronize(stream);
+                    cudaStreamDestroy(stream);
+                }
+            }
+        }
+    } stream_guard{streams};
     std::vector<heongpu::ExecutionOptions> stream_options(num_streams);
 
     // GPU thread pool for GPU FHE operations (priority-enabled to avoid high-priority tasks being starved)
@@ -223,6 +256,7 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
 
     // GPU-specific data structures
     std::unordered_map<NodeId, cudaEvent_t> data_ready_events;
+    std::vector<cudaEvent_t> owned_events;
     // Galois keys are generated per ring: residual (N) and bootstrapping (N2). Each ring
     // has its own context and Q chain, so they must not share a key object or level.
     std::shared_ptr<heongpu::Galoiskey<SchemeType>> residual_galois_key;
@@ -254,156 +288,196 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
     // Define GPU task submission function
     // This receives shared state from run_tasks
     std::function<void(NodeId, std::mutex&, std::priority_queue<TaskInfo>&, std::set<NodeId>&, std::atomic<size_t>&,
-                       std::atomic<size_t>&, std::condition_variable&, std::mutex&,
-                       std::unordered_map<NodeId, std::atomic<int>>&)>
+                       std::atomic<size_t>&, std::atomic<size_t>&, std::condition_variable&, std::mutex&,
+                       std::unordered_map<NodeId, std::atomic<int>>&, TaskFailureState&)>
         submit_gpu_task = [&](NodeId task_id, std::mutex& m_mutex, std::priority_queue<TaskInfo>& task_queue,
                               std::set<NodeId>& queued_computes, std::atomic<size_t>& completed_tasks,
-                              std::atomic<size_t>& total_tasks, std::condition_variable& completion_cv,
-                              std::mutex& completion_mutex,
-                              std::unordered_map<NodeId, std::atomic<int>>& data_ref_counts) {
+                              std::atomic<size_t>& progress_tasks, std::atomic<size_t>& total_tasks,
+                              std::condition_variable& completion_cv, std::mutex& completion_mutex,
+                              std::unordered_map<NodeId, std::atomic<int>>& data_ref_counts,
+                              TaskFailureState& failure) {
             const BS::priority_t pool_priority = mega_ag.computes.at(task_id).priority;
             gpu_pool.detach_task(
                 [task_id, pool_priority, device, &gpu_pool, &mega_ag, &m_mutex, &task_queue, &queued_computes,
-                 &completed_tasks, &total_tasks, &completion_cv, &completion_mutex, &available_data, &operators,
-                 &encoder, &boot_operators, &boot_context, &data_ready_events, &stream_options, &streams, &context,
-                 &residual_galois_key, &boot_galois_key, &residual_galois_key_mutex, &boot_galois_key_mutex,
+                 &completed_tasks, &progress_tasks, &total_tasks, &completion_cv, &completion_mutex, &available_data,
+                 &operators, &encoder, &boot_operators, &boot_context, &data_ready_events, &stream_options, &streams,
+                 &context, &residual_galois_key, &boot_galois_key, &residual_galois_key_mutex, &boot_galois_key_mutex,
                  &data_ref_counts, &residual_galois_elts, &boot_galois_elts, &residual_galois_key_level,
-                 &boot_galois_key_level, cancel_flag]() {
-                    CHECK(cudaSetDevice(device));
-                    if (cancel_flag && cancel_flag->load()) {
-                        return;
-                    }
-                    auto stream_id = BS::this_thread::get_index().value();
+                 &boot_galois_key_level, &failure, &owned_events, cancel_flag]() {
+                    try {
+                        CHECK(cudaSetDevice(device));
+                        if (failure.failed.load() || (cancel_flag && cancel_flag->load())) {
+                            return;
+                        }
+                        auto stream_id = BS::this_thread::get_index().value();
 
-                    const CompoundComputeNode& compute_node = mega_ag.computes.at(task_id);
+                        const CompoundComputeNode& compute_node = mega_ag.computes.at(task_id);
 
-                    const std::vector<DatumNode*>& compute_input_nodes = compute_node.input_nodes;
-                    const bool has_load_to_backend =
-                        compute_contains_operation(compute_node, OperationType::LOAD_TO_BACKEND);
-                    const bool has_store_from_backend =
-                        compute_contains_operation(compute_node, OperationType::STORE_FROM_BACKEND);
+                        const std::vector<DatumNode*>& compute_input_nodes = compute_node.input_nodes;
+                        const bool has_load_to_backend =
+                            compute_contains_operation(compute_node, OperationType::LOAD_TO_BACKEND);
+                        const bool has_store_from_backend =
+                            compute_contains_operation(compute_node, OperationType::STORE_FROM_BACKEND);
 
-                    std::vector<cudaEvent_t> events_to_wait;
-                    std::unordered_map<NodeId, std::any> thread_data_cache;
-                    {
-                        std::lock_guard<std::mutex> lock(m_mutex);
+                        std::vector<cudaEvent_t> events_to_wait;
+                        std::unordered_map<NodeId, std::any> thread_data_cache;
+                        {
+                            std::lock_guard<std::mutex> lock(m_mutex);
+                            if (failure.failed.load() || (cancel_flag && cancel_flag->load())) {
+                                return;
+                            }
 
-                        // Check if all BACKEND input events are available.
-                        // ABI inputs for LOAD_TO_BACKEND don't have events.
-                        bool events_ready = true;
-                        if (!has_load_to_backend) {
+                            // Check if all BACKEND input events are available.
+                            // ABI inputs for LOAD_TO_BACKEND don't have events.
+                            bool events_ready = true;
+                            if (!has_load_to_backend) {
+                                for (const auto* input_node : compute_input_nodes) {
+                                    auto event_it = data_ready_events.find(input_node->id);
+                                    if (event_it == data_ready_events.end()) {
+                                        events_ready = false;
+                                        break;
+                                    }
+                                }
+                            }
+
+                            if (!events_ready) {
+                                queued_computes.erase(task_id);
+                                task_queue.push({compute_node.priority, task_id});
+                                return;
+                            }
+
+                            // Collect events to wait for and cache data pointers.
                             for (const auto* input_node : compute_input_nodes) {
-                                auto event_it = data_ready_events.find(input_node->id);
-                                if (event_it == data_ready_events.end()) {
-                                    events_ready = false;
-                                    break;
+                                thread_data_cache[input_node->id] = available_data.at(input_node->id);
+
+                                if (!has_load_to_backend) {
+                                    events_to_wait.push_back(data_ready_events.at(input_node->id));
                                 }
                             }
                         }
 
-                        if (!events_ready) {
-                            queued_computes.erase(task_id);
-                            task_queue.push({compute_node.priority, task_id});
-                            return;
+                        // Wait for all required events outside of locks
+                        for (auto& event : events_to_wait) {
+                            CHECK(cudaStreamWaitEvent(streams[stream_id], event, 0));
                         }
 
-                        // Collect events to wait for and cache data pointers.
-                        for (const auto* input_node : compute_input_nodes) {
-                            thread_data_cache[input_node->id] = available_data[input_node->id];
+                        // Execute computation using unified executor
+                        ExecutionContext exec_ctx;
+                        exec_ctx.context = operators.get();
+                        exec_ctx.other_args.push_back(&stream_options[stream_id]);
+                        exec_ctx.other_args.push_back(&context);
 
-                            if (!has_load_to_backend) {
-                                events_to_wait.push_back(data_ready_events.at(input_node->id));
-                            }
+                        // The bootstrapping operator is passed as an other_arg to the
+                        // BOOTSTRAP nodes (which have no LOAD_TO_BACKEND, so index 2).
+                        if (compute_contains_operation(compute_node, OperationType::BOOTSTRAP)) {
+                            exec_ctx.other_args.push_back(boot_operators.get());
                         }
-                    }
 
-                    // Wait for all required events outside of locks
-                    for (auto& event : events_to_wait) {
-                        CHECK(cudaStreamWaitEvent(streams[stream_id], event, 0));
-                    }
+                        if (has_load_to_backend) {
+                            exec_ctx.other_args.push_back(&residual_galois_key);        // [2]
+                            exec_ctx.other_args.push_back(&boot_galois_key);            // [3]
+                            exec_ctx.other_args.push_back(&residual_galois_key_mutex);  // [4]
+                            exec_ctx.other_args.push_back(&boot_galois_key_mutex);      // [5]
+                            exec_ctx.other_args.push_back(&residual_galois_elts);       // [6]
+                            exec_ctx.other_args.push_back(&boot_galois_elts);           // [7]
+                            exec_ctx.other_args.push_back(&residual_galois_key_level);  // [8]
+                            exec_ctx.other_args.push_back(&boot_galois_key_level);      // [9]
+                            exec_ctx.other_args.push_back(&boot_context);               // [10]
+                        }
 
-                    // Execute computation using unified executor
-                    ExecutionContext exec_ctx;
-                    exec_ctx.context = operators.get();
-                    exec_ctx.other_args.push_back(&stream_options[stream_id]);
-                    exec_ctx.other_args.push_back(&context);
-
-                    // The bootstrapping operator is passed as an other_arg to the
-                    // BOOTSTRAP nodes (which have no LOAD_TO_BACKEND, so index 2).
-                    if (compute_contains_operation(compute_node, OperationType::BOOTSTRAP)) {
-                        exec_ctx.other_args.push_back(boot_operators.get());
-                    }
-
-                    if (has_load_to_backend) {
-                        exec_ctx.other_args.push_back(&residual_galois_key);        // [2]
-                        exec_ctx.other_args.push_back(&boot_galois_key);            // [3]
-                        exec_ctx.other_args.push_back(&residual_galois_key_mutex);  // [4]
-                        exec_ctx.other_args.push_back(&boot_galois_key_mutex);      // [5]
-                        exec_ctx.other_args.push_back(&residual_galois_elts);       // [6]
-                        exec_ctx.other_args.push_back(&boot_galois_elts);           // [7]
-                        exec_ctx.other_args.push_back(&residual_galois_key_level);  // [8]
-                        exec_ctx.other_args.push_back(&boot_galois_key_level);      // [9]
-                        exec_ctx.other_args.push_back(&boot_context);               // [10]
-                    }
-
-                    try {
                         compute_node.execute(exec_ctx, thread_data_cache);
-                    } catch (const std::exception& e) {
-                        fprintf(stderr, ">>> GPU task %s threw: %s\n", task_id.c_str(), e.what());
-                        throw;
-                    }
 
-                    // Create events for GPU backend outputs (not STORE_FROM_BACKEND which outputs to C struct)
-                    std::vector<cudaEvent_t> output_events;
-                    if (!has_store_from_backend) {
-                        output_events.reserve(compute_node.output_nodes.size());
-                        for (size_t i = 0; i < compute_node.output_nodes.size(); ++i) {
-                            cudaEvent_t output_event;
-                            CHECK(cudaEventCreate(&output_event));
-                            CHECK(cudaEventRecord(output_event, streams[stream_id]));
-                            output_events.push_back(output_event);
-                        }
-                    }
-
-                    {
-                        std::lock_guard<std::mutex> lock(m_mutex);
-
-                        for (const auto* output_node : compute_node.output_nodes) {
-                            available_data[output_node->id] = thread_data_cache.at(output_node->id);
-                        }
-                        auto newly_available_computes = mega_ag.step_available_computes(compute_node, available_data);
-
-                        for (size_t i = 0; i < output_events.size(); ++i) {
-                            data_ready_events[compute_node.output_nodes[i]->id] = output_events[i];
-                        }
-
-                        for (const auto& new_task_id : newly_available_computes) {
-                            if (queued_computes.find(new_task_id) == queued_computes.end()) {
-                                task_queue.push({mega_ag.computes.at(new_task_id).priority, new_task_id});
-                                queued_computes.insert(new_task_id);
+                        // Create events for GPU backend outputs (not STORE_FROM_BACKEND which outputs to C struct)
+                        std::vector<cudaEvent_t> output_events;
+                        if (!has_store_from_backend) {
+                            output_events.reserve(compute_node.output_nodes.size());
+                            for (size_t i = 0; i < compute_node.output_nodes.size(); ++i) {
+                                cudaEvent_t output_event;
+                                CHECK(cudaEventCreate(&output_event));
+                                try {
+                                    std::lock_guard<std::mutex> lock(m_mutex);
+                                    owned_events.push_back(output_event);
+                                } catch (...) {
+                                    cudaEventDestroy(output_event);
+                                    throw;
+                                }
+                                CHECK(cudaEventRecord(output_event, streams[stream_id]));
+                                output_events.push_back(output_event);
                             }
                         }
-                    }
 
-                    gpu_pool.detach_task(
-                        [compute_node, output_events, device, &mega_ag, &m_mutex, &available_data, &data_ref_counts]() {
-                            CHECK(cudaSetDevice(device));
-                            for (auto& output_event : output_events) {
-                                CHECK(cudaEventSynchronize(output_event));
+                        // Do not publish outputs or enqueue dependents until all
+                        // recorded device work has completed successfully. An
+                        // event synchronization failure must stop this node's
+                        // successors before they become runnable.
+                        for (auto event : output_events) {
+                            CHECK(cudaEventSynchronize(event));
+                        }
+                        if (has_store_from_backend) {
+                            CHECK(cudaStreamSynchronize(streams[stream_id]));
+                        }
+
+                        {
+                            std::lock_guard<std::mutex> lock(m_mutex);
+
+                            if (failure.failed.load() || (cancel_flag && cancel_flag->load())) {
+                                return;
                             }
 
-                            {
-                                std::lock_guard<std::mutex> lock(m_mutex);
-                                mega_ag.purge_unused_data(compute_node, data_ref_counts, available_data);
-                            }
-                        },
-                        pool_priority);
+                            try {
+                                publish_task_outputs(compute_node, thread_data_cache, available_data, [&] {
+                                    auto newly_available_computes =
+                                        mega_ag.step_available_computes(compute_node, available_data);
 
-                    // Check if all tasks are completed (in this thread, not async lambda)
-                    if (completed_tasks.fetch_add(1) + 1 >= total_tasks) {
-                        std::lock_guard<std::mutex> lock(completion_mutex);
-                        completion_cv.notify_all();
-                    }
+                                    std::vector<std::pair<NodeId, cudaEvent_t>> previous_events;
+                                    previous_events.reserve(output_events.size());
+                                    for (size_t i = 0; i < output_events.size(); ++i) {
+                                        const auto& id = compute_node.output_nodes[i]->id;
+                                        const auto existing = data_ready_events.find(id);
+                                        previous_events.emplace_back(
+                                            id, existing == data_ready_events.end() ? nullptr : existing->second);
+                                    }
+                                    data_ready_events.reserve(data_ready_events.size() + output_events.size());
+                                    size_t applied_events = 0;
+                                    try {
+                                        for (size_t i = 0; i < output_events.size(); ++i) {
+                                            data_ready_events.insert_or_assign(previous_events[i].first,
+                                                                               output_events[i]);
+                                            ++applied_events;
+                                        }
+
+                                        for (const auto& new_task_id : newly_available_computes) {
+                                            if (queued_computes.find(new_task_id) == queued_computes.end()) {
+                                                task_queue.push(
+                                                    {mega_ag.computes.at(new_task_id).priority, new_task_id});
+                                                queued_computes.insert(new_task_id);
+                                            }
+                                        }
+                                        mega_ag.purge_unused_data(compute_node, data_ref_counts, available_data);
+                                    } catch (...) {
+                                        for (size_t i = 0; i < applied_events; ++i) {
+                                            const auto& event = previous_events[i];
+                                            if (event.second)
+                                                data_ready_events.at(event.first) = event.second;
+                                            else
+                                                data_ready_events.erase(event.first);
+                                        }
+                                        throw;
+                                    }
+                                });
+                            } catch (...) {
+                                failure.report_locked(std::current_exception());
+                                throw;
+                            }
+                        }
+
+                        // Check if all tasks are completed (in this thread, not async lambda)
+                        progress_tasks.fetch_add(1);
+                        if (completed_tasks.fetch_add(1) + 1 >= total_tasks) {
+                            std::lock_guard<std::mutex> lock(completion_mutex);
+                            completion_cv.notify_all();
+                        }
+                    } catch (...) { failure.report(std::current_exception()); }
                 },
                 pool_priority);
         };
@@ -425,16 +499,36 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
     RunTasksOptions options;
     options.get_other_args = get_other_args;
     options.submit_backend_task = submit_gpu_task;
-    options.cleanup = [&gpu_pool, &data_ready_events, &streams]() {
+    options.cleanup = [&gpu_pool, &owned_events, &streams]() {
         gpu_pool.wait();
+        std::exception_ptr first_error;
         for (auto stream : streams) {
-            CHECK(cudaStreamSynchronize(stream));
+            try {
+                CHECK(cudaStreamSynchronize(stream));
+            } catch (...) {
+                if (!first_error)
+                    first_error = std::current_exception();
+            }
         }
-        for (auto& pair : data_ready_events) {
-            cudaEvent_t event = pair.second;
-            gpu_pool.detach_task([event]() { CHECK(cudaEventDestroy(event)); });
+        for (auto event : owned_events) {
+            try {
+                CHECK(cudaEventDestroy(event));
+            } catch (...) {
+                if (!first_error)
+                    first_error = std::current_exception();
+            }
         }
-        gpu_pool.wait();
+        for (auto& stream : streams) {
+            try {
+                CHECK(cudaStreamDestroy(stream));
+                stream = nullptr;
+            } catch (...) {
+                if (!first_error)
+                    first_error = std::current_exception();
+            }
+        }
+        if (first_error)
+            std::rethrow_exception(first_error);
     };
     options.progress_callback = progress_cb;
     options.cancel_flag = cancel_flag;
@@ -474,25 +568,33 @@ void _run_mega_ag(gsl::span<CArgument> input_args,
 class FheGpuTask {
 public:
     FheGpuTask(const std::string& project_path) {
-        mega_ag_ = MegaAG::load(project_path, Processor::GPU);
+        if (!acquire_resource_owner()) {
+            throw std::runtime_error("GPU resources are being released");
+        }
+        try {
+            mega_ag_ = MegaAG::load(project_path, Processor::GPU);
 
-        cudaSetDevice(0);  // Warm up default device; actual device is selected at run time
+            CHECK(cudaSetDevice(0));  // Warm up default device; actual device is selected at run time
 
-        // Warm up the CUDA context, so that the computation time measurment is more accurate.
-        heongpu::HEContext<heongpu::Scheme::BFV> context =
-            heongpu::GenHEContext<heongpu::Scheme::BFV>(heongpu::sec_level_type::none);
-        context->set_poly_modulus_degree(8192);
-        context->set_coeff_modulus_values({18014398508400641, 18014398510645249, 18014398510661633},
-                                          {36028797018652673});
-        context->set_plain_modulus(65537);
-        heongpu::MemoryPoolConfig pool_config = heongpu::MemoryPoolConfig::Defaults();
-        context->generate(pool_config);
-        heongpu::HEKeyGenerator<heongpu::Scheme::BFV> keygen(context);
-        heongpu::Secretkey<heongpu::Scheme::BFV> secret_key(context);
-        keygen.generate_secret_key(secret_key);
+            // Warm up the CUDA context, so that the computation time measurment is more accurate.
+            heongpu::HEContext<heongpu::Scheme::BFV> context =
+                heongpu::GenHEContext<heongpu::Scheme::BFV>(heongpu::sec_level_type::none);
+            context->set_poly_modulus_degree(8192);
+            context->set_coeff_modulus_values({18014398508400641, 18014398510645249, 18014398510661633},
+                                              {36028797018652673});
+            context->set_plain_modulus(65537);
+            heongpu::MemoryPoolConfig pool_config = heongpu::MemoryPoolConfig::Defaults();
+            context->generate(pool_config);
+            heongpu::HEKeyGenerator<heongpu::Scheme::BFV> keygen(context);
+            heongpu::Secretkey<heongpu::Scheme::BFV> secret_key(context);
+            keygen.generate_secret_key(secret_key);
+        } catch (...) {
+            release_resource_owner();
+            throw;
+        }
     }
 
-    ~FheGpuTask() {}
+    ~FheGpuTask() { release_resource_owner(); }
 
     void bind_abi_bridge_executors(const ExecutorFunc& abi_export, const ExecutorFunc& abi_import) {
         // Create GPU backend bridge executors based on algorithm
@@ -549,10 +651,13 @@ public:
             }
             CHECK(cudaDeviceSynchronize());
         } catch (const mega_ag_runner::TaskCancelled&) {
-            CHECK(cudaDeviceSynchronize());
             clear_cancel_flag(cancel_flag);
+            CHECK(cudaDeviceSynchronize());
             return FHE_TASK_CANCELLED;
         } catch (...) {
+            // Preserve the compute error while ensuring this run has no device
+            // work left in flight before its resources can be released.
+            cudaDeviceSynchronize();
             clear_cancel_flag(cancel_flag);
             throw;
         }
@@ -576,10 +681,69 @@ protected:
 };
 };  // namespace gpu_wrapper
 
+namespace {
+thread_local std::exception_ptr gpu_task_error;
+}
+
+void rethrow_fhe_gpu_task_error() {
+    if (gpu_task_error) std::rethrow_exception(gpu_task_error);
+    throw std::runtime_error("GPU task failed without an error");
+}
+
 extern "C" {
-fhe_task_handle create_fhe_gpu_task(const char* project_path) {
+int begin_fhe_gpu_resource_release(int caller_has_owner) {
+    std::lock_guard<std::mutex> lock(gpu_wrapper::resource_gate_mutex);
+    const size_t expected = caller_has_owner ? 1 : 0;
+    if (gpu_wrapper::resource_release_in_progress ||
+        gpu_wrapper::active_resource_owners != expected) {
+        return FHE_TASK_RESOURCE_BUSY;
+    }
+    gpu_wrapper::resource_release_in_progress = true;
+    return FHE_TASK_OK;
+}
+
+int finish_fhe_gpu_resource_release(int gpu_device) {
+    std::lock_guard<std::mutex> lock(gpu_wrapper::resource_gate_mutex);
+    if (!gpu_wrapper::resource_release_in_progress ||
+        gpu_wrapper::active_resource_owners != 0) {
+        gpu_wrapper::resource_release_in_progress = false;
+        return FHE_TASK_RESOURCE_ERROR;
+    }
+    try {
+        // A failed prior CUDA call must not poison this explicit retry.
+        cudaGetLastError();
+        if (cudaSetDevice(gpu_device) != cudaSuccess) {
+            // Consume this reported error so a corrected device can retry.
+            cudaGetLastError();
+            gpu_wrapper::resource_release_in_progress = false;
+            return FHE_TASK_RESOURCE_ERROR;
+        }
+        cudaGetLastError();
+        if (!heongpu::MemoryPool::instance().release()) {
+            gpu_wrapper::resource_release_in_progress = false;
+            return FHE_TASK_RESOURCE_ERROR;
+        }
+    } catch (...) {
+        gpu_wrapper::resource_release_in_progress = false;
+        return FHE_TASK_RESOURCE_ERROR;
+    }
+    gpu_wrapper::resource_release_in_progress = false;
+    return FHE_TASK_OK;
+}
+
+const char* fhe_gpu_task_last_error(void) {
+    if (!gpu_task_error) return "";
+    try { std::rethrow_exception(gpu_task_error); }
+    catch (const std::exception& error) { return error.what(); }
+    catch (...) { return "Unknown GPU task exception"; }
+}
+
+fhe_task_handle create_fhe_gpu_task(const char* project_path) try {
     gpu_wrapper::FheGpuTask* task = new gpu_wrapper::FheGpuTask(project_path);
     return (fhe_task_handle)task;
+} catch (...) {
+    gpu_task_error = std::current_exception();
+    return nullptr;
 }
 
 void release_fhe_gpu_task(fhe_task_handle handle) {
@@ -594,17 +758,21 @@ void cancel_fhe_gpu_task(fhe_task_handle handle) {
     }
 }
 
-void bind_gpu_task_abi_bridge_executors(fhe_task_handle handle, void* abi_export_executor, void* abi_import_executor) {
+int bind_gpu_task_abi_bridge_executors(fhe_task_handle handle, void* abi_export_executor, void* abi_import_executor) try {
     gpu_wrapper::FheGpuTask* task = (gpu_wrapper::FheGpuTask*)handle;
     ExecutorFunc* export_executor = reinterpret_cast<ExecutorFunc*>(abi_export_executor);
     ExecutorFunc* import_executor = reinterpret_cast<ExecutorFunc*>(abi_import_executor);
     task->bind_abi_bridge_executors(*export_executor, *import_executor);
+    return FHE_TASK_OK;
+} catch (...) {
+    gpu_task_error = std::current_exception();
+    return FHE_TASK_ERROR;
 }
 
-void bind_gpu_task_custom_executors(fhe_task_handle handle,
+int bind_gpu_task_custom_executors(fhe_task_handle handle,
                                     const char** custom_types,
                                     void** executors,
-                                    uint64_t n_executors) {
+                                    uint64_t n_executors) try {
     gpu_wrapper::FheGpuTask* task = (gpu_wrapper::FheGpuTask*)handle;
     std::unordered_map<std::string, ExecutorFunc> custom_executors;
     for (uint64_t i = 0; i < n_executors; i++) {
@@ -612,6 +780,10 @@ void bind_gpu_task_custom_executors(fhe_task_handle handle,
         custom_executors[std::string(custom_types[i])] = *executor_ptr;
     }
     task->bind_custom_executors(custom_executors);
+    return FHE_TASK_OK;
+} catch (...) {
+    gpu_task_error = std::current_exception();
+    return FHE_TASK_ERROR;
 }
 
 int run_fhe_gpu_task(fhe_task_handle handle,
@@ -621,7 +793,7 @@ int run_fhe_gpu_task(fhe_task_handle handle,
                      uint64_t n_out_args,
                      progress_callback_t progress_cb,
                      void* user_data,
-                     int gpu_device) {
+                     int gpu_device) try {
     gpu_wrapper::FheGpuTask* task = (gpu_wrapper::FheGpuTask*)handle;
     gsl::span<CArgument> input_arg_span{input_args, n_in_args};
     gsl::span<CArgument> output_arg_span{output_args, n_out_args};
@@ -631,5 +803,8 @@ int run_fhe_gpu_task(fhe_task_handle handle,
         cb = [progress_cb, user_data](int completed, int total) { progress_cb(completed, total, user_data); };
     }
     return task->run(input_arg_span, output_arg_span, cb, gpu_device);
+} catch (...) {
+    gpu_task_error = std::current_exception();
+    return FHE_TASK_ERROR;
 }
 }  // extern "C"
