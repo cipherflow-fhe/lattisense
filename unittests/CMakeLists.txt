@@ -45,6 +45,12 @@ include_directories(test_task_cancellation ${CMAKE_CURRENT_SOURCE_DIR}/../cxx_sd
 target_link_libraries(test_task_cancellation cxx_sdk_v2)
 if(LATTISENSE_ENABLE_GPU)
     target_compile_definitions(test_task_cancellation PRIVATE LATTISENSE_ENABLE_GPU)
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        add_executable(test_gpu_failure test_gpu_failure.cpp)
+        target_include_directories(test_gpu_failure PRIVATE ${CUDAToolkit_INCLUDE_DIRS})
+        target_link_libraries(test_gpu_failure PRIVATE cxx_sdk_v2 CUDA::cudart ${CMAKE_DL_LIBS})
+        target_link_options(test_gpu_failure PRIVATE -Wl,--export-dynamic)
+    endif()
 endif()
 
 if(OPENMP_FOUND)

@@ -203,7 +203,39 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
     const int device = gpu_device;
     CHECK(cudaSetDevice(device));
 
-    // Initialize GPU context and operators for GPU FHE operations
+    // GPU streams for FHE computations
+    const int num_streams = 2;
+    std::vector<cudaStream_t> streams(num_streams);
+    struct StreamGuard {
+        std::vector<cudaStream_t>& streams;
+        void close() {
+            std::exception_ptr first_error;
+            for (auto& stream : streams) {
+                if (!stream) continue;
+                try { CHECK(cudaStreamSynchronize(stream)); }
+                catch (...) { if (!first_error) first_error = std::current_exception(); }
+                // A destroy call may report an earlier asynchronous error even
+                // after consuming its handle. Never retry an ambiguous handle.
+                const auto closing_stream = stream;
+                stream = nullptr;
+                try { CHECK(cudaStreamDestroy(closing_stream)); }
+                catch (...) { if (!first_error) first_error = std::current_exception(); }
+            }
+            if (first_error) std::rethrow_exception(first_error);
+        }
+        ~StreamGuard() {
+            for (auto stream : streams) {
+                if (stream) {
+                    cudaStreamSynchronize(stream);
+                    cudaStreamDestroy(stream);
+                }
+            }
+        }
+    } stream_guard{streams};
+    {
+    // Device buffers and RMM's stream-aware deallocations must finish before
+    // their streams are destroyed, including on failed/cancelled runs.
+    // Contexts also cache buffers allocated on execution streams.
     heongpu::HEContext<SchemeType> context;
     std::unique_ptr<heongpu::HEEncoder<SchemeType>> encoder;
     std::unique_ptr<heongpu::HEArithmeticOperator<SchemeType>> operators;
@@ -214,20 +246,6 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
     init_gpu_context<SchemeType>(mega_ag.parameter, context, encoder, operators, boot_context, boot_encoder,
                                  boot_operators);
 
-    // GPU streams for FHE computations
-    const int num_streams = 2;
-    std::vector<cudaStream_t> streams(num_streams);
-    struct StreamGuard {
-        std::vector<cudaStream_t>& streams;
-        ~StreamGuard() {
-            for (auto stream : streams) {
-                if (stream) {
-                    cudaStreamSynchronize(stream);
-                    cudaStreamDestroy(stream);
-                }
-            }
-        }
-    } stream_guard{streams};
     std::vector<heongpu::ExecutionOptions> stream_options(num_streams);
 
     // GPU thread pool for GPU FHE operations (priority-enabled to avoid high-priority tasks being starved)
@@ -518,15 +536,6 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
                     first_error = std::current_exception();
             }
         }
-        for (auto& stream : streams) {
-            try {
-                CHECK(cudaStreamDestroy(stream));
-                stream = nullptr;
-            } catch (...) {
-                if (!first_error)
-                    first_error = std::current_exception();
-            }
-        }
         if (first_error)
             std::rethrow_exception(first_error);
     };
@@ -546,6 +555,8 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
     cpu_mem_monitor.stop();
     gpu_mem_monitor.stop();
 #endif
+    }
+    stream_guard.close();
 }
 
 // Dispatch function to call _run_mega_ag_impl with appropriate TContext
