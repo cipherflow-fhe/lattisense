@@ -56,7 +56,8 @@ inline CkksParameter create_ckks_parameter(const nlohmann::json& param_json) {
     auto q = param_json["q"].get<std::vector<uint64_t>>();
     auto p = param_json["p"].get<std::vector<uint64_t>>();
     auto ring_type = static_cast<RingType>(param_json.value("ring_type", 0));
-    return CkksParameter::create_custom_parameter(log_n, log_default_scale, q, p, ring_type);
+    return CkksParameter::create_custom_parameter(log_n, log_default_scale, q, p, ring_type,
+            param_json.value("secret_hamming_weight", 0));
 }
 
 /**

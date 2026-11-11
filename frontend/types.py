@@ -204,6 +204,7 @@ class CkksParam(Param):
         self.default_scale: float = 1 << log_scale
         self.enable_bootstrapping: bool = False
         self.ring_type: RingType = RingType.Standard
+        self.secret_hamming_weight: int = 0
 
     def set_log_scale(self, log_scale: int):
         self.log_default_scale = log_scale
@@ -233,9 +234,13 @@ class CkksParam(Param):
 
     @classmethod
     def create_custom_param(
-        cls, log_n: int, q: List[int], p: List[int], log_scale: int = 0, ring_type: RingType = RingType.Standard
+        cls, log_n: int, q: List[int], p: List[int], log_scale: int = 0, ring_type: RingType = RingType.Standard,
+        secret_hamming_weight: int = 0,
     ):
+        if not 0 <= secret_hamming_weight <= (1 << log_n):
+            raise ValueError('secret_hamming_weight must be between 0 (default) and N')
         instance = cls(log_n, log_scale)
+        instance.secret_hamming_weight = secret_hamming_weight
         instance.q = q
         instance.p = p
         instance.max_level = len(q) - 1
@@ -247,6 +252,7 @@ class CkksParam(Param):
         d['log_default_scale'] = self.log_default_scale
         d['enable_bootstrapping'] = self.enable_bootstrapping
         d['ring_type'] = int(self.ring_type)
+        d['secret_hamming_weight'] = self.secret_hamming_weight
         return d
 
 
