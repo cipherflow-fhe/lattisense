@@ -35,11 +35,10 @@ CkksParameter CkksParameter::create_custom_parameter(int log_n,
                                                      int log_default_scale,
                                                      const std::vector<uint64_t>& q,
                                                      const std::vector<uint64_t>& p,
-                                                     RingType ring_type,
-                                                     int secret_hamming_weight) {
+                                                     RingType ring_type) {
     uint64_t handle = 0;
-    CHECK(CreateCkksCustomParameterWithSecretWeight(log_n, log_default_scale, (uint64_t*)q.data(), q.size(), (uint64_t*)p.data(),
-                                    p.size(), static_cast<int>(ring_type), secret_hamming_weight, &handle));
+    CHECK(CreateCkksCustomParameter(log_n, log_default_scale, (uint64_t*)q.data(), q.size(), (uint64_t*)p.data(),
+                                    p.size(), static_cast<int>(ring_type), &handle));
     return CkksParameter(std::move(handle));
 }
 

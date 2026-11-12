@@ -49,8 +49,7 @@ public:
                                                  int log_default_scale,
                                                  const std::vector<uint64_t>& q,
                                                  const std::vector<uint64_t>& p,
-                                                 RingType ring_type = RingType::Standard,
-                                                 int secret_hamming_weight = 0);
+                                                 RingType ring_type = RingType::Standard);
 
     CkksParameter copy() const;
 
