@@ -764,7 +764,7 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS drop level", "", CkksTestParams, Ck
 TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS rotate", "", CkksTestParams, CkksCITestParams) {
     const vector<int32_t> steps = {1, -2, 5, -10, 1000};
 
-    SECTION("default rotation") {
+    SECTION("naf rotation") {
         this->ctx.gen_rotation_keys();
 
         SECTION("real message") {
@@ -807,7 +807,7 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS rotate", "", CkksTestParams, CkksCI
         }
     }
 
-    SECTION("non-default rotation") {
+    SECTION("non-naf rotation") {
         this->ctx.gen_rotation_keys(steps);
 
         SECTION("real message") {
@@ -871,7 +871,6 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS conjugate", "", CkksTestParams) {
 }
 
 TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS bootstrap", "", CkksTestParams, CkksCITestParams) {
-    this->ctx.create_bootstrapper();
     const int bootstrap_log2_min_prec = std::max(this->param.log_default_scale() - this->param.log_n() - 12, 0);
 
     SECTION("real message") {
@@ -1002,7 +1001,6 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS ciphertext serialization", "", Ckks
 TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS context serialization", "", CkksTestParams) {
     const int32_t step = 13;
     this->ctx.gen_rotation_keys(vector<int32_t>{step});
-    this->ctx.create_bootstrapper();
     const int bootstrap_log2_min_prec = std::max(this->param.log_default_scale() - this->param.log_n() - 12, 0);
 
     Bytes serialized = this->ctx.serialize();

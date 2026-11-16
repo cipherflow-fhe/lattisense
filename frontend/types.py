@@ -138,6 +138,7 @@ class Param:
         self.p: list[int] = []
         self.q: list[int] = []
         self.max_level: int = -1
+        self._param_category: str | None = None
 
     def get_max_sp_level(self):
         return len(self.p) - 1
@@ -155,6 +156,8 @@ class Param:
             raise ValueError(f'Unsupported algorithm type: {self.algo.value}')
 
         algo_params = parameters[self.algo.value]
+        if self._param_category is not None:
+            algo_params = algo_params[self._param_category]
         if str(self.log_n) not in algo_params:
             raise ValueError(f'Unsupported log_n value for algorithm {self.algo.value}: {self.log_n}')
 
@@ -214,8 +217,12 @@ class CkksParam(Param):
         return self.log_n if self.ring_type == RingType.ConjugateInvariant else self.log_n - 1
 
     @classmethod
-    def create_default_param(cls, log_n: int, ring_type: RingType = RingType.Standard):
+    def create_default_param(
+        cls, log_n: int, ring_type: RingType = RingType.Standard, enable_bootstrapping: bool = False
+    ):
         instance = cls(log_n)
+        instance._param_category = 'bootstrapped' if enable_bootstrapping else 'non-bootstrapped'
+        instance.enable_bootstrapping = enable_bootstrapping
 
         param_json = instance._load_parameter()
 
@@ -608,7 +615,7 @@ class FheComputeNode(ComputeNode):
         }
         if isinstance(self, RotateColNode):
             d['steps'] = self.steps
-            d['use_default_rotation_keys'] = self.use_default_rotation_keys
+            d['use_naf_decomposed_rotation_keys'] = self.use_naf_decomposed_rotation_keys
         elif isinstance(self, DropLevelNode):
             d['drop_level'] = self.drop_level
         elif isinstance(self, (CmpSumComputeNode, CmpacSumComputeNode)):
@@ -679,10 +686,10 @@ class RotateColNode(FheComputeNode):
     @brief Column rotation node type.
     """
 
-    def __init__(self, steps: list[int] | int, use_default_rotation_keys: bool = True) -> None:
+    def __init__(self, steps: list[int] | int, use_naf_decomposed_rotation_keys: bool = True) -> None:
         super().__init__(type=OperationType.RotateCol)
         self.steps = [steps] if isinstance(steps, int) else steps
-        self.use_default_rotation_keys = use_default_rotation_keys
+        self.use_naf_decomposed_rotation_keys = use_naf_decomposed_rotation_keys
 
 
 class RotateRowNode(FheComputeNode):

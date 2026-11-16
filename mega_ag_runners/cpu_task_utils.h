@@ -85,13 +85,10 @@ void init_context(const nlohmann::json& param_json, std::unique_ptr<TContext>& c
     if constexpr (SchemeType == HEScheme::CKKS) {
         auto log_default_scale = param_json["log_default_scale"].get<int>();
         auto ring_type = static_cast<RingType>(param_json.value("ring_type", 0));
-        CkksParameter param = CkksParameter::create_custom_parameter(log_n, log_default_scale, q, p, ring_type);
+        bool enable_bootstrapping = param_json.value("enable_bootstrapping", false);
+        CkksParameter param =
+            CkksParameter::create_custom_parameter(log_n, log_default_scale, q, p, ring_type, enable_bootstrapping);
         context = std::make_unique<TContext>(CkksContext::create_empty_context(param));
-
-        if (param_json.value("enable_bootstrapping", false)) {
-            context->set_enable_bootstrapping(true);
-            context->bootstrapping_parameter();
-        }
 
     } else if constexpr (SchemeType == HEScheme::BFV) {
         auto t = param_json["t"].get<uint64_t>();

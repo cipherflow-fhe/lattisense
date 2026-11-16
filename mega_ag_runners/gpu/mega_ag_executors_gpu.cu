@@ -426,10 +426,10 @@ template <heongpu::Scheme S> void bind_gpu_rotate_col(ComputeNode& node) {
         throw std::runtime_error("Rotation step not found in FHE property");
     }
     auto steps = node.fhe_prop->p->rotation_steps;
-    auto use_default_rotation_keys = node.fhe_prop->p->use_default_rotation_keys;
-    node.executor = [steps, use_default_rotation_keys](ExecutionContext& ctx,
-                                                       std::unordered_map<NodeId, std::any>& local_data,
-                                                       const ComputeNode& self) -> void {
+    auto use_naf_decomposed_rotation_keys = node.fhe_prop->p->use_naf_decomposed_rotation_keys;
+    node.executor = [steps, use_naf_decomposed_rotation_keys](ExecutionContext& ctx,
+                                                              std::unordered_map<NodeId, std::any>& local_data,
+                                                              const ComputeNode& self) -> void {
         auto [operators, stream_option] = _get_operator_and_stream_option<S>(ctx);
         // Rotation steps are modulo the slot count; used to drop the identity substeps during the
         // NAF decomposition below. other_args[1] holds the HEContext (see gpu_wrapper.cu).
@@ -446,7 +446,7 @@ template <heongpu::Scheme S> void bind_gpu_rotate_col(ComputeNode& node) {
             throw std::runtime_error("ROTATE_COL requires at least one Galois key input");
         }
 
-        if (use_default_rotation_keys) {
+        if (use_naf_decomposed_rotation_keys) {
             auto& glk = _get_input_data<Glk<S>>(local_data, *self.input_nodes[1]);
             for (size_t i = 0; i < steps.size(); ++i) {
                 auto& output = _create_output_data<S>(ctx, local_data, *self.output_nodes[i]);
@@ -645,10 +645,6 @@ template <heongpu::Scheme S> void bind_gpu_bootstrap(ComputeNode& node) {
                 throw std::runtime_error("GPU BOOTSTRAP requires at least one ciphertext input");
             }
 
-            auto* residual_context = ctx.get_other_arg<heongpu::HEContext<S>>(1);
-            const bool residual_is_ci =
-                residual_context && ((*residual_context)->get_ring_type() == heongpu::ring_type::CONJUGATE_INVARIANT);
-
             heongpu::BootstrappingEvaluationKeyRefs boot_keys;
             boot_keys.relin_key_ = &_get_input_data<Rlk<S>>(local_data, *self.input_nodes[key_idx++]);
 
@@ -658,14 +654,9 @@ template <heongpu::Scheme S> void bind_gpu_bootstrap(ComputeNode& node) {
                     eval_key_count++;
                 }
             }
-            if (residual_is_ci || eval_key_count >= 4) {
-                if (residual_is_ci) {
-                    boot_keys.swk_ci_to_std_ = &_get_input_data<Swk<S>>(local_data, *self.input_nodes[key_idx++]);
-                    boot_keys.swk_std_to_ci_ = &_get_input_data<Swk<S>>(local_data, *self.input_nodes[key_idx++]);
-                } else {
-                    boot_keys.evk_n1_to_n2_ = &_get_input_data<Swk<S>>(local_data, *self.input_nodes[key_idx++]);
-                    boot_keys.evk_n2_to_n1_ = &_get_input_data<Swk<S>>(local_data, *self.input_nodes[key_idx++]);
-                }
+            if (eval_key_count >= 4) {
+                boot_keys.evk_n1_to_n2_ = &_get_input_data<Swk<S>>(local_data, *self.input_nodes[key_idx++]);
+                boot_keys.evk_n2_to_n1_ = &_get_input_data<Swk<S>>(local_data, *self.input_nodes[key_idx++]);
             }
             boot_keys.swk_dense_to_sparse_ = &_get_input_data<Swk<S>>(local_data, *self.input_nodes[key_idx++]);
             boot_keys.swk_sparse_to_dense_ = &_get_input_data<Swk<S>>(local_data, *self.input_nodes[key_idx++]);

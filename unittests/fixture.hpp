@@ -125,17 +125,28 @@ struct CkksTestCIParams {
     }
 };
 
-// Larger residual degrees. The bootstrapping circuit degree is higher than the
-// residual's, so these exercise the bootstrapping parameter sets of degree 17.
+// Bootstrapping parameter sets (log_n 14/15/16), residual-trimmed for the circuit.
+struct CkksTestDefaultParamsN14 {
+    static constexpr bool has_sparse_slot_cases = true;
+    static constexpr bool is_conjugate_invariant = false;
+    static CkksParameter create() {
+        constexpr int logN = 14;
+        return CkksParameter::create_parameter(logN, RingType::Standard, /*enable_bootstrapping=*/true);
+    }
+    static string get_tag() {
+        return "ckks_param_btp_default_n16384";
+    }
+};
+
 struct CkksTestDefaultParamsN15 {
     static constexpr bool has_sparse_slot_cases = true;
     static constexpr bool is_conjugate_invariant = false;
     static CkksParameter create() {
         constexpr int logN = 15;
-        return CkksParameter::create_parameter(logN);
+        return CkksParameter::create_parameter(logN, RingType::Standard, /*enable_bootstrapping=*/true);
     }
     static string get_tag() {
-        return "ckks_param_default_n32768";
+        return "ckks_param_btp_default_n32768";
     }
 };
 
@@ -144,10 +155,10 @@ struct CkksTestDefaultParamsN16 {
     static constexpr bool is_conjugate_invariant = false;
     static CkksParameter create() {
         constexpr int logN = 16;
-        return CkksParameter::create_parameter(logN);
+        return CkksParameter::create_parameter(logN, RingType::Standard, /*enable_bootstrapping=*/true);
     }
     static string get_tag() {
-        return "ckks_param_default_n65536";
+        return "ckks_param_btp_default_n65536";
     }
 };
 
@@ -156,10 +167,10 @@ struct CkksTestCIParamsN15 {
     static constexpr bool is_conjugate_invariant = true;
     static CkksParameter create() {
         constexpr int logN = 15;
-        return CkksParameter::create_parameter(logN, RingType::ConjugateInvariant);
+        return CkksParameter::create_parameter(logN, RingType::ConjugateInvariant, /*enable_bootstrapping=*/true);
     }
     static string get_tag() {
-        return "ckks_param_ci_default_n32768";
+        return "ckks_param_btp_ci_default_n32768";
     }
 };
 

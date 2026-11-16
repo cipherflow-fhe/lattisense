@@ -299,13 +299,17 @@ template <HEScheme SchemeType> void bind_cpu_rotate_col(ComputeNode& node) {
         throw std::runtime_error("ROTATE_COL requires rotation_steps property");
     }
     auto steps = node.fhe_prop->p->rotation_steps;
-    auto use_default_rotation_keys = node.fhe_prop->p->use_default_rotation_keys;
-    node.executor = [steps, use_default_rotation_keys](ExecutionContext& ctx,
-                                                       std::unordered_map<NodeId, std::any>& local_data,
-                                                       const ComputeNode& self) -> void {
+    auto use_naf_decomposed_rotation_keys = node.fhe_prop->p->use_naf_decomposed_rotation_keys;
+    node.executor = [steps, use_naf_decomposed_rotation_keys](ExecutionContext& ctx,
+                                                              std::unordered_map<NodeId, std::any>& local_data,
+                                                              const ComputeNode& self) -> void {
         using CiphertextType = typename CpuSchemeTypes<SchemeType>::Ciphertext;
         auto& context = _get_context<SchemeType>(ctx);
-        context.set_use_default_rotation_keys(use_default_rotation_keys);
+        if constexpr (SchemeType == HEScheme::BFV) {
+            BfvContextInternal::enable_naf_decomposed_rotation_keys(context, use_naf_decomposed_rotation_keys);
+        } else {
+            CkksContextInternal::enable_naf_decomposed_rotation_keys(context, use_naf_decomposed_rotation_keys);
+        }
         auto& input0 = _get_input_data<CiphertextType>(local_data, *self.input_nodes[0]);
         if (steps.size() != self.output_nodes.size()) {
             throw std::runtime_error("ROTATE_COL output count does not match rotation_steps count");

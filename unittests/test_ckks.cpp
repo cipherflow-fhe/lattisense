@@ -709,14 +709,14 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture,
         steps.push_back(i);
     string steps_str = "steps_" + to_string(steps.front()) + "_to_" + to_string(steps.back());
 
-    for (bool use_default_rotation_keys : {true, false}) {
-        SECTION(use_default_rotation_keys ? "default rotation" : "non-default rotation") {
-            if (use_default_rotation_keys) {
+    for (bool use_naf_decomposed_rotation_keys : {true, false}) {
+        SECTION(use_naf_decomposed_rotation_keys ? "naf rotation" : "non-naf rotation") {
+            if (use_naf_decomposed_rotation_keys) {
                 this->ctx.gen_rotation_keys();
             } else {
                 this->ctx.gen_rotation_keys(steps);
             }
-            string key_mode_tag = use_default_rotation_keys ? "default" : "non-default";
+            string key_mode_tag = use_naf_decomposed_rotation_keys ? "naf" : "non-naf";
 
             for (int lhs_log_slots : unary_slot_cases<TestType>(this->param)) {
                 string slot_tag = unary_slot_tag(lhs_log_slots);
@@ -756,14 +756,14 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS rotate_col_ci", "", CkksTestCIParam
     const vector<int32_t> steps = {1, 12000};
     const string steps_str = "steps_" + to_string(steps.front()) + "_" + to_string(steps.back());
 
-    for (bool use_default_rotation_keys : {false}) {
-        SECTION(use_default_rotation_keys ? "default rotation" : "non-default rotation") {
-            if (use_default_rotation_keys) {
+    for (bool use_naf_decomposed_rotation_keys : {false}) {
+        SECTION(use_naf_decomposed_rotation_keys ? "naf rotation" : "non-naf rotation") {
+            if (use_naf_decomposed_rotation_keys) {
                 this->ctx.gen_rotation_keys();
             } else {
                 this->ctx.gen_rotation_keys(steps);
             }
-            const string key_mode_tag = use_default_rotation_keys ? "default" : "non-default";
+            const string key_mode_tag = use_naf_decomposed_rotation_keys ? "naf" : "non-naf";
             const int lhs_log_slots = this->param.log_max_slots();
             const string slot_tag = unary_slot_tag(lhs_log_slots);
             for (int level = 1; level <= this->max_level; level++) {
@@ -952,19 +952,19 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS custom encode and cap", "", CkksTes
 }
 
 // ---------------------------------------------------------------------------
-// Bootstrap tests. The conjugate invariant param runs too: its circuit ring is
-// standard with degree residual log_n + 1, and it takes the ring-swap keys
-// (evk_ci_to_std / evk_std_to_ci) instead of the evk_n1_to_n2 / evk_n2_to_n1 pair.
+// Bootstrap tests. The conjugate invariant param runs too: it bootstraps natively
+// in the CI ring (no domain switch), taking the evk_n1_to_n2 / evk_n2_to_n1 pair
+// like the standard ring when the residual and circuit degrees differ.
+// (Native-CI C++/GPU runtime execution is out of scope.)
 // ---------------------------------------------------------------------------
 
 TEMPLATE_TEST_CASE_METHOD(CkksFixture,
                           "CKKS bootstrap",
                           "",
-                          CkksTestDefaultParams,
+                          CkksTestDefaultParamsN14,
                           CkksTestDefaultParamsN15,
                           CkksTestDefaultParamsN16,
                           CkksTestCIParamsN15) {
-    this->ctx.create_bootstrapper();
     for (int log_slots : unary_slot_cases<TestType>(this->param)) {
         string slot_tag = unary_slot_tag(log_slots);
         SECTION(slot_tag + " lv=0") {
@@ -997,11 +997,10 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture,
 TEMPLATE_TEST_CASE_METHOD(CkksFixture,
                           "CKKS bootstrap_multi",
                           "",
-                          CkksTestDefaultParams,
+                          CkksTestDefaultParamsN14,
                           CkksTestDefaultParamsN15,
                           CkksTestDefaultParamsN16,
                           CkksTestCIParamsN15) {
-    this->ctx.create_bootstrapper();
     for (int log_slots : unary_slot_cases<TestType>(this->param)) {
         string slot_tag = unary_slot_tag(log_slots);
         SECTION(slot_tag + " lv=0") {
@@ -1032,11 +1031,10 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture,
 TEMPLATE_TEST_CASE_METHOD(CkksFixture,
                           "CKKS cmc_relin_rescale_bootstrap",
                           "",
-                          CkksTestDefaultParams,
+                          CkksTestDefaultParamsN14,
                           CkksTestDefaultParamsN15,
                           CkksTestDefaultParamsN16,
                           CkksTestCIParamsN15) {
-    this->ctx.create_bootstrapper();
     for (const auto& [lhs_log_slots, rhs_log_slots] : binary_slot_cases<TestType>(this->param)) {
         string slot_tag = binary_slot_tag(lhs_log_slots, rhs_log_slots);
         SECTION(slot_tag + " lv=3") {

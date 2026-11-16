@@ -17,7 +17,9 @@
  */
 
 #include <algorithm>
+#include <map>
 #include <stdexcept>
+#include <vector>
 #include "bfv.h"
 #include "../base/internal.h"
 
@@ -25,10 +27,43 @@ namespace fhe_ops_lib {
 
 // ─── BfvParameter ────────────────────────────────────────────────────────────
 
+namespace {
+
+    struct BfvDefaultParam {
+        std::vector<uint64_t> q;
+        std::vector<uint64_t> p;
+    };
+
+    // Concrete moduli chains for the BFV default parameter sets, kept byte-for-byte
+    // identical to frontend/parameter.json so the frontend and the runtime agree on
+    // the exact primes.
+    const BfvDefaultParam& bfv_default_param(int log_n) {
+        static const std::map<int, BfvDefaultParam> kParams = {
+            {12, {{549755731969ULL, 549755904001ULL}, {2147565569ULL}}},
+            {13, {{36028797018652673ULL, 18014398508400641ULL, 18014398510645249ULL}, {36028797019389953ULL}}},
+            {14,
+             {{36028797019389953ULL, 36028797019488257ULL, 36028797020209153ULL, 18014398508400641ULL,
+               18014398510661633ULL, 18014398508138497ULL},
+              {72057594038321153ULL, 36028797017456641ULL}}},
+            {15,
+             {{1152921504606584833ULL, 1152921504608747521ULL, 576460752301785089ULL, 288230376154267649ULL,
+               288230376155185153ULL, 288230376155250689ULL, 288230376147582977ULL, 288230376147386369ULL,
+               288230376147320833ULL, 288230376156758017ULL, 288230376157413377ULL, 288230376158396417ULL},
+              {1152921504614055937ULL, 1152921504598720513ULL, 1152921504615628801ULL}}},
+        };
+
+        auto it = kParams.find(log_n);
+        if (it == kParams.end()) {
+            throw std::runtime_error("unsupported log_n for BFV default parameter");
+        }
+        return it->second;
+    }
+
+}  // namespace
+
 BfvParameter BfvParameter::create_parameter(int log_n, uint64_t t) {
-    uint64_t handle = 0;
-    CHECK(CreateBfvDefaultParameter(log_n, t, &handle));
-    return BfvParameter(std::move(handle));
+    const BfvDefaultParam& param = bfv_default_param(log_n);
+    return create_custom_parameter(log_n, t, param.q, param.p);
 }
 
 BfvParameter BfvParameter::create_custom_parameter(int log_n,
@@ -343,11 +378,11 @@ void BfvContext::gen_rotation_keys(int level) {
     }
 
     gen_rotation_keys(rotations, true, level);
-    _use_default_rotation_keys = true;
+    _enable_naf_decomposed_rotation_keys = true;
 }
 
-void BfvContext::set_use_default_rotation_keys(bool use_default_rotation_keys) {
-    _use_default_rotation_keys = use_default_rotation_keys;
+void BfvContext::enable_naf_decomposed_rotation_keys(bool enable) {
+    _enable_naf_decomposed_rotation_keys = enable;
 }
 
 void BfvContext::gen_rotation_keys(const std::vector<int32_t>& rots, bool include_swap_rows, int level) {
@@ -375,7 +410,7 @@ void BfvContext::gen_rotation_keys(const std::vector<int32_t>& rots, bool includ
         _evaluation_key_set.set_galois_key(GaloisKey(std::move(handle)));
     }
     _evaluator.update_evaluation_key_set(_evaluation_key_set);
-    _use_default_rotation_keys = false;
+    _enable_naf_decomposed_rotation_keys = false;
 }
 
 const EvaluationKeySet& BfvContext::evaluation_key_set() const {
@@ -426,7 +461,7 @@ Bytes BfvContext::serialize() const {
     data.insert(data.end(), CONTEXT_MAGIC, CONTEXT_MAGIC + sizeof(CONTEXT_MAGIC));
     append_bytes(data, _parameter.serialize());
 
-    append_u8(data, _use_default_rotation_keys ? 1 : 0);
+    append_u8(data, _enable_naf_decomposed_rotation_keys ? 1 : 0);
 
     const bool has_public_key = !_public_key.is_empty();
     append_u8(data, has_public_key ? 1 : 0);
@@ -456,7 +491,7 @@ BfvContext BfvContext::deserialize(BytesView data) {
     BfvContext context;
     context._parameter = BfvParameter::deserialize(read_bytes(data, offset, "parameter"));
 
-    const bool use_default_rotation_keys = read_u8(data, offset, "rotation key flag") != 0;
+    const bool use_naf_decomposed_rotation_keys = read_u8(data, offset, "rotation key flag") != 0;
     const bool has_public_key = read_u8(data, offset, "public key flag") != 0;
     context._encoder = BfvEncoder(context._parameter);
     context._key_generator = KeyGenerator(context._parameter);
@@ -473,7 +508,7 @@ BfvContext BfvContext::deserialize(BytesView data) {
         context._evaluation_key_set = EvaluationKeySet(RelinKey(), {});
     }
     context._evaluator = BfvEvaluator(context._parameter, context._evaluation_key_set);
-    context._use_default_rotation_keys = use_default_rotation_keys;
+    context._enable_naf_decomposed_rotation_keys = use_naf_decomposed_rotation_keys;
 
     if (offset != data.size()) {
         throw std::runtime_error("BFV context data has trailing bytes");
@@ -753,8 +788,9 @@ BfvCiphertext BfvContext::rotate_cols(const BfvCiphertext& op0, int32_t step) {
     }
 
     uint64_t ciphertext_handle = 0;
-    const uint8_t use_default_rotation_keys = _use_default_rotation_keys ? 1 : 0;
-    CHECK(BfvRotateColumns(_evaluator.get(), op0.get(), &step, 1, use_default_rotation_keys, &ciphertext_handle));
+    const uint8_t use_naf_decomposed_rotation_keys = _enable_naf_decomposed_rotation_keys ? 1 : 0;
+    CHECK(
+        BfvRotateColumns(_evaluator.get(), op0.get(), &step, 1, use_naf_decomposed_rotation_keys, &ciphertext_handle));
     BfvCiphertext opOut(std::move(ciphertext_handle));
     opOut.sync_metadata();
     return opOut;
@@ -767,9 +803,9 @@ std::map<int32_t, BfvCiphertext> BfvContext::rotate_cols(const BfvCiphertext& op
 
     std::map<int32_t, BfvCiphertext> opOut;
     std::vector<uint64_t> ciphertext_handles(steps.size());
-    const uint8_t use_default_rotation_keys = _use_default_rotation_keys ? 1 : 0;
-    CHECK(BfvRotateColumns(_evaluator.get(), op0.get(), (int32_t*)steps.data(), steps.size(), use_default_rotation_keys,
-                           ciphertext_handles.data()));
+    const uint8_t use_naf_decomposed_rotation_keys = _enable_naf_decomposed_rotation_keys ? 1 : 0;
+    CHECK(BfvRotateColumns(_evaluator.get(), op0.get(), (int32_t*)steps.data(), steps.size(),
+                           use_naf_decomposed_rotation_keys, ciphertext_handles.data()));
     for (size_t i = 0; i < steps.size(); i++) {
         BfvCiphertext rotated(std::move(ciphertext_handles[i]));
         rotated.sync_metadata();

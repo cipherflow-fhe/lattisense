@@ -67,6 +67,9 @@ public:
     using Handle::Handle;
     BfvEvaluator(const BfvParameter& parameter, const EvaluationKeySet& evaluation_key_set);
 
+private:
+    friend class BfvContext;
+
     void update_evaluation_key_set(const EvaluationKeySet& evaluation_key_set);
 };
 
@@ -81,7 +84,6 @@ public:
 
     bool is_ringt() const;
     bool is_batched() const;
-    void sync_metadata();
 
     Metadata metadata() const;
 
@@ -96,6 +98,10 @@ public:
     static BfvPlaintext deserialize(BytesView data);
 
 private:
+    friend class BfvContext;
+
+    void sync_metadata();
+
     Metadata _metadata{0, 1, 0, 0, 0, 1.0};
 };
 
@@ -118,8 +124,6 @@ public:
 
     Metadata metadata() const;
 
-    void sync_metadata();
-
     /**
      * Serialize a BFV ciphertext.
      * @return The serialized binary data.
@@ -137,6 +141,10 @@ public:
     void copy(BfvCiphertext& y_ct) const;
 
 private:
+    friend class BfvContext;
+
+    void sync_metadata();
+
     Metadata _metadata{0, 1, 1, 0, 0, 1.0};
 };
 
@@ -168,23 +176,7 @@ public:
 
     void gen_rotation_keys(const std::vector<int32_t>& rots, bool include_swap_rows = false, int level = -1);
 
-    void set_use_default_rotation_keys(bool use_default_rotation_keys);
-
     const EvaluationKeySet& evaluation_key_set() const override;
-
-    /**
-     * Set a relinearization key to a context.
-     * @param rlk The source relinearization key.
-     * @return void.
-     */
-    void set_relin_key(const RelinKey& rlk);
-
-    /**
-     * Set a Galois key to a context.
-     * @param gk The source Galois key.
-     * @return void.
-     */
-    void set_galois_key(const GaloisKey& gk);
 
     /**
      * Serialize the BfvContext to binary. Secret key material is not serialized.
@@ -304,13 +296,41 @@ public:
     BfvCiphertext rotate_rows(const BfvCiphertext& op0);
 
 private:
+    friend class BfvContextInternal;
+
     static const uint8_t CONTEXT_MAGIC[8];
+
+    void set_relin_key(const RelinKey& rlk);
+    void set_galois_key(const GaloisKey& gk);
+    void enable_naf_decomposed_rotation_keys(bool enable);
 
 protected:
     BfvParameter _parameter;
     BfvEncoder _encoder;
     BfvEvaluator _evaluator;
-    bool _use_default_rotation_keys = true;
+    bool _enable_naf_decomposed_rotation_keys = true;
+};
+
+/**
+ * @brief Internal accessor for BFV context key injection.
+ *
+ * These operations are used by the lattisense runtime (cxx_sdk_v2 ABI bridge) to
+ * inject evaluation keys into a context, and are intentionally not part of the
+ * public BfvContext API.
+ */
+class BfvContextInternal {
+public:
+    static void set_relin_key(BfvContext& ctx, const RelinKey& rlk) {
+        ctx.set_relin_key(rlk);
+    }
+
+    static void set_galois_key(BfvContext& ctx, const GaloisKey& gk) {
+        ctx.set_galois_key(gk);
+    }
+
+    static void enable_naf_decomposed_rotation_keys(BfvContext& ctx, bool enable) {
+        ctx.enable_naf_decomposed_rotation_keys(enable);
+    }
 };
 
 }  // namespace fhe_ops_lib

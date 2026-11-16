@@ -37,16 +37,16 @@ struct BfvTestParams {
 struct CkksTestParams {
     static CkksParameter create() {
         constexpr int logN = 14;
-        return CkksParameter::create_parameter(logN);
+        return CkksParameter::create_parameter(logN, RingType::Standard, /*enable_bootstrapping=*/true);
     }
 };
 
 struct CkksCITestParams {
     static CkksParameter create() {
-        // The moduli are generated with LogNthRoot = max(LogN+2, 17), so every prime
-        // is 1 mod 4N and the parameter set works for the conjugate-invariant ring.
+        // A bootstrapped residual keeps primes 1 mod 2^18, which also satisfies the
+        // conjugate-invariant ring (4N) and the bootstrapping circuit.
         constexpr int logN = 15;
-        return CkksParameter::create_parameter(logN, RingType::ConjugateInvariant);
+        return CkksParameter::create_parameter(logN, RingType::ConjugateInvariant, /*enable_bootstrapping=*/true);
     }
 };
 

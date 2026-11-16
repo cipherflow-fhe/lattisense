@@ -380,7 +380,7 @@ TEMPLATE_TEST_CASE_METHOD(BfvFixture, "BFV mult scalar", "", BfvTestParams) {
 TEMPLATE_TEST_CASE_METHOD(BfvFixture, "BFV rotate columns", "", BfvTestParams) {
     const vector<int32_t> steps = {1, -2, 5, -10, 1000};
 
-    SECTION("default rotation") {
+    SECTION("naf rotation") {
         this->ctx.gen_rotation_keys();
         BfvTestCt test_data = new_ct(this->ctx, this->level);
         std::map<int32_t, BfvCiphertext> rotated = this->ctx.rotate_cols(test_data.ciphertext, steps);
@@ -397,7 +397,7 @@ TEMPLATE_TEST_CASE_METHOD(BfvFixture, "BFV rotate columns", "", BfvTestParams) {
         }
     }
 
-    SECTION("non-default rotation") {
+    SECTION("non-naf rotation") {
         this->ctx.gen_rotation_keys(steps);
         BfvTestCt test_data = new_ct(this->ctx, this->level);
         std::map<int32_t, BfvCiphertext> rotated = this->ctx.rotate_cols(test_data.ciphertext, steps);

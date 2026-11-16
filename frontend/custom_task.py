@@ -473,7 +473,7 @@ def rotate_cols(
     x: BfvCiphertextNode | CkksCiphertextNode,
     steps: list[int] | int,
     output_id: Optional[str] = None,
-    use_default_rotation_keys: bool = True,
+    use_naf_decomposed_rotation_keys: bool = True,
 ) -> list[BfvCiphertextNode | CkksCiphertextNode]:
     """!Ciphertext rotation
 
@@ -482,7 +482,7 @@ def rotate_cols(
     @param x Input data node.
     @param steps Rotation steps (positive = left rotation, negative = right rotation).
     @param output_id Output node ID prefix.
-    @param use_default_rotation_keys Whether to use the fixed default rotation key set.
+    @param use_naf_decomposed_rotation_keys Whether to use the fixed default rotation key set.
     @return Result data nodes.
     """
 
@@ -503,7 +503,7 @@ def rotate_cols(
     # Rotation steps are modulo the slot count: log_n-1 for BFV / standard CKKS (N/2 slots) and
     # log_n for the conjugate-invariant CKKS ring (N slots).
     log_slots = g_param.log_max_slots() if isinstance(g_param, CkksParam) else g_param.log_n - 1
-    if use_default_rotation_keys:
+    if use_naf_decomposed_rotation_keys:
         step_substeps = [get_default_column_rotation_substeps(step, log_slots) for step in steps]
         key_steps = []
         seen_key_steps = set()
@@ -524,7 +524,7 @@ def rotate_cols(
         return [x for _ in steps]
 
     active_steps = [steps[i] for i in active]
-    op = RotateColNode(active_steps, use_default_rotation_keys=use_default_rotation_keys)
+    op = RotateColNode(active_steps, use_naf_decomposed_rotation_keys=use_naf_decomposed_rotation_keys)
     g_dag.add_edge(x, op)
 
     # NthRoot is 2N for the standard ring and 4N for the conjugate-invariant ring.
@@ -542,9 +542,7 @@ def rotate_cols(
     for i in active:
         step = steps[i]
         output_node_id = (
-            random_id()
-            if output_id is None
-            else (output_id if len(active_steps) == 1 else f'{output_id}_step{step}')
+            random_id() if output_id is None else (output_id if len(active_steps) == 1 else f'{output_id}_step{step}')
         )
         if isinstance(x, BfvCiphertextNode):
             z = BfvCiphertextNode(id=output_node_id, level=x.metadata.level, degree=x.metadata.degree)
@@ -792,11 +790,17 @@ def bootstrap(
 
     from frontend.bootstrap_params import BootstrappingParameters
 
-    # The circuit always runs in the standard ring; its degree follows the
-    # residual ring (see BootstrappingParameters.default). This also rejects
-    # residual degrees without a bootstrapping parameter set, before anything is
-    # added to the graph.
+    # The circuit degree follows the residual ring (see BootstrappingParameters.default):
+    # a standard residual runs in the standard ring, a conjugate invariant residual
+    # bootstraps natively in the CI ring. This also rejects residual degrees without
+    # a bootstrapping parameter set, before anything is added to the graph.
     btp = BootstrappingParameters.default(g_param.log_n, g_param.ring_type)
+
+    if not g_param.enable_bootstrapping:
+        raise ValueError(
+            'bootstrap requires a bootstrapped parameter set; create it with '
+            'CkksParam.create_default_param(log_n, ring_type, enable_bootstrapping=True).'
+        )
 
     g_param.enable_bootstrapping = True
 
@@ -819,16 +823,7 @@ def bootstrap(
 
     btp_log_n = btp.log_n
 
-    if g_param.ring_type == RingType.ConjugateInvariant:
-        for evk_id in ('evk_ci_to_std', 'evk_std_to_ci'):
-            evk_level = 0 if evk_id == 'evk_ci_to_std' else g_param.max_level
-            if evk_id not in g_evk_node_dict:
-                g_evk_node_dict[evk_id] = EvaluationKeyNode(id=evk_id, level=evk_level, key_role='bootstrap')
-            else:
-                g_evk_node_dict[evk_id].metadata.level = evk_level
-                g_evk_node_dict[evk_id].key_role = 'bootstrap'
-            g_dag.add_edge(g_evk_node_dict[evk_id], op)
-    elif g_param.log_n != btp_log_n:
+    if g_param.log_n != btp_log_n:
         for evk_id in ('evk_n1_to_n2', 'evk_n2_to_n1'):
             evk_level = 0 if evk_id == 'evk_n1_to_n2' else g_param.max_level
             if evk_id not in g_evk_node_dict:

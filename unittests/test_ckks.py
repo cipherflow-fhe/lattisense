@@ -47,10 +47,11 @@ _p2 = CkksParam.create_custom_param(
     log_scale=30,
 )
 _p3 = CkksParam.create_default_param(log_n=14, ring_type=RingType.ConjugateInvariant)
-# Larger residual degrees, used by the bootstrapping tests only.
-_p4 = CkksParam.create_default_param(log_n=15)
-_p5 = CkksParam.create_default_param(log_n=16)
-_p6 = CkksParam.create_default_param(log_n=15, ring_type=RingType.ConjugateInvariant)
+# Bootstrapping parameter sets (log_n 14/15/16), residual-trimmed for the circuit.
+_p4 = CkksParam.create_default_param(log_n=14, enable_bootstrapping=True)
+_p5 = CkksParam.create_default_param(log_n=15, enable_bootstrapping=True)
+_p6 = CkksParam.create_default_param(log_n=16, enable_bootstrapping=True)
+_p7 = CkksParam.create_default_param(log_n=15, ring_type=RingType.ConjugateInvariant, enable_bootstrapping=True)
 
 
 N_OP = 4  # Number of parallel operators per test
@@ -62,13 +63,14 @@ _CKKS_PARAM_TAGS = {
     id(_p1): f'ckks_param_default_n{_p1.n}',
     id(_p2): f'ckks_param_custom_n{_p2.n}',
     id(_p3): f'ckks_param_ci_default_n{_p1.n}',
-    id(_p4): f'ckks_param_default_n{_p4.n}',
-    id(_p5): f'ckks_param_default_n{_p5.n}',
-    id(_p6): f'ckks_param_ci_default_n{_p6.n}',
+    id(_p4): f'ckks_param_btp_default_n{_p4.n}',
+    id(_p5): f'ckks_param_btp_default_n{_p5.n}',
+    id(_p6): f'ckks_param_btp_default_n{_p6.n}',
+    id(_p7): f'ckks_param_btp_ci_default_n{_p7.n}',
 }
 
 CKKS_PARAMS = [_p1, _p2, _p3]
-BTP_CKKS_PARAMS = [_p1, _p4, _p5, _p6]
+BTP_CKKS_PARAMS = [_p4, _p5, _p6, _p7]
 PROCESSORS = [Processor.CPU, Processor.GPU]
 
 
@@ -558,8 +560,8 @@ class TestTask:
             )
 
     @pytest.mark.min_level(1)
-    @pytest.mark.parametrize('use_default_rotation_keys', [True, False], ids=['default', 'non-default'])
-    def test_rotate_col(self, param, lv, use_default_rotation_keys, processor, steps=[i + 1 for i in range(8)]):
+    @pytest.mark.parametrize('use_naf_decomposed_rotation_keys', [True, False], ids=['naf', 'non-naf'])
+    def test_rotate_col(self, param, lv, use_naf_decomposed_rotation_keys, processor, steps=[i + 1 for i in range(8)]):
         set_fhe_param(param)
         param_tag = _param_tag(param)
         output_base_dir = CPU_OUTPUT_BASE_DIR if processor == Processor.CPU else GPU_OUTPUT_BASE_DIR
@@ -570,7 +572,7 @@ class TestTask:
 
         for lhs_log_slots in slot_cases:
             steps_tag = f'steps_{steps[0]}_to_{steps[-1]}'
-            key_mode_tag = 'default' if use_default_rotation_keys else 'non-default'
+            key_mode_tag = 'naf' if use_naf_decomposed_rotation_keys else 'non-naf'
             slot_tag = f'lslots{lhs_log_slots}'
             task_dir = os.path.join(
                 output_base_dir,
@@ -583,7 +585,12 @@ class TestTask:
             )
             x_list = [CkksCiphertextNode(level=lv, id=f'x_{i}', log_slots=lhs_log_slots) for i in range(N_OP)]
             y_list = [
-                rotate_cols(x_list[i], steps, f'rotated_x_{i}', use_default_rotation_keys=use_default_rotation_keys)
+                rotate_cols(
+                    x_list[i],
+                    steps,
+                    f'rotated_x_{i}',
+                    use_naf_decomposed_rotation_keys=use_naf_decomposed_rotation_keys,
+                )
                 for i in range(N_OP)
             ]
             process_custom_task(
@@ -594,8 +601,8 @@ class TestTask:
             )
 
     @pytest.mark.min_level(1)
-    @pytest.mark.parametrize('use_default_rotation_keys', [True, False], ids=['default', 'non-default'])
-    def test_rotate_col_ci(self, param, lv, use_default_rotation_keys, processor):
+    @pytest.mark.parametrize('use_naf_decomposed_rotation_keys', [True, False], ids=['naf', 'non-naf'])
+    def test_rotate_col_ci(self, param, lv, use_naf_decomposed_rotation_keys, processor):
         """Conjugate-invariant only.
 
         The CI ring packs N slots, so its rotation steps range over N, whereas the standard ring
@@ -611,7 +618,7 @@ class TestTask:
         full_log_slots = param.log_max_slots()
         steps = [1, 12000]
         steps_tag = 'steps_' + '_'.join(str(step) for step in steps)
-        key_mode_tag = 'default' if use_default_rotation_keys else 'non-default'
+        key_mode_tag = 'naf' if use_naf_decomposed_rotation_keys else 'non-naf'
         slot_tag = f'lslots{full_log_slots}'
         task_dir = os.path.join(
             output_base_dir,
@@ -624,7 +631,9 @@ class TestTask:
         )
         x_list = [CkksCiphertextNode(level=lv, id=f'x_{i}', log_slots=full_log_slots) for i in range(N_OP)]
         y_list = [
-            rotate_cols(x_list[i], steps, f'rotated_x_{i}', use_default_rotation_keys=use_default_rotation_keys)
+            rotate_cols(
+                x_list[i], steps, f'rotated_x_{i}', use_naf_decomposed_rotation_keys=use_naf_decomposed_rotation_keys
+            )
             for i in range(N_OP)
         ]
         process_custom_task(
@@ -740,10 +749,10 @@ class TestTask:
         )
 
     # Runs for the standard and the conjugate invariant params of residual log_n 14,
-    # 15 and 16, i.e. circuit degrees 15, 16 and 17. The conjugate invariant ring
-    # packs pairs of its real slots into one standard-ring ciphertext, so it takes
-    # its own key set (ring-swap keys instead of the evk_n1_to_n2 / evk_n2_to_n1
-    # degree switch).
+    # 15 and 16, i.e. circuit degree 16 for both. The conjugate invariant ring
+    # bootstraps natively (no domain switch), so it takes the same ring-degree-switch
+    # keys (evk_n1_to_n2 / evk_n2_to_n1) as the standard ring when the residual and
+    # circuit degrees differ.
     @pytest.mark.at_level(0)
     @pytest.mark.params(BTP_CKKS_PARAMS)
     def test_bootstrap(self, param, lv, processor):
@@ -818,20 +827,16 @@ class TestTask:
             )
 
     def test_bootstrap_circuit_log_n_rule(self):
-        """The circuit always runs in the standard ring of degree 16."""
+        """The circuit runs at degree 16 for both the standard and the native
+        conjugate invariant ring."""
         for residual_log_n in (14, 15, 16):
             assert BootstrappingParameters.default(residual_log_n).log_n == 16
-        assert BootstrappingParameters.default(15, RingType.ConjugateInvariant).log_n == 16
+            assert BootstrappingParameters.default(residual_log_n, RingType.ConjugateInvariant).log_n == 16
 
-        # Residual log_n below 14 or above 16 has no parameter set, and the
-        # conjugate invariant ring only shares its primitive root order with a
-        # circuit of exactly residual log_n + 1, i.e. with residual log_n 15.
+        # Residual log_n below 14 or above 16 has no parameter set.
         for residual_log_n in (12, 13, 17):
             with pytest.raises(ValueError):
                 BootstrappingParameters.default(residual_log_n)
-        for residual_log_n in (14, 16):
-            with pytest.raises(ValueError):
-                BootstrappingParameters.default(residual_log_n, RingType.ConjugateInvariant)
 
         # The same rejection surfaces when such a residual is used to build a task.
         unsupported_param = CkksParam.create_default_param(log_n=13)

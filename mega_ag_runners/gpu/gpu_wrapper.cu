@@ -62,9 +62,10 @@ namespace {
     };
 
     /// Bootstrapping circuit shapes, indexed by the residual ring degree. The circuit
-    /// always runs in the standard ring of degree 16, which for a residual of log_n 16
-    /// is the residual ring itself and otherwise is one or two degrees above it. Only
-    /// a residual degree listed here can be bootstrapped.
+    /// always runs at degree 16 in the residual ring type (standard or conjugate
+    /// invariant), which for a residual of log_n 16 is the residual ring itself and
+    /// otherwise is one or two degrees above it. Only a residual degree listed here
+    /// can be bootstrapped.
     const std::unordered_map<int, BtpCircuitParams>& btp_circuit_params() {
         static const std::unordered_map<int, BtpCircuitParams> params = {
             {14, {16, {{39}, {39}, {39}}, {{56}, {56}, {56}, {56}}, 60}},
@@ -97,10 +98,12 @@ void init_gpu_context(const nlohmann::json& param_json,
         // The parameter carries the default scale as a log2 value.
         double scale = std::ldexp(1.0, param_json["log_default_scale"].get<int>());
 
+        const auto ring_type = static_cast<heongpu::ring_type>(param_json.value("ring_type", 0));
+
         context = heongpu::GenHEContext<SchemeType>(heongpu::sec_level_type::none);
         context->set_poly_modulus_degree(n);
         context->set_default_scale(scale);
-        context->set_ring_type(static_cast<heongpu::ring_type>(param_json.value("ring_type", 0)));
+        context->set_ring_type(ring_type);
 
         std::vector<Data64> Q, P;
         for (int i = 0; i <= max_level; i++) {
@@ -117,8 +120,9 @@ void init_gpu_context(const nlohmann::json& param_json,
         operators = std::make_unique<heongpu::HEArithmeticOperator<SchemeType>>(context, *encoder);
 
         if (param_json.value("enable_bootstrapping", false)) {
-            // The circuit is evaluated in the standard ring, with a shape fixed by
-            // the residual ring degree (see btp_circuit_params).
+            // The circuit is evaluated in the residual ring type (standard or
+            // conjugate invariant), with a shape fixed by the residual ring
+            // degree (see btp_circuit_params).
             const auto& circuit_params = btp_circuit_params();
             auto circuit = circuit_params.find(log_n);
             if (circuit == circuit_params.end()) {
@@ -128,7 +132,12 @@ void init_gpu_context(const nlohmann::json& param_json,
 
             heongpu::BootstrappingParamConfig param_config;
             param_config.log_n_ = circuit->second.log_n;
-            param_config.log_slots_ = circuit->second.log_n - 1;
+            // The conjugate invariant ring bootstraps natively via the real DFT
+            // at full packing (log_slots == log_n); the standard ring uses
+            // log_n - 1 slots.
+            param_config.log_slots_ = (ring_type == heongpu::ring_type::CONJUGATE_INVARIANT) ?
+                                          circuit->second.log_n :
+                                          circuit->second.log_n - 1;
             param_config.stc_factorization_depth_and_log_scales_ = circuit->second.slots_to_coeffs_factorization;
             param_config.cts_factorization_depth_and_log_scales_ = circuit->second.coeffs_to_slots_factorization;
             param_config.eval_mod_log_scale_ = circuit->second.eval_mod_log_scale;
@@ -138,6 +147,7 @@ void init_gpu_context(const nlohmann::json& param_json,
             heongpu::BootstrappingConfigV3 boot_config_v3 = operators->generate_bootstrapping_config_v3(param_config);
             boot_context = heongpu::GenHEContext<SchemeType>(heongpu::sec_level_type::none);
             boot_context->set_poly_modulus_degree(std::size_t(1) << boot_config_v3.log_n_);
+            boot_context->set_ring_type(ring_type);
             boot_context->set_default_scale(scale);
             boot_context->set_coeff_modulus_values(boot_config_v3.q_, boot_config_v3.p_);
             boot_context->generate();
