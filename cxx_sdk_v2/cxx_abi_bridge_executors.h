@@ -162,7 +162,7 @@ inline ExecutorFunc create_abi_export_executor(Algo algorithm, bool heterogeneou
                     }
 
                     CEvaluationKey* c_rlk = (CEvaluationKey*)malloc(sizeof(CEvaluationKey));
-                    export_evaluation_key(param.get(), rlk->get(), -1, &target_metadata, c_rlk);
+                    CHECK(export_evaluation_key(param.get(), rlk->get(), -1, &target_metadata, c_rlk));
                     local_data[self.output_nodes[0]->id] =
                         std::shared_ptr<CEvaluationKey>(c_rlk, [](CEvaluationKey* p) {
                             free_evaluation_key(p);
@@ -186,7 +186,7 @@ inline ExecutorFunc create_abi_export_executor(Algo algorithm, bool heterogeneou
                         break;
                     }
                     CEvaluationKey* c_glk = (CEvaluationKey*)malloc(sizeof(CEvaluationKey));
-                    export_evaluation_key(param.get(), glk->get(), -1, &target_metadata, c_glk);
+                    CHECK(export_evaluation_key(param.get(), glk->get(), -1, &target_metadata, c_glk));
                     local_data[self.output_nodes[0]->id] =
                         std::shared_ptr<CEvaluationKey>(c_glk, [](CEvaluationKey* p) {
                             free_evaluation_key(p);
@@ -297,7 +297,7 @@ inline ExecutorFunc create_abi_export_executor(Algo algorithm, bool heterogeneou
                     }
 
                     CEvaluationKey* c_rlk = (CEvaluationKey*)malloc(sizeof(CEvaluationKey));
-                    export_evaluation_key(export_param.get(), rlk->get(), -1, &target_metadata, c_rlk);
+                    CHECK(export_evaluation_key(export_param.get(), rlk->get(), -1, &target_metadata, c_rlk));
                     local_data[self.output_nodes[0]->id] =
                         std::shared_ptr<CEvaluationKey>(c_rlk, [](CEvaluationKey* p) {
                             free_evaluation_key(p);
@@ -325,7 +325,7 @@ inline ExecutorFunc create_abi_export_executor(Algo algorithm, bool heterogeneou
                         break;
                     }
                     CEvaluationKey* c_glk = (CEvaluationKey*)malloc(sizeof(CEvaluationKey));
-                    export_evaluation_key(export_param.get(), glk->get(), -1, &target_metadata, c_glk);
+                    CHECK(export_evaluation_key(export_param.get(), glk->get(), -1, &target_metadata, c_glk));
                     local_data[self.output_nodes[0]->id] =
                         std::shared_ptr<CEvaluationKey>(c_glk, [](CEvaluationKey* p) {
                             free_evaluation_key(p);
@@ -361,7 +361,7 @@ inline ExecutorFunc create_abi_export_executor(Algo algorithm, bool heterogeneou
                     }
 
                     CEvaluationKey* c_evk = (CEvaluationKey*)malloc(sizeof(CEvaluationKey));
-                    export_evaluation_key(export_param.get(), evk->get(), -1, &target_metadata, c_evk);
+                    CHECK(export_evaluation_key(export_param.get(), evk->get(), -1, &target_metadata, c_evk));
                     local_data[self.output_nodes[0]->id] =
                         std::shared_ptr<CEvaluationKey>(c_evk, [](CEvaluationKey* p) {
                             free_evaluation_key(p);

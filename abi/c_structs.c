@@ -74,12 +74,12 @@ export_ciphertext(uint64_t parameter_handle, uint64_t ciphertext_handle, Metadat
     ExportCiphertext(parameter_handle, ciphertext_handle, metadata, ciphertext);
 }
 
-inline void export_evaluation_key(uint64_t parameter_handle,
-                                  uint64_t evaluation_key_handle,
-                                  int level_p,
-                                  Metadata* metadata,
-                                  CEvaluationKey* evaluation_key) {
-    ExportEvaluationKey(parameter_handle, evaluation_key_handle, level_p, metadata, evaluation_key);
+inline ErrorStatus export_evaluation_key(uint64_t parameter_handle,
+                                         uint64_t evaluation_key_handle,
+                                         int level_p,
+                                         Metadata* metadata,
+                                         CEvaluationKey* evaluation_key) {
+    return ExportEvaluationKey(parameter_handle, evaluation_key_handle, level_p, metadata, evaluation_key);
 }
 
 inline void bfv_poly_ntt(uint64_t parameter_handle, uint64_t* data, int level_q, int level_p) {
