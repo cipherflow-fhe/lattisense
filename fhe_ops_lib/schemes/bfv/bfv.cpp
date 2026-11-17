@@ -316,7 +316,8 @@ BfvContext BfvContext::create_empty_context(const BfvParameter& param) {
     return context;
 }
 
-BfvContext BfvContext::create_random_context(const BfvParameter& param, EncryptorType encryptor_type) {
+BfvContext
+BfvContext::create_random_context(const BfvParameter& param, EncryptorType encryptor_type, bool compressed_keys) {
     if (param.is_empty()) {
         throw std::runtime_error("BFV parameter is not set");
     }
@@ -340,7 +341,8 @@ BfvContext BfvContext::create_random_context(const BfvParameter& param, Encrypto
 
     context._decryptor = Decryptor(context._parameter, context._secret_key);
 
-    context._evaluation_key_set = EvaluationKeySet(RelinKey(context._key_generator, context._secret_key, level), {});
+    context._evaluation_key_set =
+        EvaluationKeySet(RelinKey(context._key_generator, context._secret_key, level, compressed_keys), {});
     context._evaluator = BfvEvaluator(context._parameter, context._evaluation_key_set);
     return context;
 }
@@ -366,7 +368,7 @@ const PublicKey& BfvContext::public_key() const {
     return _public_key;
 }
 
-void BfvContext::gen_rotation_keys(int level) {
+void BfvContext::gen_rotation_keys(int level, bool compressed) {
     const int log_n = parameter().log_n();
     std::vector<int32_t> rotations;
     rotations.reserve(2 * log_n - 3);
@@ -377,7 +379,7 @@ void BfvContext::gen_rotation_keys(int level) {
         rotations.push_back(-1 * (1 << i));
     }
 
-    gen_rotation_keys(rotations, true, level);
+    gen_rotation_keys(rotations, true, level, compressed);
     _enable_naf_decomposed_rotation_keys = true;
 }
 
@@ -385,7 +387,10 @@ void BfvContext::enable_naf_decomposed_rotation_keys(bool enable) {
     _enable_naf_decomposed_rotation_keys = enable;
 }
 
-void BfvContext::gen_rotation_keys(const std::vector<int32_t>& rots, bool include_swap_rows, int level) {
+void BfvContext::gen_rotation_keys(const std::vector<int32_t>& rots,
+                                   bool include_swap_rows,
+                                   int level,
+                                   bool compressed) {
     std::vector<int32_t> rotations;
     rotations.reserve(rots.size());
     for (int32_t rotation : rots) {
@@ -398,7 +403,7 @@ void BfvContext::gen_rotation_keys(const std::vector<int32_t>& rots, bool includ
     std::vector<uint64_t> galois_key_handles(galois_elements.size());
     CHECK(GenGaloisKeysForRotations(key_generator().get(), secret_key().get(),
                                     rotations.empty() ? nullptr : rotations.data(), static_cast<int>(rotations.size()),
-                                    include_swap_rows, level,
+                                    include_swap_rows, level, compressed ? 1 : 0,
                                     galois_elements.empty() ? nullptr : galois_elements.data(),
                                     galois_key_handles.empty() ? nullptr : galois_key_handles.data()));
 
@@ -407,7 +412,7 @@ void BfvContext::gen_rotation_keys(const std::vector<int32_t>& rots, bool includ
     }
     for (size_t i = 0; i < galois_elements.size(); ++i) {
         uint64_t handle = galois_key_handles[i];
-        _evaluation_key_set.set_galois_key(GaloisKey(std::move(handle)));
+        _evaluation_key_set.set_galois_key(GaloisKey(std::move(handle), false, compressed));
     }
     _evaluator.update_evaluation_key_set(_evaluation_key_set);
     _enable_naf_decomposed_rotation_keys = false;

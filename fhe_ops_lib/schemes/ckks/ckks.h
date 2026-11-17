@@ -120,7 +120,9 @@ class BootstrappingEvaluationKeys : public Handle {
 public:
     BootstrappingEvaluationKeys() = default;
     using Handle::Handle;
-    BootstrappingEvaluationKeys(const Handle& bootstrapping_parameter, const SecretKey& secret_key);
+    BootstrappingEvaluationKeys(const Handle& bootstrapping_parameter,
+                                const SecretKey& secret_key,
+                                bool compressed = false);
 
     BootstrappingEvaluationKeys(EvaluationKey&& evk_n1_to_n2,
                                 EvaluationKey&& evk_n2_to_n1,
@@ -254,7 +256,8 @@ public:
      * @return The created context.
      */
     static CkksContext create_random_context(const CkksParameter& param,
-                                             EncryptorType encryptor_type = EncryptorType::PUBLIC_KEY);
+                                             EncryptorType encryptor_type = EncryptorType::PUBLIC_KEY,
+                                             bool compressed_keys = false);
 
     const CkksParameter& parameter() override;
 
@@ -264,9 +267,12 @@ public:
 
     const PublicKey& public_key() const override;
 
-    void gen_rotation_keys(int level = -1);
+    void gen_rotation_keys(int level = -1, bool compressed = false);
 
-    void gen_rotation_keys(const std::vector<int32_t>& rots, bool include_swap_rows = false, int level = -1);
+    void gen_rotation_keys(const std::vector<int32_t>& rots,
+                           bool include_swap_rows = false,
+                           int level = -1,
+                           bool compressed = false);
 
     bool enable_bootstrapping() const {
         return !_btp_parameter.is_empty();
@@ -425,7 +431,7 @@ private:
      * the bootstrapping evaluation keys and evaluator. The circuit ring degree is
      * the residual ring degree plus one.
      */
-    void create_bootstrapper();
+    void create_bootstrapper(bool compressed = false);
 
     void set_relin_key(const RelinKey& rlk);
     void set_galois_key(const GaloisKey& gk);

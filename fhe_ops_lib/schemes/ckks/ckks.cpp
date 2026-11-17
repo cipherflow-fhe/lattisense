@@ -429,7 +429,8 @@ CkksContext CkksContext::create_empty_context(const CkksParameter& param) {
     return context;
 }
 
-CkksContext CkksContext::create_random_context(const CkksParameter& param, EncryptorType encryptor_type) {
+CkksContext
+CkksContext::create_random_context(const CkksParameter& param, EncryptorType encryptor_type, bool compressed_keys) {
     if (param.is_empty()) {
         throw std::runtime_error("CKKS parameter is not set");
     }
@@ -453,15 +454,16 @@ CkksContext CkksContext::create_random_context(const CkksParameter& param, Encry
 
     context._decryptor = Decryptor(context._parameter, context._secret_key);
 
-    context._evaluation_key_set = EvaluationKeySet(RelinKey(context._key_generator, context._secret_key, level), {});
+    context._evaluation_key_set =
+        EvaluationKeySet(RelinKey(context._key_generator, context._secret_key, level, compressed_keys), {});
     context._evaluator = CkksEvaluator(context._parameter, context._evaluation_key_set);
     if (param.enable_bootstrapping()) {
-        context.create_bootstrapper();
+        context.create_bootstrapper(compressed_keys);
     }
     return context;
 }
 
-void CkksContext::gen_rotation_keys(int level) {
+void CkksContext::gen_rotation_keys(int level, bool compressed) {
     // Rotation steps are modulo the number of slots: log_n-1 for the standard ring (N/2 complex
     // slots) and log_n for the conjugate-invariant ring (N real slots).
     const int log_slots = parameter().log_max_slots();
@@ -476,7 +478,7 @@ void CkksContext::gen_rotation_keys(int level) {
 
     // The row-swap (complex conjugation) Galois element does not exist in the conjugate-invariant
     // ring, so it is only requested for the standard ring.
-    gen_rotation_keys(rotations, !parameter().is_conjugate_invariant(), level);
+    gen_rotation_keys(rotations, !parameter().is_conjugate_invariant(), level, compressed);
     _enable_naf_decomposed_rotation_keys = true;
 }
 
@@ -484,7 +486,10 @@ void CkksContext::enable_naf_decomposed_rotation_keys(bool enable) {
     _enable_naf_decomposed_rotation_keys = enable;
 }
 
-void CkksContext::gen_rotation_keys(const std::vector<int32_t>& rots, bool include_swap_rows, int level) {
+void CkksContext::gen_rotation_keys(const std::vector<int32_t>& rots,
+                                    bool include_swap_rows,
+                                    int level,
+                                    bool compressed) {
     std::vector<int32_t> rotations;
     rotations.reserve(rots.size());
     for (int32_t rotation : rots) {
@@ -497,7 +502,7 @@ void CkksContext::gen_rotation_keys(const std::vector<int32_t>& rots, bool inclu
     std::vector<uint64_t> galois_key_handles(galois_elements.size());
     CHECK(GenGaloisKeysForRotations(key_generator().get(), secret_key().get(),
                                     rotations.empty() ? nullptr : rotations.data(), static_cast<int>(rotations.size()),
-                                    include_swap_rows, level,
+                                    include_swap_rows, level, compressed ? 1 : 0,
                                     galois_elements.empty() ? nullptr : galois_elements.data(),
                                     galois_key_handles.empty() ? nullptr : galois_key_handles.data()));
 
@@ -506,7 +511,7 @@ void CkksContext::gen_rotation_keys(const std::vector<int32_t>& rots, bool inclu
     }
     for (size_t i = 0; i < galois_elements.size(); ++i) {
         uint64_t handle = galois_key_handles[i];
-        _evaluation_key_set.set_galois_key(GaloisKey(std::move(handle)));
+        _evaluation_key_set.set_galois_key(GaloisKey(std::move(handle), false, compressed));
     }
     _evaluator.update_evaluation_key_set(_evaluation_key_set);
     _enable_naf_decomposed_rotation_keys = false;

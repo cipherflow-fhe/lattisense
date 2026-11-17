@@ -164,7 +164,8 @@ public:
      * @return The created context.
      */
     static BfvContext create_random_context(const BfvParameter& param,
-                                            EncryptorType encryptor_type = EncryptorType::PUBLIC_KEY);
+                                            EncryptorType encryptor_type = EncryptorType::PUBLIC_KEY,
+                                            bool compressed_keys = false);
 
     const BfvParameter& parameter() override;
 
@@ -172,9 +173,12 @@ public:
 
     const PublicKey& public_key() const override;
 
-    void gen_rotation_keys(int level = -1);
+    void gen_rotation_keys(int level = -1, bool compressed = false);
 
-    void gen_rotation_keys(const std::vector<int32_t>& rots, bool include_swap_rows = false, int level = -1);
+    void gen_rotation_keys(const std::vector<int32_t>& rots,
+                           bool include_swap_rows = false,
+                           int level = -1,
+                           bool compressed = false);
 
     const EvaluationKeySet& evaluation_key_set() const override;
 

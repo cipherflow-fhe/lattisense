@@ -870,7 +870,7 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS conjugate", "", CkksTestParams) {
     }
 }
 
-TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS bootstrap", "", CkksTestParams, CkksCITestParams) {
+TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS bootstrap", "", CkksBtpTestParams, CkksCIBtpTestParams) {
     const int bootstrap_log2_min_prec = std::max(this->param.log_default_scale() - this->param.log_n() - 12, 0);
 
     SECTION("real message") {
@@ -1000,10 +1000,68 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS ciphertext serialization", "", Ckks
 
 TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS context serialization", "", CkksTestParams) {
     const int32_t step = 13;
-    this->ctx.gen_rotation_keys(vector<int32_t>{step});
+
+    auto run_case = [&](bool compressed) {
+        CkksContext context = CkksContext::create_random_context(this->param, EncryptorType::PUBLIC_KEY, compressed);
+        context.gen_rotation_keys(vector<int32_t>{step}, false, -1, compressed);
+
+        REQUIRE(context.evaluation_key_set().relin_key().is_compressed() == compressed);
+        for (const auto& [galois_element, galois_key] : context.evaluation_key_set().galois_keys()) {
+            REQUIRE(galois_key.is_compressed() == compressed);
+        }
+
+        Bytes serialized = context.serialize();
+        const char* mode = compressed ? "compressed" : "uncompressed";
+        std::cout << "CKKS context serialization (" << mode << "): " << serialized.size() << " bytes" << std::endl;
+        std::cout << "CKKS relin key serialization (" << mode
+                  << "): " << context.evaluation_key_set().relin_key().serialize().size() << " bytes" << std::endl;
+
+        CkksContext restored = CkksContext::deserialize(serialized);
+
+        REQUIRE(restored.parameter().log_n() == this->param.log_n());
+        REQUIRE(restored.parameter().n() == this->param.n());
+        REQUIRE(restored.parameter().max_level() == this->param.max_level());
+        REQUIRE(restored.parameter().log_max_slots() == this->param.log_max_slots());
+        REQUIRE(restored.parameter().log_default_scale() == this->param.log_default_scale());
+        REQUIRE(restored.parameter().q() == this->param.q());
+        REQUIRE(restored.parameter().p() == this->param.p());
+
+        CkksRealTestCt lhs = new_real_ct(context, this->level);
+        CkksRealTestCt rhs = new_real_ct(context, this->level);
+        vector<double> expected_mult = vec_mul(lhs.message, rhs.message);
+
+        CkksCiphertext product = restored.mult(lhs.ciphertext, rhs.ciphertext);
+        CkksCiphertext relinearized = restored.relinearize(product);
+        CkksCiphertext rescaled = restored.rescale(relinearized);
+        REQUIRE(rescaled.degree() == 1);
+        REQUIRE(rescaled.level() == relinearized.level() - 1);
+        const double expected_rescaled_scale =
+            relinearized.scale() / static_cast<double>(this->param.q()[relinearized.level()]);
+        REQUIRE(rescaled.scale() == Approx(expected_rescaled_scale).epsilon(kScaleTolerance));
+        verify_ckks_precision(context, expected_mult, rescaled);
+
+        CkksCiphertext rotated = restored.rotate(lhs.ciphertext, step);
+        REQUIRE(rotated.degree() == lhs.ciphertext.degree());
+        REQUIRE(rotated.level() == lhs.ciphertext.level());
+        REQUIRE(rotated.scale() == Approx(lhs.ciphertext.scale()).epsilon(kScaleTolerance));
+        verify_ckks_precision(context, vec_rotate(lhs.message, step), rotated);
+    };
+
+    SECTION("uncompressed") {
+        run_case(false);
+    }
+    SECTION("compressed") {
+        run_case(true);
+    }
+}
+
+TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS bootstrapping context serialization", "", CkksBtpTestParams) {
     const int bootstrap_log2_min_prec = std::max(this->param.log_default_scale() - this->param.log_n() - 12, 0);
 
     Bytes serialized = this->ctx.serialize();
+    std::cout << "CKKS bootstrapping context (uncompressed) serialized size: " << serialized.size() << " bytes"
+              << std::endl;
+
     CkksContext restored = CkksContext::deserialize(serialized);
 
     REQUIRE(restored.parameter().log_n() == this->param.log_n());
@@ -1014,25 +1072,33 @@ TEMPLATE_TEST_CASE_METHOD(CkksFixture, "CKKS context serialization", "", CkksTes
     REQUIRE(restored.parameter().q() == this->param.q());
     REQUIRE(restored.parameter().p() == this->param.p());
 
-    CkksRealTestCt lhs = new_real_ct(this->ctx, this->level);
-    CkksRealTestCt rhs = new_real_ct(this->ctx, this->level);
-    vector<double> expected_mult = vec_mul(lhs.message, rhs.message);
+    CkksRealTestCt bootstrap_input = new_real_ct(this->ctx, 0);
+    CkksCiphertext bootstrapped = restored.bootstrap(bootstrap_input.ciphertext);
+    REQUIRE(bootstrapped.degree() == bootstrap_input.ciphertext.degree());
+    verify_ckks_precision(this->ctx, bootstrap_input.message, bootstrapped, bootstrap_log2_min_prec);
+}
 
-    CkksCiphertext product = restored.mult(lhs.ciphertext, rhs.ciphertext);
-    CkksCiphertext relinearized = restored.relinearize(product);
-    CkksCiphertext rescaled = restored.rescale(relinearized);
-    REQUIRE(rescaled.degree() == 1);
-    REQUIRE(rescaled.level() == relinearized.level() - 1);
-    const double expected_rescaled_scale =
-        relinearized.scale() / static_cast<double>(this->param.q()[relinearized.level()]);
-    REQUIRE(rescaled.scale() == Approx(expected_rescaled_scale).epsilon(kScaleTolerance));
-    verify_ckks_precision(this->ctx, expected_mult, rescaled);
+TEMPLATE_TEST_CASE_METHOD(CkksFixture,
+                          "CKKS bootstrapping context serialization compressed",
+                          "",
+                          CkksBtpCompressedTestParams) {
+    const int bootstrap_log2_min_prec = std::max(this->param.log_default_scale() - this->param.log_n() - 12, 0);
 
-    CkksCiphertext rotated = restored.rotate(lhs.ciphertext, step);
-    REQUIRE(rotated.degree() == lhs.ciphertext.degree());
-    REQUIRE(rotated.level() == lhs.ciphertext.level());
-    REQUIRE(rotated.scale() == Approx(lhs.ciphertext.scale()).epsilon(kScaleTolerance));
-    verify_ckks_precision(this->ctx, vec_rotate(lhs.message, step), rotated);
+    REQUIRE(this->ctx.evaluation_key_set().relin_key().is_compressed());
+
+    Bytes serialized = this->ctx.serialize();
+    std::cout << "CKKS bootstrapping context (compressed) serialized size: " << serialized.size() << " bytes"
+              << std::endl;
+
+    CkksContext restored = CkksContext::deserialize(serialized);
+
+    REQUIRE(restored.parameter().log_n() == this->param.log_n());
+    REQUIRE(restored.parameter().n() == this->param.n());
+    REQUIRE(restored.parameter().max_level() == this->param.max_level());
+    REQUIRE(restored.parameter().log_max_slots() == this->param.log_max_slots());
+    REQUIRE(restored.parameter().log_default_scale() == this->param.log_default_scale());
+    REQUIRE(restored.parameter().q() == this->param.q());
+    REQUIRE(restored.parameter().p() == this->param.p());
 
     CkksRealTestCt bootstrap_input = new_real_ct(this->ctx, 0);
     CkksCiphertext bootstrapped = restored.bootstrap(bootstrap_input.ciphertext);

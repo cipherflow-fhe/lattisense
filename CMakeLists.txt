@@ -332,6 +332,9 @@ set(GO_SOURCES
     conversion.go
     multiparty.go
 )
+file(GLOB_RECURSE LATTIGO_GO_DEPENDENCIES CONFIGURE_DEPENDS
+    ${LATTISENSE_ROOT_DIR}/fhe_ops_lib/lattigo/*.go)
+list(FILTER LATTIGO_GO_DEPENDENCIES EXCLUDE REGEX "_test\\.go$")
 if(WIN32)
     # Windows: only build c-archive. c-shared fails because bridge_func (defined in
     # bridge.c on the C++ side) is unresolved — Windows linker requires all symbols at
