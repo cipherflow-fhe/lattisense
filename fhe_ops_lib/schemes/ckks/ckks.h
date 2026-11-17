@@ -231,10 +231,11 @@ public:
 
     void copy(CkksCiphertext& y_ct) const;
 
+    double set_scale(double scale_in);
+
 private:
     friend class CkksContext;
 
-    double set_scale(double scale_in);
     void sync_metadata();
 
     Metadata _metadata{0, 1, 1, 0, 0, 1.0};
