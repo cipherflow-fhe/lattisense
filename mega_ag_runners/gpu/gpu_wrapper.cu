@@ -15,6 +15,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include <iostream>
+#include <chrono>
 #include <unordered_map>
 #include <vector>
 #include <thread>
@@ -449,6 +450,7 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
     options.progress_callback = progress_cb;
     options.cancel_flag = cancel_flag;
 
+    const auto compute_start = std::chrono::steady_clock::now();
 #ifdef LATTISENSE_DEV
     try {
 #endif
@@ -462,6 +464,9 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
     cpu_mem_monitor.stop();
     gpu_mem_monitor.stop();
 #endif
+    const auto compute_end = std::chrono::steady_clock::now();
+    std::cout << "[GPU] run_tasks time: "
+              << std::chrono::duration<double>(compute_end - compute_start).count() << " s" << std::endl;
 }
 
 // Dispatch function to call _run_mega_ag_impl with appropriate TContext
@@ -486,20 +491,20 @@ public:
     FheGpuTask(const std::string& project_path) {
         mega_ag_ = MegaAG::load(project_path, Processor::GPU);
 
-        cudaSetDevice(0);  // Warm up default device; actual device is selected at run time
+        // cudaSetDevice(0);  // Warm up default device; actual device is selected at run time
 
-        // Warm up the CUDA context, so that the computation time measurment is more accurate.
-        heongpu::HEContext<heongpu::Scheme::BFV> context =
-            heongpu::GenHEContext<heongpu::Scheme::BFV>(heongpu::sec_level_type::none);
-        context->set_poly_modulus_degree(8192);
-        context->set_coeff_modulus_values({18014398508400641, 18014398510645249, 18014398510661633},
-                                          {36028797018652673});
-        context->set_plain_modulus(65537);
-        heongpu::MemoryPoolConfig pool_config = heongpu::MemoryPoolConfig::Defaults();
-        context->generate(pool_config);
-        heongpu::HEKeyGenerator<heongpu::Scheme::BFV> keygen(context);
-        heongpu::Secretkey<heongpu::Scheme::BFV> secret_key(context);
-        keygen.generate_secret_key(secret_key);
+        // // Warm up the CUDA context, so that the computation time measurment is more accurate.
+        // heongpu::HEContext<heongpu::Scheme::BFV> context =
+        //     heongpu::GenHEContext<heongpu::Scheme::BFV>(heongpu::sec_level_type::none);
+        // context->set_poly_modulus_degree(8192);
+        // context->set_coeff_modulus_values({18014398508400641, 18014398510645249, 18014398510661633},
+        //                                   {36028797018652673});
+        // context->set_plain_modulus(65537);
+        // heongpu::MemoryPoolConfig pool_config = heongpu::MemoryPoolConfig::Defaults();
+        // context->generate(pool_config);
+        // heongpu::HEKeyGenerator<heongpu::Scheme::BFV> keygen(context);
+        // heongpu::Secretkey<heongpu::Scheme::BFV> secret_key(context);
+        // keygen.generate_secret_key(secret_key);
     }
 
     ~FheGpuTask() {}
