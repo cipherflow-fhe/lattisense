@@ -19,8 +19,9 @@ from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Dict, List
 
+from frontend.types import RingType
+
 GALOIS_GEN = 5
-DEFAULT_BTP_LOG_N = 16
 
 
 class DftType(Enum):
@@ -41,6 +42,7 @@ class DftMatrixLiteral:
     format: DftFormat = DftFormat.Standard
     bit_reversed: bool = False
     log_bsgs_ratio: int = 0
+    real: bool = False
 
     def depth(self, actual: bool = True) -> int:
         if actual:
@@ -93,11 +95,65 @@ class DftMatrixLiteral:
 
         return rotation_map
 
+    def _compute_real_dft_index_map(self, log_n: int) -> Dict[int, Dict[int, bool]]:
+        log_slots = self.log_slots
+        n = 1 << log_slots
+        max_depth = self.depth(actual=False)
+
+        # Builds the LogSlots butterfly stages in application order, merging the
+        # phase-removal map (encode) or its inverse (decode) into the last/first
+        # butterfly stage, exactly as realdft.go genDiagonals does.
+        stages: List[set] = []
+        if self.type == DftType.HomomorphicEncode:
+            m = 1
+            while m < n // 2:
+                stages.append(_build_layer_diags(n, m))
+                m <<= 1
+            stages.append(_mul_diag_sets(n, _phase_entries_diags(n), _build_layer_diags(n, n // 2)))
+        else:
+            stages.append(
+                _mul_diag_sets(n, _transpose_diag_set(n, _build_layer_diags(n, n // 2)), _phase_inv_entries_diags(n))
+            )
+            m = n // 4
+            while m >= 1:
+                stages.append(_transpose_diag_set(n, _build_layer_diags(n, m)))
+                m >>= 1
+
+        # Distributes the stages across the rescale groups (level collapsing),
+        # with the same merge order as the standard DFT.
+        merge = [0] * max_depth
+        level = log_slots
+        for i in range(max_depth):
+            depth = int(math.ceil(level / (max_depth - i)))
+            if self.type == DftType.HomomorphicEncode:
+                merge[i] = depth
+            else:
+                merge[max_depth - i - 1] = depth
+            level -= depth
+
+        rotation_map: Dict[int, Dict[int, bool]] = {}
+        start = 0
+        for i in range(max_depth):
+            merged = set(stages[start + merge[i] - 1])
+            for k in range(start + merge[i] - 2, start - 1, -1):
+                merged = _mul_diag_sets(n, merged, stages[k])
+            rotation_map[i] = {key: True for key in merged}
+            start += merge[i]
+
+        return rotation_map
+
     def rotations(self, log_n: int) -> List[int]:
         log_slots = self.log_slots
         slots = 1 << log_slots
         dslots = slots
         rotations: List[int] = []
+
+        if self.real:
+            index = self._compute_real_dft_index_map(log_n)
+            for pvec in index.values():
+                n1 = _find_best_bsgs_split(pvec, dslots, self.log_bsgs_ratio)
+                _add_matrix_rot_to_list(pvec, rotations, n1, slots, False)
+            return rotations
 
         if log_slots < log_n - 1 and self.format == DftFormat.RepackImagAsReal:
             dslots <<= 1
@@ -118,7 +174,51 @@ class DftMatrixLiteral:
         return rotations
 
     def galois_elements(self, log_n: int) -> List[int]:
-        return [_galois_element(rotation, log_n) for rotation in self.rotations(log_n)]
+        ring_type = RingType.ConjugateInvariant if self.real else RingType.Standard
+        return [_galois_element(rotation, log_n, ring_type) for rotation in self.rotations(log_n)]
+
+
+@dataclass(frozen=True)
+class BtpCircuitParams:
+    """!Shape of the bootstrapping circuit."""
+
+    slots_to_coeffs_factorization: List[List[int]]
+    coeffs_to_slots_factorization: List[List[int]]
+    eval_mod_log_scale: int
+
+    @property
+    def depth(self) -> int:
+        """!Levels the circuit consumes.
+
+        One level is consumed per factorization factor, plus the EvalMod depth
+        log2(max(mod1_degree, 2K-1)) + double_angle, with mod1_degree=30, K=16 and
+        double_angle=3.
+        """
+        mod1_depth = max(30, 2 * 16 - 1).bit_length() + 3
+        return len(self.slots_to_coeffs_factorization) + mod1_depth + len(self.coeffs_to_slots_factorization)
+
+
+# Shape of the bootstrapping circuit, indexed by the circuit ring degree.
+BTP_CIRCUIT_PARAMS: Dict[int, BtpCircuitParams] = {
+    16: BtpCircuitParams(
+        slots_to_coeffs_factorization=[[39], [39], [39]],
+        coeffs_to_slots_factorization=[[56], [56], [56], [56]],
+        eval_mod_log_scale=60,
+    ),
+}
+
+# Residual ring degree -> circuit ring degree. The circuit always runs in the
+# standard ring of degree 16; for a residual of log_n 14 or 15 it needs the
+# evk_n1_to_n2 / evk_n2_to_n1 switchkeys, while a residual of log_n 16 shares the
+# ring. The residual parameter sets keep a modulus that leaves room for the
+# circuit within the 128-bit security bound of degree 16 (1761 bits of log2(QP)):
+# with the circuit's 821 bits and the key-switching primes, the residual chains
+# hold 359 bits for log_n 14, 536 for 15 and 558 for 16.
+BTP_LOG_N_BY_RESIDUAL_LOG_N: Dict[int, int] = {
+    14: 16,
+    15: 16,
+    16: 16,
+}
 
 
 @dataclass
@@ -127,45 +227,69 @@ class BootstrappingParameters:
     log_slots: int
     slots_to_coeffs: DftMatrixLiteral
     coeffs_to_slots: DftMatrixLiteral
+    circuit: BtpCircuitParams
 
     @classmethod
-    def default(cls, residual_log_n: int, btp_log_n: int = DEFAULT_BTP_LOG_N) -> 'BootstrappingParameters':
-        log_slots = btp_log_n - 1
-        if residual_log_n > btp_log_n:
-            raise ValueError(f'Default CKKS bootstrapping only supports residual log_n <= {btp_log_n}.')
+    def default(cls, residual_log_n: int, ring_type: RingType = RingType.Standard) -> 'BootstrappingParameters':
+        """!Bootstrapping parameters for a residual parameter set.
+
+        The circuit runs at the degree of BTP_LOG_N_BY_RESIDUAL_LOG_N for both ring
+        types. When that degree differs from the residual's, the two rings are
+        linked by the evk_n1_to_n2 / evk_n2_to_n1 switchkeys; when it is the
+        residual degree itself, as for a residual of log_n 16, no switch is needed.
+        A conjugate invariant residual bootstraps natively in the CI ring via the
+        real DFT (full packing, log_slots == log_n), so no domain switch keys are
+        involved.
+        """
+        boot_log_n = BTP_LOG_N_BY_RESIDUAL_LOG_N.get(residual_log_n)
+        if boot_log_n is None:
+            raise ValueError(
+                f'No bootstrapping parameter set for a residual of log_n={residual_log_n} '
+                f'(supported: {sorted(BTP_LOG_N_BY_RESIDUAL_LOG_N)}).'
+            )
+
+        circuit = BTP_CIRCUIT_PARAMS[boot_log_n]
+
+        ci = ring_type == RingType.ConjugateInvariant
+        log_slots = boot_log_n if ci else boot_log_n - 1
         return cls(
-            log_n=btp_log_n,
+            log_n=boot_log_n,
             log_slots=log_slots,
             slots_to_coeffs=DftMatrixLiteral(
                 type=DftType.HomomorphicDecode,
                 log_slots=log_slots,
                 format=DftFormat.RepackImagAsReal,
                 log_bsgs_ratio=1,
-                levels=[1, 1, 1],
+                levels=[len(level) for level in circuit.slots_to_coeffs_factorization],
+                real=ci,
             ),
             coeffs_to_slots=DftMatrixLiteral(
                 type=DftType.HomomorphicEncode,
                 log_slots=log_slots,
                 format=DftFormat.RepackImagAsReal,
                 log_bsgs_ratio=1,
-                levels=[1, 1, 1, 1],
+                levels=[len(level) for level in circuit.coeffs_to_slots_factorization],
+                real=ci,
             ),
+            circuit=circuit,
         )
 
     def galois_elements(self) -> List[int]:
-        keys = {_galois_element(1 << i, self.log_n) for i in range(self.log_slots, self.log_n - 1)}
+        ring_type = RingType.ConjugateInvariant if self.log_slots == self.log_n else RingType.Standard
+        keys = {_galois_element(1 << i, self.log_n, ring_type) for i in range(self.log_slots, self.log_n - 1)}
         keys.update(self.coeffs_to_slots.galois_elements(self.log_n))
         keys.update(self.slots_to_coeffs.galois_elements(self.log_n))
-        keys.add(_galois_element_for_complex_conjugation(self.log_n))
+        if ring_type != RingType.ConjugateInvariant:
+            keys.add(_galois_element_for_complex_conjugation(self.log_n))
         return sorted(keys)
 
 
-def bootstrapping_galois_elements(residual_log_n: int) -> List[int]:
-    return BootstrappingParameters.default(residual_log_n).galois_elements()
+def bootstrapping_galois_elements(residual_log_n: int, ring_type: RingType = RingType.Standard) -> List[int]:
+    return BootstrappingParameters.default(residual_log_n, ring_type).galois_elements()
 
 
-def bootstrapping_rotations(residual_log_n: int) -> List[int]:
-    params = BootstrappingParameters.default(residual_log_n)
+def bootstrapping_rotations(residual_log_n: int, ring_type: RingType = RingType.Standard) -> List[int]:
+    params = BootstrappingParameters.default(residual_log_n, ring_type)
     rotations = set()
     for i in range(params.log_slots, params.log_n - 1):
         rotations.add(1 << i)
@@ -174,8 +298,13 @@ def bootstrapping_rotations(residual_log_n: int) -> List[int]:
     return sorted(rotations)
 
 
-def _galois_element(rotation: int, log_n: int) -> int:
-    modulus = 1 << (log_n + 1)
+def bootstrapping_log_n(residual_log_n: int, ring_type: RingType = RingType.Standard) -> int:
+    """!Bootstrapping (circuit) ring degree log2, see BootstrappingParameters.default."""
+    return BootstrappingParameters.default(residual_log_n, ring_type).log_n
+
+
+def _galois_element(rotation: int, log_n: int, ring_type: RingType = RingType.Standard) -> int:
+    modulus = 1 << (log_n + (2 if ring_type == RingType.ConjugateInvariant else 1))
     return pow(GALOIS_GEN, rotation & (modulus - 1), modulus)
 
 
@@ -277,3 +406,137 @@ def _next_level_fft_index_map(
         new_vec[(i - rot) & (n - 1)] = True
 
     return new_vec
+
+
+# Real-DFT diagonal helpers (faithful port of circuits/ckks/realdft/realdft.go).
+# Only the diagonal indices matter here: the actual coefficients are irrelevant
+# because only DiagonalsIndexList() feeds the galois elements.
+
+_PART_REAL = 0
+_PART_RE = 1
+_PART_IM = 2
+
+
+def _units_stage(m: int) -> List[tuple]:
+    """!Real-representation units at stage m: (r, pair) where pair marks a
+    conjugate pair of complex sub-vectors."""
+    units = [(0, False)]
+    s = 1
+    while s < m:
+        nxt: List[tuple] = []
+        for r, pair in units:
+            if not pair:
+                if r == 0:
+                    nxt.append((0, False))
+                    nxt.append((s, False))
+                else:
+                    nxt.append((s >> 1, True))
+            else:
+                nxt.append((r, True))
+                nxt.append((s - r, True))
+        units = nxt
+        s <<= 1
+    return units
+
+
+def _coords_stage(n: int, s: int) -> List[tuple]:
+    """!Ordering of the N real coordinates at stage S as (r, part, j)."""
+    span = n // s
+    out: List[tuple] = []
+    for r, pair in _units_stage(s):
+        if not pair:
+            for j in range(span):
+                out.append((r, _PART_REAL, j))
+        else:
+            for j in range(span):
+                out.append((r, _PART_RE, j))
+            for j in range(span):
+                out.append((r, _PART_IM, j))
+    return out
+
+
+def _index_map(coords: List[tuple]) -> Dict[tuple, int]:
+    return {c: i for i, c in enumerate(coords)}
+
+
+def _build_layer_diags(n: int, m: int) -> set:
+    """!Diagonal indices of the butterfly layer S_{2m} (buildLayer in realdft.go)."""
+    span = n // (2 * m)
+    in_pos = _index_map(_coords_stage(n, m))
+    out_pos = _index_map(_coords_stage(n, 2 * m))
+    diags: set = set()
+
+    def add(oc: tuple, ic: tuple) -> None:
+        diags.add((in_pos[ic] - out_pos[oc]) % n)
+
+    # G_real (r = 0)
+    for j in range(span):
+        add((0, _PART_REAL, j), (0, _PART_REAL, j))
+        add((0, _PART_REAL, j), (0, _PART_REAL, j + span))
+        add((m, _PART_REAL, j), (0, _PART_REAL, j))
+        add((m, _PART_REAL, j), (0, _PART_REAL, j + span))
+
+    # G_split (r = m/2), only for m >= 2
+    if m >= 2:
+        for j in range(span):
+            add((m // 2, _PART_RE, j), (m // 2, _PART_REAL, j))
+            add((m // 2, _PART_IM, j), (m // 2, _PART_REAL, j + span))
+
+    # G_r (1 <= r < m/2); the zero entries of each 4x4 block are omitted.
+    for r in range(1, m // 2):
+        for j in range(span):
+            ins = (
+                (r, _PART_RE, j),
+                (r, _PART_RE, j + span),
+                (r, _PART_IM, j),
+                (r, _PART_IM, j + span),
+            )
+            rows = (
+                ((r, _PART_RE, j), (ins[0], ins[1], ins[3])),
+                ((r, _PART_IM, j), (ins[1], ins[2], ins[3])),
+                ((m - r, _PART_RE, j), (ins[0], ins[1], ins[3])),
+                ((m - r, _PART_IM, j), (ins[1], ins[2], ins[3])),
+            )
+            for oc, ics in rows:
+                for ic in ics:
+                    add(oc, ic)
+
+    return diags
+
+
+def _phase_entries_diags(n: int) -> set:
+    """!Diagonal indices of the phase-removal map P (phaseEntries in realdft.go)."""
+    pos = _index_map(_coords_stage(n, n))
+    diags: set = set()
+
+    def add(row: int, col: int) -> None:
+        diags.add((col - row) % n)
+
+    add(pos[(0, _PART_REAL, 0)], pos[(0, _PART_REAL, 0)])
+    add(pos[(n // 2, _PART_REAL, 0)], pos[(n // 2, _PART_REAL, 0)])
+
+    for r in range(1, n // 2):
+        pr = pos[(r, _PART_RE, 0)]
+        pi = pos[(r, _PART_IM, 0)]
+        add(pr, pr)
+        add(pr, pi)
+        add(pi, pr)
+        add(pi, pi)
+
+    return diags
+
+
+def _phase_inv_entries_diags(n: int) -> set:
+    """!Diagonal indices of P^{-1}; its support coincides with P, only the
+    coefficients differ (and only the diagonal indices matter here)."""
+    return _phase_entries_diags(n)
+
+
+def _mul_diag_sets(n: int, a: set, b: set) -> set:
+    """!Diagonal indices of the product A*B: {(a + b) mod n}."""
+    return {(x + y) % n for x in a for y in b}
+
+
+def _transpose_diag_set(n: int, a: set) -> set:
+    """!Diagonal indices of the transpose: {-a mod n}."""
+    return {(-x) % n for x in a}

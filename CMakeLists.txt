@@ -332,6 +332,9 @@ set(GO_SOURCES
     conversion.go
     multiparty.go
 )
+file(GLOB_RECURSE LATTIGO_GO_DEPENDENCIES CONFIGURE_DEPENDS
+    ${LATTISENSE_ROOT_DIR}/fhe_ops_lib/lattigo/*.go)
+list(FILTER LATTIGO_GO_DEPENDENCIES EXCLUDE REGEX "_test\\.go$")
 if(WIN32)
     # Windows: only build c-archive. c-shared fails because bridge_func (defined in
     # bridge.c on the C++ side) is unresolved — Windows linker requires all symbols at
@@ -417,6 +420,9 @@ if(LATTISENSE_BUILD_MODE STREQUAL "SHARED")
         # Build time: source root allows <fhe_ops_lib/xxx.h>, <cxx_sdk_v2/xxx.h>, etc.
         $<BUILD_INTERFACE:${LATTISENSE_ROOT_DIR}>
         $<BUILD_INTERFACE:${LATTISENSE_ROOT_DIR}/lib>
+        # fhe_ops_lib headers include "lattigo/go_sdk/..." relative to fhe_ops_lib.
+        $<BUILD_INTERFACE:${LATTISENSE_ROOT_DIR}/fhe_ops_lib>
+        $<BUILD_INTERFACE:${LATTISENSE_ROOT_DIR}/fhe_ops_lib/lattigo/go_sdk>
         # Install time: installed include dir allows same include style
         $<INSTALL_INTERFACE:include/lattisense>
     )

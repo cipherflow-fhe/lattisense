@@ -35,9 +35,42 @@ struct BfvTestParams {
 };
 
 struct CkksTestParams {
+    static constexpr bool compressed_keys = false;
     static CkksParameter create() {
         constexpr int logN = 14;
         return CkksParameter::create_parameter(logN);
+    }
+};
+
+struct CkksCITestParams {
+    static constexpr bool compressed_keys = false;
+    static CkksParameter create() {
+        // The moduli are generated with LogNthRoot = max(LogN+2, 17), so every prime
+        // is 1 mod 4N and the parameter set works for the conjugate-invariant ring.
+        constexpr int logN = 15;
+        return CkksParameter::create_parameter(logN, RingType::ConjugateInvariant);
+    }
+};
+
+// Bootstrapping parameter sets are only used by the bootstrapping tests: creating
+// a bootstrapped context generates the whole bootstrapping key bundle.
+struct CkksBtpTestParams {
+    static constexpr bool compressed_keys = false;
+    static CkksParameter create() {
+        constexpr int logN = 14;
+        return CkksParameter::create_parameter(logN, RingType::Standard, /*enable_bootstrapping=*/true);
+    }
+};
+
+struct CkksBtpCompressedTestParams : CkksBtpTestParams {
+    static constexpr bool compressed_keys = true;
+};
+
+struct CkksCIBtpTestParams {
+    static constexpr bool compressed_keys = false;
+    static CkksParameter create() {
+        constexpr int logN = 15;
+        return CkksParameter::create_parameter(logN, RingType::ConjugateInvariant, /*enable_bootstrapping=*/true);
     }
 };
 
@@ -60,6 +93,7 @@ protected:
 
 public:
     CkksFixture()
-        : param(P::create()), ctx(CkksContext::create_random_context(param)), level(param.max_level()),
-          scale(param.default_scale()) {}
+        : param(P::create()),
+          ctx(CkksContext::create_random_context(param, EncryptorType::PUBLIC_KEY, P::compressed_keys)),
+          level(param.max_level()), scale(param.default_scale()) {}
 };

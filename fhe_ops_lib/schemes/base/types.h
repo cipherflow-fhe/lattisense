@@ -221,36 +221,66 @@ public:
 };
 class EvaluationKey : public Handle {
 public:
-    using Handle::Handle;
+    EvaluationKey() = default;
+    EvaluationKey(uint64_t&& h, bool k = false, bool compressed = false);
 
     EvaluationKey copy() const;
+
+    /**
+     * Whether the key only stores the seed-compressed component. Compressed keys
+     * are expanded automatically when bound to an evaluator; expand() gives an
+     * explicit expanded copy.
+     */
+    bool is_compressed() const {
+        return _compressed;
+    }
+
+    EvaluationKey expand(const Parameter& parameter) const;
 
     Bytes serialize() const;
 
     static EvaluationKey deserialize(BytesView data);
+
+private:
+    bool _compressed = false;
 };
 
 class RelinKey : public Handle {
 public:
     RelinKey() = default;
-    using Handle::Handle;
-    RelinKey(const KeyGenerator& key_generator, const SecretKey& secret_key, int level);
+    RelinKey(uint64_t&& h, bool k = false, bool compressed = false);
+    RelinKey(const KeyGenerator& key_generator, const SecretKey& secret_key, int level, bool compressed = false);
 
     RelinKey copy() const;
+
+    bool is_compressed() const {
+        return _compressed;
+    }
+
+    RelinKey expand(const Parameter& parameter) const;
 
     int level() const;
 
     Bytes serialize() const;
 
     static RelinKey deserialize(BytesView data);
+
+private:
+    bool _compressed = false;
 };
 
 class GaloisKey : public Handle {
 public:
     GaloisKey() = default;
-    using Handle::Handle;
+    GaloisKey(uint64_t&& h, bool k = false, bool compressed = false);
 
     GaloisKey copy() const;
+
+    bool is_compressed() const {
+        return _compressed;
+    }
+
+    GaloisKey expand(const Parameter& parameter) const;
 
     uint64_t galois_element() const;
 
@@ -259,6 +289,9 @@ public:
     Bytes serialize() const;
 
     static GaloisKey deserialize(BytesView data);
+
+private:
+    bool _compressed = false;
 };
 
 class EvaluationKeySet : public Handle {

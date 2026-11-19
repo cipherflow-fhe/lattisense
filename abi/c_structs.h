@@ -44,11 +44,11 @@ void export_ciphertext(uint64_t parameter_handle,
                        Metadata* metadata,
                        CCiphertext* ciphertext);
 
-void export_evaluation_key(uint64_t parameter_handle,
-                           uint64_t evaluation_key_handle,
-                           int level_p,
-                           Metadata* metadata,
-                           CEvaluationKey* evaluation_key);
+ErrorStatus export_evaluation_key(uint64_t parameter_handle,
+                                  uint64_t evaluation_key_handle,
+                                  int level_p,
+                                  Metadata* metadata,
+                                  CEvaluationKey* evaluation_key);
 
 void bfv_poly_ntt(uint64_t parameter_handle, uint64_t* data, int level_q, int level_p);
 

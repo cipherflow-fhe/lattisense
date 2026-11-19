@@ -19,6 +19,9 @@ def pytest_configure(config):
     config.addinivalue_line('markers', 'min_level(n): minimum level (inclusive) for lv parametrization')
     config.addinivalue_line('markers', 'at_level(n): fixed level value for lv parametrization')
     config.addinivalue_line('markers', 'at_max_level: use param.max_level as lv for each param')
+    config.addinivalue_line(
+        'markers', 'params(list): use this parameter list rather than the module-level BFV_PARAMS / CKKS_PARAMS'
+    )
 
 
 def pytest_generate_tests(metafunc):
@@ -38,6 +41,12 @@ def pytest_generate_tests(metafunc):
     params_list = getattr(module, 'BFV_PARAMS', None) or getattr(module, 'CKKS_PARAMS', None)
     if params_list is None:
         return
+
+    # A test may override the module-level list, e.g. to sweep more parameter
+    # sets than the general tests need.
+    params_marker = metafunc.definition.get_closest_marker('params')
+    if params_marker:
+        params_list = params_marker.args[0]
 
     param_tag_fn = getattr(module, '_param_tag', None)
     has_param = 'param' in metafunc.fixturenames

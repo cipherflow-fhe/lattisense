@@ -22,7 +22,7 @@ import os
 import random
 import string
 from dataclasses import dataclass
-from enum import Enum
+from enum import Enum, IntEnum
 from typing import List
 
 import networkx as nx
@@ -41,6 +41,15 @@ GALOIS_GEN = 5
 class Algo(Enum):
     BFV = 'BFV'
     CKKS = 'CKKS'
+
+
+class RingType(IntEnum):
+    """
+    @brief CKKS ring type. Values are aligned with the Go ring.Type and the C++ RingType enum.
+    """
+
+    Standard = 0
+    ConjugateInvariant = 1
 
 
 class DataType(Enum):
@@ -129,6 +138,7 @@ class Param:
         self.p: list[int] = []
         self.q: list[int] = []
         self.max_level: int = -1
+        self._param_category: str | None = None
 
     def get_max_sp_level(self):
         return len(self.p) - 1
@@ -146,6 +156,8 @@ class Param:
             raise ValueError(f'Unsupported algorithm type: {self.algo.value}')
 
         algo_params = parameters[self.algo.value]
+        if self._param_category is not None:
+            algo_params = algo_params[self._param_category]
         if str(self.log_n) not in algo_params:
             raise ValueError(f'Unsupported log_n value for algorithm {self.algo.value}: {self.log_n}')
 
@@ -194,14 +206,23 @@ class CkksParam(Param):
         self.log_default_scale: int = log_scale
         self.default_scale: float = 1 << log_scale
         self.enable_bootstrapping: bool = False
+        self.ring_type: RingType = RingType.Standard
 
     def set_log_scale(self, log_scale: int):
         self.log_default_scale = log_scale
         self.default_scale = 1 << log_scale
 
+    def log_max_slots(self) -> int:
+        # The conjugate-invariant ring encodes N slots, the standard ring N/2.
+        return self.log_n if self.ring_type == RingType.ConjugateInvariant else self.log_n - 1
+
     @classmethod
-    def create_default_param(cls, log_n: int):
+    def create_default_param(
+        cls, log_n: int, ring_type: RingType = RingType.Standard, enable_bootstrapping: bool = False
+    ):
         instance = cls(log_n)
+        instance._param_category = 'bootstrapped' if enable_bootstrapping else 'non-bootstrapped'
+        instance.enable_bootstrapping = enable_bootstrapping
 
         param_json = instance._load_parameter()
 
@@ -213,21 +234,26 @@ class CkksParam(Param):
         instance.max_level = param_json['max_level']
         instance.log_default_scale = param_json['log_default_scale']
         instance.default_scale = 1 << instance.log_default_scale
+        instance.ring_type = RingType(ring_type)
 
         return instance
 
     @classmethod
-    def create_custom_param(cls, log_n: int, q: List[int], p: List[int], log_scale: int = 0):
+    def create_custom_param(
+        cls, log_n: int, q: List[int], p: List[int], log_scale: int = 0, ring_type: RingType = RingType.Standard
+    ):
         instance = cls(log_n, log_scale)
         instance.q = q
         instance.p = p
         instance.max_level = len(q) - 1
+        instance.ring_type = RingType(ring_type)
         return instance
 
     def to_json_dict(self) -> dict:
         d = super().to_json_dict()
         d['log_default_scale'] = self.log_default_scale
         d['enable_bootstrapping'] = self.enable_bootstrapping
+        d['ring_type'] = int(self.ring_type)
         return d
 
 
@@ -391,9 +417,10 @@ class CkksPlaintextNode(PlaintextNode):
     def _validate_log_slots(log_slots: int, param: CkksParam) -> None:
         if log_slots < 0:
             raise ValueError(f'log_slots must be non-negative, got {log_slots}')
+        max_slots = 1 << param.log_max_slots()
         slots = 1 << log_slots
-        if slots > param.n // 2:
-            raise ValueError(f'slots must be in range (0, {param.n // 2}], got {slots}')
+        if slots > max_slots:
+            raise ValueError(f'slots must be in range (0, {max_slots}], got {slots}')
 
     def __init__(
         self,
@@ -410,7 +437,7 @@ class CkksPlaintextNode(PlaintextNode):
         if not isinstance(param, CkksParam):
             raise ValueError('CKKS plaintext requires CKKS parameters.')
         if log_slots == -1:
-            log_slots = int(math.log2(param.n // 2))
+            log_slots = param.log_max_slots()
         if scale == 0.0:
             scale = param.default_scale
         self._validate_log_slots(log_slots, param)
@@ -462,7 +489,7 @@ class CkksCiphertextNode(CiphertextNode):
         if not isinstance(param, CkksParam):
             raise ValueError('CKKS ciphertext requires CKKS parameters.')
         if log_slots == -1:
-            log_slots = int(math.log2(param.n // 2))
+            log_slots = param.log_max_slots()
         if scale == 0.0:
             scale = param.default_scale
         CkksPlaintextNode._validate_log_slots(log_slots, param)
@@ -588,7 +615,7 @@ class FheComputeNode(ComputeNode):
         }
         if isinstance(self, RotateColNode):
             d['steps'] = self.steps
-            d['use_default_rotation_keys'] = self.use_default_rotation_keys
+            d['use_naf_decomposed_rotation_keys'] = self.use_naf_decomposed_rotation_keys
         elif isinstance(self, DropLevelNode):
             d['drop_level'] = self.drop_level
         elif isinstance(self, (CmpSumComputeNode, CmpacSumComputeNode)):
@@ -659,10 +686,10 @@ class RotateColNode(FheComputeNode):
     @brief Column rotation node type.
     """
 
-    def __init__(self, steps: list[int] | int, use_default_rotation_keys: bool = True) -> None:
+    def __init__(self, steps: list[int] | int, use_naf_decomposed_rotation_keys: bool = True) -> None:
         super().__init__(type=OperationType.RotateCol)
         self.steps = [steps] if isinstance(steps, int) else steps
-        self.use_default_rotation_keys = use_default_rotation_keys
+        self.use_naf_decomposed_rotation_keys = use_naf_decomposed_rotation_keys
 
 
 class RotateRowNode(FheComputeNode):

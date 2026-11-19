@@ -15,6 +15,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include <iostream>
+#include <chrono>
 #include <unordered_map>
 #include <vector>
 #include <thread>
@@ -51,6 +52,32 @@ extern "C" {
 namespace gpu_wrapper {
 using namespace fhe_ops_lib;
 
+namespace {
+
+    /// Bootstrapping circuit shape for one residual ring degree.
+    struct BtpCircuitParams {
+        int log_n;
+        std::vector<std::vector<int>> slots_to_coeffs_factorization;
+        std::vector<std::vector<int>> coeffs_to_slots_factorization;
+        int eval_mod_log_scale;
+    };
+
+    /// Bootstrapping circuit shapes, indexed by the residual ring degree. The circuit
+    /// always runs at degree 16 in the residual ring type (standard or conjugate
+    /// invariant), which for a residual of log_n 16 is the residual ring itself and
+    /// otherwise is one or two degrees above it. Only a residual degree listed here
+    /// can be bootstrapped.
+    const std::unordered_map<int, BtpCircuitParams>& btp_circuit_params() {
+        static const std::unordered_map<int, BtpCircuitParams> params = {
+            {14, {16, {{39}, {39}, {39}}, {{56}, {56}, {56}, {56}}, 60}},
+            {15, {16, {{39}, {39}, {39}}, {{56}, {56}, {56}, {56}}, 60}},
+            {16, {16, {{39}, {39}, {39}}, {{56}, {56}, {56}, {56}}, 60}},
+        };
+        return params;
+    }
+
+}  // namespace
+
 template <heongpu::Scheme SchemeType>
 void init_gpu_context(const nlohmann::json& param_json,
                       heongpu::HEContext<SchemeType>& context,
@@ -72,9 +99,12 @@ void init_gpu_context(const nlohmann::json& param_json,
         // The parameter carries the default scale as a log2 value.
         double scale = std::ldexp(1.0, param_json["log_default_scale"].get<int>());
 
+        const auto ring_type = static_cast<heongpu::ring_type>(param_json.value("ring_type", 0));
+
         context = heongpu::GenHEContext<SchemeType>(heongpu::sec_level_type::none);
         context->set_poly_modulus_degree(n);
         context->set_default_scale(scale);
+        context->set_ring_type(ring_type);
 
         std::vector<Data64> Q, P;
         for (int i = 0; i <= max_level; i++) {
@@ -91,11 +121,34 @@ void init_gpu_context(const nlohmann::json& param_json,
         operators = std::make_unique<heongpu::HEArithmeticOperator<SchemeType>>(context, *encoder);
 
         if (param_json.value("enable_bootstrapping", false)) {
-            heongpu::BootstrappingParamConfig param_config;
-            heongpu::BootstrappingConfigV3 boot_config_v3 = operators->generate_bootstrapping_config_v3(param_config);
+            // The circuit is evaluated in the residual ring type (standard or
+            // conjugate invariant), with a shape fixed by the residual ring
+            // degree (see btp_circuit_params).
+            const auto& circuit_params = btp_circuit_params();
+            auto circuit = circuit_params.find(log_n);
+            if (circuit == circuit_params.end()) {
+                throw std::invalid_argument("no bootstrapping parameter set for a residual of log_n=" +
+                                            std::to_string(log_n));
+            }
 
+            heongpu::BootstrappingParamConfig param_config;
+            param_config.log_n_ = circuit->second.log_n;
+            // The conjugate invariant ring bootstraps natively via the real DFT
+            // at full packing (log_slots == log_n); the standard ring uses
+            // log_n - 1 slots.
+            param_config.log_slots_ = (ring_type == heongpu::ring_type::CONJUGATE_INVARIANT) ?
+                                          circuit->second.log_n :
+                                          circuit->second.log_n - 1;
+            param_config.stc_factorization_depth_and_log_scales_ = circuit->second.slots_to_coeffs_factorization;
+            param_config.cts_factorization_depth_and_log_scales_ = circuit->second.coeffs_to_slots_factorization;
+            param_config.eval_mod_log_scale_ = circuit->second.eval_mod_log_scale;
+            // The circuit ring is larger than the residual ring, which shifts the
+            // message ratio of the modular reduction by the degree difference.
+            param_config.log_message_ratio_ += param_config.log_n_ - log_n;
+            heongpu::BootstrappingConfigV3 boot_config_v3 = operators->generate_bootstrapping_config_v3(param_config);
             boot_context = heongpu::GenHEContext<SchemeType>(heongpu::sec_level_type::none);
             boot_context->set_poly_modulus_degree(std::size_t(1) << boot_config_v3.log_n_);
+            boot_context->set_ring_type(ring_type);
             boot_context->set_default_scale(scale);
             boot_context->set_coeff_modulus_values(boot_config_v3.q_, boot_config_v3.p_);
             boot_context->generate();
@@ -181,17 +234,30 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
 
     // GPU-specific data structures
     std::unordered_map<NodeId, cudaEvent_t> data_ready_events;
-    std::shared_ptr<heongpu::Galoiskey<SchemeType>> galois_key;
-    std::mutex galois_key_mutex;
+    // Galois keys are generated per ring: residual (N) and bootstrapping (N2). Each ring
+    // has its own context and Q chain, so they must not share a key object or level.
+    std::shared_ptr<heongpu::Galoiskey<SchemeType>> residual_galois_key;
+    std::shared_ptr<heongpu::Galoiskey<SchemeType>> boot_galois_key;
+    std::mutex residual_galois_key_mutex;
+    std::mutex boot_galois_key_mutex;
 
-    // Collect all galois elements and the shared maximum GLK level from data nodes
-    std::vector<uint32_t> all_galois_elts;
-    int galois_key_level = -1;
+    // Collect galois elements and the maximum GLK level separately for each ring.
+    std::vector<uint64_t> residual_galois_elts;
+    std::vector<uint64_t> boot_galois_elts;
+    int residual_galois_key_level = -1;
+    int boot_galois_key_level = -1;
     for (const auto& [data_id, data_node] : mega_ag.data) {
         if (data_node.datum_type == DataType::TYPE_GALOIS_KEY && data_node.fhe_prop.has_value()) {
-            galois_key_level = std::max(galois_key_level, data_node.fhe_prop->level);
+            const bool is_bootstrap_key =
+                data_node.fhe_prop->p.has_value() && data_node.fhe_prop->p->key_role == "bootstrap";
+            int& level = is_bootstrap_key ? boot_galois_key_level : residual_galois_key_level;
+            level = std::max(level, data_node.fhe_prop->level);
             if (data_node.fhe_prop->p.has_value()) {
-                all_galois_elts.push_back(data_node.fhe_prop->p->galois_element);
+                auto& elts = is_bootstrap_key ? boot_galois_elts : residual_galois_elts;
+                const uint64_t galois_element = data_node.fhe_prop->p->galois_element;
+                if (std::find(elts.begin(), elts.end(), galois_element) == elts.end()) {
+                    elts.push_back(galois_element);
+                }
             }
         }
     }
@@ -211,7 +277,9 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
                 [task_id, pool_priority, device, &gpu_pool, &mega_ag, &m_mutex, &task_queue, &queued_computes,
                  &completed_tasks, &total_tasks, &completion_cv, &completion_mutex, &available_data, &operators,
                  &encoder, &boot_operators, &boot_context, &data_ready_events, &stream_options, &streams, &context,
-                 &galois_key, &galois_key_mutex, &data_ref_counts, &all_galois_elts, &galois_key_level, cancel_flag]() {
+                 &residual_galois_key, &boot_galois_key, &residual_galois_key_mutex, &boot_galois_key_mutex,
+                 &data_ref_counts, &residual_galois_elts, &boot_galois_elts, &residual_galois_key_level,
+                 &boot_galois_key_level, cancel_flag]() {
                     CHECK(cudaSetDevice(device));
                     if (cancel_flag && cancel_flag->load()) {
                         return;
@@ -278,11 +346,15 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
                     }
 
                     if (has_load_to_backend) {
-                        exec_ctx.other_args.push_back(&galois_key);
-                        exec_ctx.other_args.push_back(&galois_key_mutex);
-                        exec_ctx.other_args.push_back(&all_galois_elts);
-                        exec_ctx.other_args.push_back(&galois_key_level);
-                        exec_ctx.other_args.push_back(&boot_context);
+                        exec_ctx.other_args.push_back(&residual_galois_key);        // [2]
+                        exec_ctx.other_args.push_back(&boot_galois_key);            // [3]
+                        exec_ctx.other_args.push_back(&residual_galois_key_mutex);  // [4]
+                        exec_ctx.other_args.push_back(&boot_galois_key_mutex);      // [5]
+                        exec_ctx.other_args.push_back(&residual_galois_elts);       // [6]
+                        exec_ctx.other_args.push_back(&boot_galois_elts);           // [7]
+                        exec_ctx.other_args.push_back(&residual_galois_key_level);  // [8]
+                        exec_ctx.other_args.push_back(&boot_galois_key_level);      // [9]
+                        exec_ctx.other_args.push_back(&boot_context);               // [10]
                     }
 
                     try {
@@ -378,6 +450,7 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
     options.progress_callback = progress_cb;
     options.cancel_flag = cancel_flag;
 
+    const auto compute_start = std::chrono::steady_clock::now();
 #ifdef LATTISENSE_DEV
     try {
 #endif
@@ -391,6 +464,9 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
     cpu_mem_monitor.stop();
     gpu_mem_monitor.stop();
 #endif
+    const auto compute_end = std::chrono::steady_clock::now();
+    std::cout << "[GPU] run_tasks time: "
+              << std::chrono::duration<double>(compute_end - compute_start).count() << " s" << std::endl;
 }
 
 // Dispatch function to call _run_mega_ag_impl with appropriate TContext
@@ -415,20 +491,20 @@ public:
     FheGpuTask(const std::string& project_path) {
         mega_ag_ = MegaAG::load(project_path, Processor::GPU);
 
-        cudaSetDevice(0);  // Warm up default device; actual device is selected at run time
+        // cudaSetDevice(0);  // Warm up default device; actual device is selected at run time
 
-        // Warm up the CUDA context, so that the computation time measurment is more accurate.
-        heongpu::HEContext<heongpu::Scheme::BFV> context =
-            heongpu::GenHEContext<heongpu::Scheme::BFV>(heongpu::sec_level_type::none);
-        context->set_poly_modulus_degree(8192);
-        context->set_coeff_modulus_values({18014398508400641, 18014398510645249, 18014398510661633},
-                                          {36028797018652673});
-        context->set_plain_modulus(65537);
-        heongpu::MemoryPoolConfig pool_config = heongpu::MemoryPoolConfig::Defaults();
-        context->generate(pool_config);
-        heongpu::HEKeyGenerator<heongpu::Scheme::BFV> keygen(context);
-        heongpu::Secretkey<heongpu::Scheme::BFV> secret_key(context);
-        keygen.generate_secret_key(secret_key);
+        // // Warm up the CUDA context, so that the computation time measurment is more accurate.
+        // heongpu::HEContext<heongpu::Scheme::BFV> context =
+        //     heongpu::GenHEContext<heongpu::Scheme::BFV>(heongpu::sec_level_type::none);
+        // context->set_poly_modulus_degree(8192);
+        // context->set_coeff_modulus_values({18014398508400641, 18014398510645249, 18014398510661633},
+        //                                   {36028797018652673});
+        // context->set_plain_modulus(65537);
+        // heongpu::MemoryPoolConfig pool_config = heongpu::MemoryPoolConfig::Defaults();
+        // context->generate(pool_config);
+        // heongpu::HEKeyGenerator<heongpu::Scheme::BFV> keygen(context);
+        // heongpu::Secretkey<heongpu::Scheme::BFV> secret_key(context);
+        // keygen.generate_secret_key(secret_key);
     }
 
     ~FheGpuTask() {}

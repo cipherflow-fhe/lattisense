@@ -388,4 +388,25 @@ vector<double> polynomial_multiplication(int n, const vector<double>& x, const v
     return r;
 }
 
+// The conjugate-invariant coefficient encoding stores the n left-half coefficients of a symmetric
+// polynomial in Z[X + X^-1]/(X^2n + 1). The ambient representation is a_j for 1 <= j < n with the
+// mirrored right half a_{2n-j} = -a_j (since X^2n = -1), and multiplication is carried out in the
+// ambient ring Z[X]/(X^2n + 1). The expected value is the left half of the negacyclic product of
+// the unfolded inputs.
+vector<double> ci_coefficient_multiplication(int n, const vector<double>& x, const vector<double>& y) {
+    vector<double> x_ambient(2 * n, 0.0);
+    vector<double> y_ambient(2 * n, 0.0);
+    for (int i = 0; i < n; ++i) {
+        x_ambient[i] = x[i];
+        y_ambient[i] = y[i];
+        if (i >= 1) {
+            x_ambient[2 * n - i] = -x[i];
+            y_ambient[2 * n - i] = -y[i];
+        }
+    }
+    vector<double> product = polynomial_multiplication(2 * n, x_ambient, y_ambient);
+    product.resize(n);
+    return product;
+}
+
 }  // namespace fhe_ops_lib

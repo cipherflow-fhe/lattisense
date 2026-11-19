@@ -17,7 +17,9 @@
  */
 
 #include <algorithm>
+#include <map>
 #include <stdexcept>
+#include <vector>
 #include "ckks.h"
 #include "../base/internal.h"
 
@@ -25,26 +27,105 @@ namespace fhe_ops_lib {
 
 // ─── CkksParameter ───────────────────────────────────────────────────────────
 
-CkksParameter CkksParameter::create_parameter(int log_n) {
-    uint64_t handle = 0;
-    CHECK(CreateCkksDefaultParameter(log_n, &handle));
-    return CkksParameter(std::move(handle));
+namespace {
+
+    struct CkksDefaultParam {
+        int log_default_scale;
+        std::vector<uint64_t> q;
+        std::vector<uint64_t> p;
+    };
+
+    // Concrete moduli chains for the CKKS default parameter sets. These are kept
+    // byte-for-byte identical to frontend/parameter.json so the frontend and the
+    // runtime agree on the exact primes. The same chain serves both the standard
+    // and the conjugate-invariant ring (a prime = 1 mod 2^(log_n+2) is also = 1
+    // mod 2^(log_n+1)).
+    const CkksDefaultParam& ckks_default_param(int log_n, bool enable_bootstrapping) {
+        static const std::map<int, CkksDefaultParam> kNonBootstrapped = {
+            {12, {32, {274878136321ULL, 4295049217ULL}, {549755731969ULL}}},
+            {13,
+             {30,
+              {8590163969ULL, 1073643521ULL, 1073872897ULL, 1073971201ULL, 1073479681ULL, 1074266113ULL},
+              {34359771137ULL}}},
+            {14,
+             {34,
+              {35184372744193ULL, 17179672577ULL, 17180262401ULL, 17179410433ULL, 17180393473ULL, 17181442049ULL,
+               17183014913ULL, 17176854529ULL, 17183408129ULL, 17183932417ULL},
+              {17592186175489ULL, 8796093349889ULL}}},
+            {15,
+             {40,
+              {2251799813554177ULL, 1099512938497ULL, 1099510054913ULL, 1099507695617ULL, 1099515691009ULL,
+               1099516870657ULL, 1099506515969ULL, 1099504549889ULL, 1099503894529ULL, 1099503370241ULL,
+               1099502714881ULL, 1099521458177ULL, 1099522375681ULL, 1099500617729ULL, 1099523555329ULL,
+               1099499569153ULL, 1099499175937ULL, 1099525128193ULL},
+              {1125899908022273ULL, 1125899903827969ULL, 1125899911168001ULL}}},
+            {16,
+             {45,
+              {72057594036879361ULL, 35184376545281ULL, 35184377331713ULL, 35184365273089ULL, 35184385196033ULL,
+               35184350330881ULL,    35184399351809ULL, 35184345088001ULL, 35184404070401ULL, 35184339320833ULL,
+               35184410361857ULL,    35184414031873ULL, 35184415080449ULL, 35184415866881ULL, 35184330145793ULL,
+               35184329097217ULL,    35184423731201ULL, 35184320708609ULL, 35184318087169ULL, 35184316776449ULL,
+               35184430022657ULL,    35184430809089ULL, 35184314941441ULL, 35184436314113ULL, 35184440246273ULL,
+               35184307077121ULL,    35184440770561ULL, 35184306290689ULL, 35184446537729ULL, 35184301047809ULL,
+               35184297639937ULL,    35184452567041ULL, 35184454402049ULL, 35184454926337ULL},
+              {36028797019488257ULL, 36028797023420417ULL, 36028797024206849ULL, 36028797005856769ULL}}},
+        };
+
+        static const std::map<int, CkksDefaultParam> kBootstrapped = {
+            {14,
+             {34,
+              {35184376545281ULL, 17180393473ULL, 17181442049ULL, 17183014913ULL, 17175674881ULL, 17186947073ULL,
+               17172791297ULL, 17171218433ULL, 17167024129ULL, 17164664833ULL},
+              {17592187617281ULL, 8796087255041ULL}}},
+            {15,
+             {40,
+              {2251799815520257ULL, 1099512938497ULL, 1099510054913ULL, 1099507695617ULL, 1099516870657ULL,
+               1099504549889ULL, 1099502714881ULL, 1099522375681ULL, 1099500617729ULL, 1099499569153ULL,
+               1099498258433ULL, 1099489607681ULL, 1099535220737ULL},
+              {1125899902124033ULL, 1125899915231233ULL, 1125899927027713ULL}}},
+            {16,
+             {45,
+              {72057594036879361ULL, 35184376545281ULL, 35184377331713ULL, 35184365273089ULL, 35184385196033ULL,
+               35184350330881ULL, 35184399351809ULL, 35184345088001ULL, 35184404070401ULL, 35184339320833ULL,
+               35184410361857ULL, 35184414031873ULL},
+              {36028797019488257ULL, 36028797023420417ULL, 36028797024206849ULL, 36028797005856769ULL}}},
+        };
+
+        const auto& table = enable_bootstrapping ? kBootstrapped : kNonBootstrapped;
+        auto it = table.find(log_n);
+        if (it == table.end()) {
+            throw std::runtime_error("unsupported log_n for CKKS default parameter");
+        }
+        return it->second;
+    }
+
+}  // namespace
+
+CkksParameter CkksParameter::create_parameter(int log_n, RingType ring_type, bool enable_bootstrapping) {
+    const CkksDefaultParam& param = ckks_default_param(log_n, enable_bootstrapping);
+    return create_custom_parameter(log_n, param.log_default_scale, param.q, param.p, ring_type, enable_bootstrapping);
 }
 
 CkksParameter CkksParameter::create_custom_parameter(int log_n,
                                                      int log_default_scale,
                                                      const std::vector<uint64_t>& q,
-                                                     const std::vector<uint64_t>& p) {
+                                                     const std::vector<uint64_t>& p,
+                                                     RingType ring_type,
+                                                     bool enable_bootstrapping) {
     uint64_t handle = 0;
     CHECK(CreateCkksCustomParameter(log_n, log_default_scale, (uint64_t*)q.data(), q.size(), (uint64_t*)p.data(),
-                                    p.size(), &handle));
-    return CkksParameter(std::move(handle));
+                                    p.size(), static_cast<int>(ring_type), &handle));
+    CkksParameter parameter(std::move(handle));
+    parameter._enable_bootstrapping = enable_bootstrapping;
+    return parameter;
 }
 
 CkksParameter CkksParameter::copy() const {
     uint64_t handle = 0;
     CHECK(CopyCkksParameter(this->get(), &handle));
-    return CkksParameter(std::move(handle));
+    CkksParameter parameter(std::move(handle));
+    parameter._enable_bootstrapping = _enable_bootstrapping;
+    return parameter;
 }
 
 Bytes CkksParameter::serialize() const {
@@ -121,6 +202,24 @@ int CkksParameter::log_default_scale() const {
     int value = 0;
     CHECK(GetCkksLogDefaultScale(this->get(), &value));
     return value;
+}
+
+RingType CkksParameter::ring_type() const {
+    int value = 0;
+    CHECK(GetCkksRingType(this->get(), &value));
+    return static_cast<RingType>(value);
+}
+
+bool CkksParameter::is_standard() const {
+    return ring_type() == RingType::Standard;
+}
+
+bool CkksParameter::is_conjugate_invariant() const {
+    return ring_type() == RingType::ConjugateInvariant;
+}
+
+bool CkksParameter::enable_bootstrapping() const {
+    return _enable_bootstrapping;
 }
 
 // ─── CkksEncoder ─────────────────────────────────────────────────────────────
@@ -317,12 +416,21 @@ CkksContext CkksContext::create_empty_context(const CkksParameter& param) {
     context._key_generator = KeyGenerator(context._parameter);
     context._evaluation_key_set = EvaluationKeySet(RelinKey(), {});
     context._evaluator = CkksEvaluator(context._parameter, context._evaluation_key_set);
+    if (param.enable_bootstrapping()) {
+        uint64_t handle = 0;
+        CHECK(CreateCkksBtpParameterFromResidualParameter(context._parameter.get(), &handle));
+        context._btp_parameter = Handle(std::move(handle));
+        uint64_t n2_handle = 0;
+        CHECK(GetCkksBootstrappingParameterFromBtpParameter(context._btp_parameter.get(), &n2_handle));
+        context._btp_parameter_n2 = CkksParameter(std::move(n2_handle));
+        context._bootstrapping_evaluation_keys =
+            BootstrappingEvaluationKeys({}, {}, {}, {}, EvaluationKeySet(RelinKey(), {}));
+    }
     return context;
 }
 
-CkksContext CkksContext::create_random_context(const CkksParameter& param,
-                                               EncryptorType encryptor_type,
-                                               bool enable_bootstrapping) {
+CkksContext
+CkksContext::create_random_context(const CkksParameter& param, EncryptorType encryptor_type, bool compressed_keys) {
     if (param.is_empty()) {
         throw std::runtime_error("CKKS parameter is not set");
     }
@@ -346,34 +454,42 @@ CkksContext CkksContext::create_random_context(const CkksParameter& param,
 
     context._decryptor = Decryptor(context._parameter, context._secret_key);
 
-    context._evaluation_key_set = EvaluationKeySet(RelinKey(context._key_generator, context._secret_key, level), {});
+    context._evaluation_key_set =
+        EvaluationKeySet(RelinKey(context._key_generator, context._secret_key, level, compressed_keys), {});
     context._evaluator = CkksEvaluator(context._parameter, context._evaluation_key_set);
-    if (enable_bootstrapping) {
-        context.create_bootstrapper();
+    if (param.enable_bootstrapping()) {
+        context.create_bootstrapper(compressed_keys);
     }
     return context;
 }
 
-void CkksContext::gen_rotation_keys(int level) {
-    const int log_n = parameter().log_n();
+void CkksContext::gen_rotation_keys(int level, bool compressed) {
+    // Rotation steps are modulo the number of slots: log_n-1 for the standard ring (N/2 complex
+    // slots) and log_n for the conjugate-invariant ring (N real slots).
+    const int log_slots = parameter().log_max_slots();
     std::vector<int32_t> rotations;
-    rotations.reserve(2 * log_n - 3);
-    for (int i = 0; i < log_n - 1; ++i) {
+    rotations.reserve(2 * log_slots - 1);
+    for (int i = 0; i < log_slots; ++i) {
         rotations.push_back(1 << i);
     }
-    for (int i = 0; i < log_n - 2; ++i) {
+    for (int i = 0; i < log_slots - 1; ++i) {
         rotations.push_back(-1 * (1 << i));
     }
 
-    gen_rotation_keys(rotations, true, level);
-    _use_default_rotation_keys = true;
+    // The row-swap (complex conjugation) Galois element does not exist in the conjugate-invariant
+    // ring, so it is only requested for the standard ring.
+    gen_rotation_keys(rotations, !parameter().is_conjugate_invariant(), level, compressed);
+    _enable_naf_decomposed_rotation_keys = true;
 }
 
-void CkksContext::set_use_default_rotation_keys(bool use_default_rotation_keys) {
-    _use_default_rotation_keys = use_default_rotation_keys;
+void CkksContext::enable_naf_decomposed_rotation_keys(bool enable) {
+    _enable_naf_decomposed_rotation_keys = enable;
 }
 
-void CkksContext::gen_rotation_keys(const std::vector<int32_t>& rots, bool include_swap_rows, int level) {
+void CkksContext::gen_rotation_keys(const std::vector<int32_t>& rots,
+                                    bool include_swap_rows,
+                                    int level,
+                                    bool compressed) {
     std::vector<int32_t> rotations;
     rotations.reserve(rots.size());
     for (int32_t rotation : rots) {
@@ -386,7 +502,7 @@ void CkksContext::gen_rotation_keys(const std::vector<int32_t>& rots, bool inclu
     std::vector<uint64_t> galois_key_handles(galois_elements.size());
     CHECK(GenGaloisKeysForRotations(key_generator().get(), secret_key().get(),
                                     rotations.empty() ? nullptr : rotations.data(), static_cast<int>(rotations.size()),
-                                    include_swap_rows, level,
+                                    include_swap_rows, level, compressed ? 1 : 0,
                                     galois_elements.empty() ? nullptr : galois_elements.data(),
                                     galois_key_handles.empty() ? nullptr : galois_key_handles.data()));
 
@@ -395,10 +511,10 @@ void CkksContext::gen_rotation_keys(const std::vector<int32_t>& rots, bool inclu
     }
     for (size_t i = 0; i < galois_elements.size(); ++i) {
         uint64_t handle = galois_key_handles[i];
-        _evaluation_key_set.set_galois_key(GaloisKey(std::move(handle)));
+        _evaluation_key_set.set_galois_key(GaloisKey(std::move(handle), false, compressed));
     }
     _evaluator.update_evaluation_key_set(_evaluation_key_set);
-    _use_default_rotation_keys = false;
+    _enable_naf_decomposed_rotation_keys = false;
 }
 
 const CkksParameter& CkksContext::parameter() {
@@ -462,8 +578,8 @@ Bytes CkksContext::serialize() const {
     data.insert(data.end(), CONTEXT_MAGIC, CONTEXT_MAGIC + sizeof(CONTEXT_MAGIC));
     append_bytes(data, _parameter.serialize());
 
-    append_u8(data, _use_default_rotation_keys ? 1 : 0);
-    append_u8(data, _enable_bootstrapping ? 1 : 0);
+    append_u8(data, _enable_naf_decomposed_rotation_keys ? 1 : 0);
+    append_u8(data, _btp_parameter.is_empty() ? 0 : 1);
 
     const bool has_public_key = !_public_key.is_empty();
     append_u8(data, has_public_key ? 1 : 0);
@@ -499,8 +615,8 @@ CkksContext CkksContext::deserialize(BytesView data) {
     CkksContext context;
     context._parameter = CkksParameter::deserialize(read_bytes(data, offset, "parameter"));
 
-    const bool use_default_rotation_keys = read_u8(data, offset, "rotation key flag") != 0;
-    const bool enable_bootstrapping = read_u8(data, offset, "bootstrapping flag") != 0;
+    const bool use_naf_decomposed_rotation_keys = read_u8(data, offset, "rotation key flag") != 0;
+    read_u8(data, offset, "bootstrapping flag");
     const bool has_public_key = read_u8(data, offset, "public key flag") != 0;
     context._encoder = CkksEncoder(context._parameter);
     context._key_generator = KeyGenerator(context._parameter);
@@ -517,17 +633,19 @@ CkksContext CkksContext::deserialize(BytesView data) {
         context._evaluation_key_set = EvaluationKeySet(RelinKey(), {});
     }
     context._evaluator = CkksEvaluator(context._parameter, context._evaluation_key_set);
-    context._use_default_rotation_keys = use_default_rotation_keys;
+    context._enable_naf_decomposed_rotation_keys = use_naf_decomposed_rotation_keys;
 
     const bool has_bootstrapping_evaluation_keys = read_u8(data, offset, "bootstrapping evaluation keys flag") != 0;
     if (has_bootstrapping_evaluation_keys) {
         uint64_t handle = 0;
         CHECK(CreateCkksBtpParameterFromResidualParameter(context._parameter.get(), &handle));
         context._btp_parameter = Handle(std::move(handle));
+        uint64_t n2_handle = 0;
+        CHECK(GetCkksBootstrappingParameterFromBtpParameter(context._btp_parameter.get(), &n2_handle));
+        context._btp_parameter_n2 = CkksParameter(std::move(n2_handle));
         context._bootstrapping_evaluation_keys =
             BootstrappingEvaluationKeys::deserialize(read_bytes(data, offset, "bootstrapping evaluation keys"));
     }
-    context._enable_bootstrapping = enable_bootstrapping;
 
     if (offset != data.size()) {
         throw std::runtime_error("CKKS context data has trailing bytes");
@@ -805,8 +923,8 @@ CkksCiphertext CkksContext::rotate(const CkksCiphertext& op0, int32_t step) {
     }
 
     uint64_t ciphertext_handle = 0;
-    const uint8_t use_default_rotation_keys = _use_default_rotation_keys ? 1 : 0;
-    CHECK(CkksRotate(_evaluator.get(), op0.get(), &step, 1, use_default_rotation_keys, &ciphertext_handle));
+    const uint8_t use_naf_decomposed_rotation_keys = _enable_naf_decomposed_rotation_keys ? 1 : 0;
+    CHECK(CkksRotate(_evaluator.get(), op0.get(), &step, 1, use_naf_decomposed_rotation_keys, &ciphertext_handle));
     CkksCiphertext opOut(std::move(ciphertext_handle));
     opOut.sync_metadata();
     return opOut;
@@ -819,9 +937,9 @@ std::map<int32_t, CkksCiphertext> CkksContext::rotate(const CkksCiphertext& op0,
 
     std::map<int32_t, CkksCiphertext> opOut;
     std::vector<uint64_t> ciphertext_handles(steps.size());
-    const uint8_t use_default_rotation_keys = _use_default_rotation_keys ? 1 : 0;
-    CHECK(CkksRotate(_evaluator.get(), op0.get(), (int32_t*)steps.data(), steps.size(), use_default_rotation_keys,
-                     ciphertext_handles.data()));
+    const uint8_t use_naf_decomposed_rotation_keys = _enable_naf_decomposed_rotation_keys ? 1 : 0;
+    CHECK(CkksRotate(_evaluator.get(), op0.get(), (int32_t*)steps.data(), steps.size(),
+                     use_naf_decomposed_rotation_keys, ciphertext_handles.data()));
     for (size_t i = 0; i < steps.size(); i++) {
         CkksCiphertext rotated(std::move(ciphertext_handles[i]));
         rotated.sync_metadata();

@@ -55,7 +55,8 @@ inline CkksParameter create_ckks_parameter(const nlohmann::json& param_json) {
     auto log_default_scale = param_json["log_default_scale"].get<int>();
     auto q = param_json["q"].get<std::vector<uint64_t>>();
     auto p = param_json["p"].get<std::vector<uint64_t>>();
-    return CkksParameter::create_custom_parameter(log_n, log_default_scale, q, p);
+    auto ring_type = static_cast<RingType>(param_json.value("ring_type", 0));
+    return CkksParameter::create_custom_parameter(log_n, log_default_scale, q, p, ring_type);
 }
 
 /**

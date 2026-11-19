@@ -295,19 +295,21 @@ class TestTask:
         )
 
     @pytest.mark.min_level(1)
-    @pytest.mark.parametrize('use_default_rotation_keys', [True, False], ids=['default', 'non-default'])
-    def test_rotate_col(self, param, lv, use_default_rotation_keys, processor, steps=[i + 1 for i in range(8)]):
+    @pytest.mark.parametrize('use_naf_decomposed_rotation_keys', [True, False], ids=['naf', 'non-naf'])
+    def test_rotate_col(self, param, lv, use_naf_decomposed_rotation_keys, processor, steps=[i + 1 for i in range(8)]):
         set_fhe_param(param)
         param_tag = _param_tag(param)
         output_base_dir = CPU_OUTPUT_BASE_DIR if processor == Processor.CPU else GPU_OUTPUT_BASE_DIR
         steps_tag = f'steps_{steps[0]}_to_{steps[-1]}'
-        key_mode_tag = 'default' if use_default_rotation_keys else 'non-default'
+        key_mode_tag = 'naf' if use_naf_decomposed_rotation_keys else 'non-naf'
         task_dir = os.path.join(
             output_base_dir, param_tag, f'BFV_{N_OP}_rotate_col', f'level_{lv}', steps_tag, key_mode_tag
         )
         x_list = [BfvCiphertextNode(level=lv, id=f'x_{i}') for i in range(N_OP)]
         y_list = [
-            rotate_cols(x_list[i], steps, f'rotated_x_{i}', use_default_rotation_keys=use_default_rotation_keys)
+            rotate_cols(
+                x_list[i], steps, f'rotated_x_{i}', use_naf_decomposed_rotation_keys=use_naf_decomposed_rotation_keys
+            )
             for i in range(N_OP)
         ]
         process_custom_task(

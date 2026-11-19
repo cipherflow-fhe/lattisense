@@ -74,12 +74,12 @@ export_ciphertext(uint64_t parameter_handle, uint64_t ciphertext_handle, Metadat
     ExportCiphertext(parameter_handle, ciphertext_handle, metadata, ciphertext);
 }
 
-inline void export_evaluation_key(uint64_t parameter_handle,
-                                  uint64_t evaluation_key_handle,
-                                  int level_p,
-                                  Metadata* metadata,
-                                  CEvaluationKey* evaluation_key) {
-    ExportEvaluationKey(parameter_handle, evaluation_key_handle, level_p, metadata, evaluation_key);
+inline ErrorStatus export_evaluation_key(uint64_t parameter_handle,
+                                         uint64_t evaluation_key_handle,
+                                         int level_p,
+                                         Metadata* metadata,
+                                         CEvaluationKey* evaluation_key) {
+    return ExportEvaluationKey(parameter_handle, evaluation_key_handle, level_p, metadata, evaluation_key);
 }
 
 inline void bfv_poly_ntt(uint64_t parameter_handle, uint64_t* data, int level_q, int level_p) {
@@ -124,6 +124,6 @@ c_set_bfv_parameter(uint64_t N, uint64_t T, const uint64_t* Q, int q_len, const 
 
 inline uint64_t c_set_ckks_parameter(uint64_t N, const unsigned long* Q, int q_len, const unsigned long* P, int p_len) {
     uint64_t handle = 0;
-    CreateCkksCustomParameter(log2_uint64(N), 40, (uint64_t*)Q, q_len, (uint64_t*)P, p_len, &handle);
+    CreateCkksCustomParameter(log2_uint64(N), 40, (uint64_t*)Q, q_len, (uint64_t*)P, p_len, 0, &handle);
     return handle;
 }
