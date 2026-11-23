@@ -17,7 +17,6 @@
  */
 
 #include <cxx_sdk_v2/cxx_fhe_task.h>
-#include <fhe_ops_lib/fhe_lib_v2.h>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -27,7 +26,6 @@ using namespace lattisense;
 void benchmark_bfv_mult_relin() {
     const int n_op = 1024;
     const int log_n = 14;
-    const uint64_t n = 1ULL << log_n;
     const uint64_t t = 65537;
     const int level = 3;
 
@@ -38,9 +36,13 @@ void benchmark_bfv_mult_relin() {
     for (int i = 0; i < n_op; i++) {
         std::vector<uint64_t> x_mg = {uint64_t(i + 2)};
         std::vector<uint64_t> y_mg = {uint64_t(i + 3)};
-        xs.push_back(ctx.encrypt_asymmetric(ctx.encode(x_mg, level)));
-        ys.push_back(ctx.encrypt_asymmetric(ctx.encode(y_mg, level)));
-        zs.push_back(ctx.new_ciphertext(level));
+        BfvPlaintext x_pt(param, plaintext_metadata(false, true, level));
+        BfvPlaintext y_pt(param, plaintext_metadata(false, true, level));
+        ctx.encode(x_mg, x_pt);
+        ctx.encode(y_mg, y_pt);
+        xs.push_back(ctx.encrypt(x_pt));
+        ys.push_back(ctx.encrypt(y_pt));
+        zs.push_back(BfvCiphertext(param, level));
     }
 
     FheTaskGpu task("bfv_mult_relin");
@@ -55,20 +57,25 @@ void benchmark_bfv_mult_relin() {
 void benchmark_ckks_mult_relin() {
     const int n_op = 1024;
     const int log_n = 14;
-    const uint64_t n = 1ULL << log_n;
-    const double scale = pow(2, 40);
     const int level = 3;
 
     CkksParameter param = CkksParameter::create_parameter(log_n);
     CkksContext ctx = CkksContext::create_random_context(param);
+    const double scale = param.default_scale();
 
     std::vector<CkksCiphertext> xs, ys, zs;
     for (int i = 0; i < n_op; i++) {
         std::vector<double> x_mg = {double(i + 2)};
         std::vector<double> y_mg = {double(i + 3)};
-        xs.push_back(ctx.encrypt_asymmetric(ctx.encode(x_mg, level, scale)));
-        ys.push_back(ctx.encrypt_asymmetric(ctx.encode(y_mg, level, scale)));
-        zs.push_back(ctx.new_ciphertext(level, scale * scale));
+        CkksPlaintext x_pt(param, plaintext_metadata(false, true, level, -1, scale));
+        CkksPlaintext y_pt(param, plaintext_metadata(false, true, level, -1, scale));
+        ctx.encode(x_mg, x_pt);
+        ctx.encode(y_mg, y_pt);
+        xs.push_back(ctx.encrypt(x_pt));
+        ys.push_back(ctx.encrypt(y_pt));
+        CkksCiphertext z(param, level);
+        z.set_scale(scale * scale);
+        zs.push_back(std::move(z));
     }
 
     FheTaskGpu task("ckks_mult_relin");
@@ -96,8 +103,10 @@ void benchmark_bfv_rotate_col() {
         std::vector<uint64_t> x_mg(n / 2);
         for (uint64_t j = 0; j < n / 2; j++)
             x_mg[j] = i + j;
-        xs.push_back(ctx.encrypt_asymmetric(ctx.encode(x_mg, level)));
-        ys.push_back(ctx.new_ciphertext(level));
+        BfvPlaintext x_pt(param, plaintext_metadata(false, true, level));
+        ctx.encode(x_mg, x_pt);
+        xs.push_back(ctx.encrypt(x_pt));
+        ys.push_back(BfvCiphertext(param, level));
     }
 
     FheTaskGpu task("bfv_rotate_col");

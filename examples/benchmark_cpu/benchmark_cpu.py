@@ -17,61 +17,61 @@
 import os
 import sys
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from frontend.custom_task import *
 
 
 def bfv_mult_relin():
-    param = Param.create_bfv_default_param(n=16384)
+    param = BfvParam.create_default_param(14)
     set_fhe_param(param)
 
     n_op = 1024
     level = 3
-    xs = [BfvCiphertextNode(f'x_{i}', level) for i in range(n_op)]
-    ys = [BfvCiphertextNode(f'y_{i}', level) for i in range(n_op)]
+    xs = [BfvCiphertextNode(level, id=f'x_{i}') for i in range(n_op)]
+    ys = [BfvCiphertextNode(level, id=f'y_{i}') for i in range(n_op)]
     zs = [mult_relin(xs[i], ys[i], f'z_{i}') for i in range(n_op)]
 
     process_custom_task(
         input_args=[Argument('xs', xs), Argument('ys', ys)],
         output_args=[Argument('zs', zs)],
         output_instruction_path='bfv_mult_relin',
-        fpga_acc=False,
+        processor=Processor.CPU,
     )
 
 
 def ckks_mult_relin():
-    param = Param.create_ckks_default_param(n=16384)
+    param = CkksParam.create_default_param(14)
     set_fhe_param(param)
 
     n_op = 1024
     level = 3
-    xs = [CkksCiphertextNode(f'x_{i}', level) for i in range(n_op)]
-    ys = [CkksCiphertextNode(f'y_{i}', level) for i in range(n_op)]
+    xs = [CkksCiphertextNode(level, id=f'x_{i}') for i in range(n_op)]
+    ys = [CkksCiphertextNode(level, id=f'y_{i}') for i in range(n_op)]
     zs = [mult_relin(xs[i], ys[i], f'z_{i}') for i in range(n_op)]
 
     process_custom_task(
         input_args=[Argument('xs', xs), Argument('ys', ys)],
         output_args=[Argument('zs', zs)],
         output_instruction_path='ckks_mult_relin',
-        fpga_acc=False,
+        processor=Processor.CPU,
     )
 
 
 def bfv_rotate_col():
-    param = Param.create_bfv_default_param(n=16384)
+    param = BfvParam.create_default_param(14)
     set_fhe_param(param)
 
     n_op = 1024
     level = 3
-    xs = [BfvCiphertextNode(f'x_{i}', level) for i in range(n_op)]
-    ys = [rotate_cols(xs[i], 1, f'y_{i}') for i in range(n_op)]
+    xs = [BfvCiphertextNode(level, id=f'x_{i}') for i in range(n_op)]
+    ys = [rotate_cols(xs[i], 1, f'y_{i}')[0] for i in range(n_op)]
 
     process_custom_task(
         input_args=[Argument('xs', xs)],
         output_args=[Argument('ys', ys)],
         output_instruction_path='bfv_rotate_col',
-        fpga_acc=False,
+        processor=Processor.CPU,
     )
 
 
