@@ -109,8 +109,7 @@ jobs:
             -DLATTISENSE_BUILD_TESTS=ON \
             -DLATTISENSE_BUILD_EXAMPLES=ON \
             -DLATTISENSE_ENABLE_GPU=ON \
-            -DLATTISENSE_CUDA_ARCH=86 \
-            -DGPU_CORE_CCCL_GIT_URL=https://gitee.com/nvidia_mirror/cccl.git
+            -DLATTISENSE_CUDA_ARCH=86
           cmake --build build -j$(nproc)
 
       - name: Save lattisense-gpu-core cache
