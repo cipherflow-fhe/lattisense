@@ -56,7 +56,7 @@ class GreedyCompoundParams:
             OperationType.Conjugate,
             OperationType.CmpSum,
             OperationType.CmpacSum,
-            # OperationType.Bootstrap,
+            OperationType.Bootstrap,
         }
     )
 
@@ -65,10 +65,10 @@ class GreedyCompoundParams:
     critical_path_credit = 1
     external_io_penalty = 1
     compute_external_input_penalty = 1
-    compute_external_output_penalty = 8
+    compute_external_output_penalty = 1
     op_cost_penalty = 1
 
-    max_candidate_cost = 17
+    max_candidate_cost = 33
     op_costs = {
         OperationType.Add: 1,
         OperationType.Sub: 1,
@@ -148,7 +148,7 @@ class GreedyCompoundFormer:
                     completed = [node]
                     compound_groups.append(completed)
                 else:
-                    completed, _ = self._best_compute_candidate(node, processed_ops, available_data)
+                    completed, _ = self._best_compute_candidate(node, processed_ops, available_data, available_computes)
                     compound_groups.append(completed)
 
                 available_computes.difference_update(completed)
@@ -238,13 +238,43 @@ class GreedyCompoundFormer:
         start,
         processed_ops: set,
         available_data: set,
+        available_computes: set,
     ) -> tuple[list, int]:
         candidate = [start]
         best_score = self._compute_score(candidate)
+        on_cpu = self.runs_on_cpu[start]
+        seed_bottom = self.bottom_levels[start]
+
+        # Independent peers with the same bottom level (distance to the sink /
+        # scheduler priority) are dependency-free with the seed (an edge changes
+        # bottom level by >= 1), so they can be fused alongside the connected
+        # (chain) frontier. This keeps the original chain-based growth but lets a
+        # task batch many parallel, unrelated chains.
+        independent_pool = [
+            op
+            for op in available_computes
+            if op is not start
+            and op not in processed_ops
+            and not self._is_batch_op(op)
+            and self._is_mergeable_op(op)
+            and self.runs_on_cpu[op] == on_cpu
+            and self.bottom_levels[op] == seed_bottom
+        ]
+        # Bound the per-step scan: only examine a bounded number of sibling
+        # candidates (far more than the cost budget can hold), so growth stays
+        # near-linear instead of O(pool) per step.
+        sibling_pool_cap = 16
+        if len(independent_pool) > sibling_pool_cap:
+            independent_pool.sort(key=lambda node: self.topo_index[node])
+            independent_pool = independent_pool[:sibling_pool_cap]
 
         while True:
+            candidate_set = set(candidate)
+            frontier = set(self._compute_frontier_ops(candidate, processed_ops))
+            frontier.update(op for op in independent_pool if op not in candidate_set)
+
             additions = []
-            for op in self._compute_frontier_ops(candidate, processed_ops):
+            for op in sorted(frontier, key=lambda node: self.topo_index[node]):
                 ops = self._ordered_ops([*candidate, op])
                 if self._candidate_cost(ops) > self.params.max_candidate_cost:
                     continue

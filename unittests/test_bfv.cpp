@@ -423,14 +423,14 @@ TEMPLATE_TEST_CASE_METHOD(BfvFixture, "BFV rotate_col", "", BfvTestDefaultParams
         steps.push_back(i);
     string steps_str = "steps_" + to_string(steps.front()) + "_to_" + to_string(steps.back());
 
-    for (bool use_default_rotation_keys : {true, false}) {
-        if (use_default_rotation_keys) {
+    for (bool use_naf_decomposed_rotation_keys : {true, false}) {
+        if (use_naf_decomposed_rotation_keys) {
             this->ctx.gen_rotation_keys();
         } else {
             this->ctx.gen_rotation_keys(steps);
         }
 
-        string key_mode_tag = use_default_rotation_keys ? "default" : "non-default";
+        string key_mode_tag = use_naf_decomposed_rotation_keys ? "naf" : "non-naf";
         for (int level = 1; level <= this->max_level; level++) {
             string relative_path = this->tag + "/BFV_" + to_string(this->n_op) + "_rotate_col/level_" +
                                    to_string(level) + "/" + steps_str + "/" + key_mode_tag;
@@ -458,7 +458,7 @@ TEMPLATE_TEST_CASE_METHOD(BfvFixture, "BFV rotate_col", "", BfvTestDefaultParams
 }
 
 TEMPLATE_TEST_CASE_METHOD(BfvFixture, "BFV rotate_row", "", BfvTestDefaultParams, BfvTestCustomParams) {
-    this->ctx.gen_rotation_keys({}, true);
+    this->ctx.gen_rotation_keys(vector<int32_t>{}, true);
 
     for (int level = 1; level <= this->max_level; level++) {
         string relative_path = this->tag + "/BFV_" + to_string(this->n_op) + "_rotate_row/level_" + to_string(level);

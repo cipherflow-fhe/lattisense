@@ -22,7 +22,8 @@
 namespace fhe_ops_lib {
 
 BootstrappingEvaluationKeys::BootstrappingEvaluationKeys(const Handle& bootstrapping_parameter,
-                                                         const SecretKey& secret_key) {
+                                                         const SecretKey& secret_key,
+                                                         bool compressed) {
     if (bootstrapping_parameter.is_empty()) {
         throw std::runtime_error("CKKS bootstrapping parameter is not set");
     }
@@ -36,15 +37,18 @@ BootstrappingEvaluationKeys::BootstrappingEvaluationKeys(const Handle& bootstrap
     uint64_t evk_dts_handle = 0;
     uint64_t evk_std_handle = 0;
     uint64_t evaluation_key_set_handle = 0;
-    CHECK(GenCkksBootstrappingEvaluationKeys(bootstrapping_parameter.get(), secret_key.get(),
+    CHECK(GenCkksBootstrappingEvaluationKeys(bootstrapping_parameter.get(), secret_key.get(), compressed ? 1 : 0,
                                              &btp_evaluation_keys_handle, &evk_n1_to_n2_handle, &evk_n2_to_n1_handle,
                                              &evk_dts_handle, &evk_std_handle, &evaluation_key_set_handle));
     _value = btp_evaluation_keys_handle;
     _keep = false;
-    _evk_n1_to_n2 = EvaluationKey(std::move(evk_n1_to_n2_handle));
-    _evk_n2_to_n1 = EvaluationKey(std::move(evk_n2_to_n1_handle));
-    _evk_dense_to_sparse = EvaluationKey(std::move(evk_dts_handle));
-    _evk_sparse_to_dense = EvaluationKey(std::move(evk_std_handle));
+    auto make_evaluation_key = [compressed](uint64_t handle) {
+        return handle == 0 ? EvaluationKey() : EvaluationKey(std::move(handle), false, compressed);
+    };
+    _evk_n1_to_n2 = make_evaluation_key(evk_n1_to_n2_handle);
+    _evk_n2_to_n1 = make_evaluation_key(evk_n2_to_n1_handle);
+    _evk_dense_to_sparse = make_evaluation_key(evk_dts_handle);
+    _evk_sparse_to_dense = make_evaluation_key(evk_std_handle);
     _evaluation_key_set = EvaluationKeySet(std::move(evaluation_key_set_handle));
     _evaluation_key_set.sync_from_handle();
 }
@@ -82,12 +86,18 @@ void BootstrappingEvaluationKeys::sync_from_handle() {
     CHECK(GetCkksBootstrappingEvaluationKeys(this->get(), &evk_n1_to_n2_handle, &evk_n2_to_n1_handle,
                                              &evk_dense_to_sparse_handle, &evk_sparse_to_dense_handle,
                                              &evaluation_key_set_handle));
-    _evk_n1_to_n2 = evk_n1_to_n2_handle == 0 ? EvaluationKey() : EvaluationKey(std::move(evk_n1_to_n2_handle));
-    _evk_n2_to_n1 = evk_n2_to_n1_handle == 0 ? EvaluationKey() : EvaluationKey(std::move(evk_n2_to_n1_handle));
-    _evk_dense_to_sparse =
-        evk_dense_to_sparse_handle == 0 ? EvaluationKey() : EvaluationKey(std::move(evk_dense_to_sparse_handle));
-    _evk_sparse_to_dense =
-        evk_sparse_to_dense_handle == 0 ? EvaluationKey() : EvaluationKey(std::move(evk_sparse_to_dense_handle));
+    auto adopt_evaluation_key = [](uint64_t handle) {
+        if (handle == 0) {
+            return EvaluationKey();
+        }
+        int compressed = 0;
+        CHECK(GetEvaluationKeyCompressed(handle, &compressed));
+        return EvaluationKey(std::move(handle), false, compressed != 0);
+    };
+    _evk_n1_to_n2 = adopt_evaluation_key(evk_n1_to_n2_handle);
+    _evk_n2_to_n1 = adopt_evaluation_key(evk_n2_to_n1_handle);
+    _evk_dense_to_sparse = adopt_evaluation_key(evk_dense_to_sparse_handle);
+    _evk_sparse_to_dense = adopt_evaluation_key(evk_sparse_to_dense_handle);
     _evaluation_key_set =
         evaluation_key_set_handle == 0 ? EvaluationKeySet() : EvaluationKeySet(std::move(evaluation_key_set_handle));
     if (!_evaluation_key_set.is_empty()) {
@@ -220,39 +230,23 @@ void BootstrappingEvaluationKeys::set_galois_key(const GaloisKey& gk) {
     CHECK(SetCkksBootstrappingEvaluationKeySet(this->get(), _evaluation_key_set.get()));
 }
 
-void CkksContext::create_bootstrapper() {
+void CkksContext::create_bootstrapper(bool compressed) {
     if (_parameter.is_empty()) {
         throw std::runtime_error("CKKS parameter is not set");
     }
     uint64_t handle = 0;
     CHECK(CreateCkksBtpParameterFromResidualParameter(_parameter.get(), &handle));
     _btp_parameter = Handle(std::move(handle));
+    uint64_t n2_handle = 0;
+    CHECK(GetCkksBootstrappingParameterFromBtpParameter(_btp_parameter.get(), &n2_handle));
+    _btp_parameter_n2 = CkksParameter(std::move(n2_handle));
     if (_secret_key.is_empty()) {
         throw std::runtime_error("CKKS bootstrapping evaluation keys are not set");
     }
-    _bootstrapping_evaluation_keys = BootstrappingEvaluationKeys(_btp_parameter, _secret_key);
+    _bootstrapping_evaluation_keys = BootstrappingEvaluationKeys(_btp_parameter, _secret_key, compressed);
     uint64_t evaluator_handle = 0;
     CHECK(CreateCkksBtpEvaluator(_btp_parameter.get(), _bootstrapping_evaluation_keys.get(), &evaluator_handle));
     _btp_evaluator = Handle(std::move(evaluator_handle));
-    _enable_bootstrapping = true;
-}
-
-void CkksContext::set_enable_bootstrapping(bool enable_bootstrapping) {
-    _enable_bootstrapping = enable_bootstrapping;
-    if (!enable_bootstrapping) {
-        return;
-    }
-    if (_parameter.is_empty()) {
-        throw std::runtime_error("CKKS parameter is not set");
-    }
-    if (_btp_parameter.is_empty()) {
-        uint64_t handle = 0;
-        CHECK(CreateCkksBtpParameterFromResidualParameter(_parameter.get(), &handle));
-        _btp_parameter = Handle(std::move(handle));
-    }
-    if (_bootstrapping_evaluation_keys.is_empty()) {
-        _bootstrapping_evaluation_keys = BootstrappingEvaluationKeys({}, {}, {}, {}, EvaluationKeySet(RelinKey(), {}));
-    }
 }
 
 const BootstrappingEvaluationKeys& CkksContext::bootstrapping_evaluation_keys() const {
@@ -263,13 +257,8 @@ const BootstrappingEvaluationKeys& CkksContext::bootstrapping_evaluation_keys() 
 }
 
 const CkksParameter& CkksContext::bootstrapping_parameter() {
-    if (_btp_parameter.is_empty()) {
-        throw std::runtime_error("CKKS bootstrapping parameter is not set");
-    }
     if (_btp_parameter_n2.is_empty()) {
-        uint64_t handle = 0;
-        CHECK(GetCkksBootstrappingParameterFromBtpParameter(_btp_parameter.get(), &handle));
-        _btp_parameter_n2 = CkksParameter(std::move(handle));
+        throw std::runtime_error("CKKS bootstrapping parameter is not set");
     }
     return _btp_parameter_n2;
 }
@@ -282,7 +271,7 @@ CkksCiphertext CkksContext::bootstrap(const CkksCiphertext& op0) {
 }
 
 std::vector<CkksCiphertext> CkksContext::bootstrap(const std::vector<CkksCiphertext>& ops) {
-    if (!_enable_bootstrapping) {
+    if (_btp_parameter.is_empty()) {
         throw std::runtime_error("CKKS bootstrapping is not enabled");
     }
     if (_btp_evaluator.is_empty()) {
@@ -332,14 +321,6 @@ std::vector<CkksCiphertext> CkksContext::bootstrap(const std::vector<CkksCiphert
         opOuts.push_back(std::move(opOut));
     }
     return opOuts;
-}
-
-EvaluationKey CkksContext::extract_evk_dts() const {
-    return keep_handle<EvaluationKey>(bootstrapping_evaluation_keys().evk_dense_to_sparse().get());
-}
-
-EvaluationKey CkksContext::extract_evk_std() const {
-    return keep_handle<EvaluationKey>(bootstrapping_evaluation_keys().evk_sparse_to_dense().get());
 }
 
 void CkksContext::set_bootstrapping_relin_key(const RelinKey& rlk) {

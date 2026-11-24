@@ -27,7 +27,9 @@ sys.path.insert(0, current_dir)
 
 import pytest
 
+from frontend.bootstrap_params import BootstrappingParameters
 from frontend.custom_task import *
+from frontend.types import RingType
 
 # Try to import from generated test_config, fallback to default paths
 try:
@@ -44,6 +46,12 @@ _p2 = CkksParam.create_custom_param(
     p=[0x800004001],
     log_scale=30,
 )
+_p3 = CkksParam.create_default_param(log_n=14, ring_type=RingType.ConjugateInvariant)
+# Bootstrapping parameter sets (log_n 14/15/16), residual-trimmed for the circuit.
+_p4 = CkksParam.create_default_param(log_n=14, enable_bootstrapping=True)
+_p5 = CkksParam.create_default_param(log_n=15, enable_bootstrapping=True)
+_p6 = CkksParam.create_default_param(log_n=16, enable_bootstrapping=True)
+_p7 = CkksParam.create_default_param(log_n=15, ring_type=RingType.ConjugateInvariant, enable_bootstrapping=True)
 
 
 N_OP = 4  # Number of parallel operators per test
@@ -54,9 +62,15 @@ SPARSE_BINARY_RHS_LOG_SLOTS = 11
 _CKKS_PARAM_TAGS = {
     id(_p1): f'ckks_param_default_n{_p1.n}',
     id(_p2): f'ckks_param_custom_n{_p2.n}',
+    id(_p3): f'ckks_param_ci_default_n{_p1.n}',
+    id(_p4): f'ckks_param_btp_default_n{_p4.n}',
+    id(_p5): f'ckks_param_btp_default_n{_p5.n}',
+    id(_p6): f'ckks_param_btp_default_n{_p6.n}',
+    id(_p7): f'ckks_param_btp_ci_default_n{_p7.n}',
 }
 
-CKKS_PARAMS = [_p1, _p2]
+CKKS_PARAMS = [_p1, _p2, _p3]
+BTP_CKKS_PARAMS = [_p4, _p5, _p6, _p7]
 PROCESSORS = [Processor.CPU, Processor.GPU]
 
 
@@ -71,9 +85,9 @@ class TestTask:
         set_fhe_param(param)
         param_tag = _param_tag(param)
         output_base_dir = CPU_OUTPUT_BASE_DIR if processor == Processor.CPU else GPU_OUTPUT_BASE_DIR
-        full_log_slots = param.log_n - 1
+        full_log_slots = param.log_max_slots()
         slot_cases = [(full_log_slots, full_log_slots)]
-        if param is _p1:
+        if param in (_p1, _p3):
             slot_cases.append((SPARSE_LOG_SLOTS, SPARSE_BINARY_RHS_LOG_SLOTS))
 
         for lhs_log_slots, rhs_log_slots in slot_cases:
@@ -110,9 +124,9 @@ class TestTask:
         set_fhe_param(param)
         param_tag = _param_tag(param)
         output_base_dir = CPU_OUTPUT_BASE_DIR if processor == Processor.CPU else GPU_OUTPUT_BASE_DIR
-        full_log_slots = param.log_n - 1
+        full_log_slots = param.log_max_slots()
         slot_cases = [(full_log_slots, full_log_slots)]
-        if param is _p1:
+        if param in (_p1, _p3):
             rhs_log_slots = SPARSE_LOG_SLOTS if same_input else SPARSE_BINARY_RHS_LOG_SLOTS
             slot_cases.append((SPARSE_LOG_SLOTS, rhs_log_slots))
 
@@ -149,11 +163,18 @@ class TestTask:
     )
     def test_add_scalar(self, param, lv, scalar_tag, scalar, processor):
         set_fhe_param(param)
+        if param is _p3 and scalar.imag != 0:
+            # The conjugate-invariant ring only supports real scalars, so the frontend must reject
+            # a scalar with a nonzero imaginary part.
+            x = CkksCiphertextNode(level=lv, id='x', log_slots=param.log_max_slots())
+            with pytest.raises(ValueError):
+                add(x, scalar, 'z')
+            return
         param_tag = _param_tag(param)
         output_base_dir = CPU_OUTPUT_BASE_DIR if processor == Processor.CPU else GPU_OUTPUT_BASE_DIR
-        full_log_slots = param.log_n - 1
+        full_log_slots = param.log_max_slots()
         slot_cases = [full_log_slots]
-        if param is _p1:
+        if param in (_p1, _p3):
             slot_cases.append(SPARSE_LOG_SLOTS)
 
         for lhs_log_slots in slot_cases:
@@ -181,9 +202,9 @@ class TestTask:
         set_fhe_param(param)
         param_tag = _param_tag(param)
         output_base_dir = CPU_OUTPUT_BASE_DIR if processor == Processor.CPU else GPU_OUTPUT_BASE_DIR
-        full_log_slots = param.log_n - 1
+        full_log_slots = param.log_max_slots()
         slot_cases = [(full_log_slots, full_log_slots)]
-        if param is _p1:
+        if param in (_p1, _p3):
             slot_cases.append((SPARSE_LOG_SLOTS, SPARSE_BINARY_RHS_LOG_SLOTS))
 
         for lhs_log_slots, rhs_log_slots in slot_cases:
@@ -220,9 +241,9 @@ class TestTask:
         set_fhe_param(param)
         param_tag = _param_tag(param)
         output_base_dir = CPU_OUTPUT_BASE_DIR if processor == Processor.CPU else GPU_OUTPUT_BASE_DIR
-        full_log_slots = param.log_n - 1
+        full_log_slots = param.log_max_slots()
         slot_cases = [(full_log_slots, full_log_slots)]
-        if param is _p1:
+        if param in (_p1, _p3):
             rhs_log_slots = SPARSE_LOG_SLOTS if same_input else SPARSE_BINARY_RHS_LOG_SLOTS
             slot_cases.append((SPARSE_LOG_SLOTS, rhs_log_slots))
 
@@ -259,11 +280,18 @@ class TestTask:
     )
     def test_sub_scalar(self, param, lv, scalar_tag, scalar, processor):
         set_fhe_param(param)
+        if param is _p3 and scalar.imag != 0:
+            # The conjugate-invariant ring only supports real scalars, so the frontend must reject
+            # a scalar with a nonzero imaginary part.
+            x = CkksCiphertextNode(level=lv, id='x', log_slots=param.log_max_slots())
+            with pytest.raises(ValueError):
+                sub(x, scalar, 'z')
+            return
         param_tag = _param_tag(param)
         output_base_dir = CPU_OUTPUT_BASE_DIR if processor == Processor.CPU else GPU_OUTPUT_BASE_DIR
-        full_log_slots = param.log_n - 1
+        full_log_slots = param.log_max_slots()
         slot_cases = [full_log_slots]
-        if param is _p1:
+        if param in (_p1, _p3):
             slot_cases.append(SPARSE_LOG_SLOTS)
 
         for lhs_log_slots in slot_cases:
@@ -291,9 +319,9 @@ class TestTask:
         set_fhe_param(param)
         param_tag = _param_tag(param)
         output_base_dir = CPU_OUTPUT_BASE_DIR if processor == Processor.CPU else GPU_OUTPUT_BASE_DIR
-        full_log_slots = param.log_n - 1
+        full_log_slots = param.log_max_slots()
         slot_cases = [(full_log_slots, full_log_slots)]
-        if param is _p1:
+        if param in (_p1, _p3):
             slot_cases.append((SPARSE_LOG_SLOTS, SPARSE_BINARY_RHS_LOG_SLOTS))
 
         for lhs_log_slots, rhs_log_slots in slot_cases:
@@ -332,11 +360,18 @@ class TestTask:
     )
     def test_mult_scalar(self, param, lv, scalar_tag, scalar, processor):
         set_fhe_param(param)
+        if param is _p3 and scalar.imag != 0:
+            # The conjugate-invariant ring only supports real scalars, so the frontend must reject
+            # a scalar with a nonzero imaginary part.
+            x = CkksCiphertextNode(level=lv, id='x', log_slots=param.log_max_slots())
+            with pytest.raises(ValueError):
+                mult(x, scalar, 'z')
+            return
         param_tag = _param_tag(param)
         output_base_dir = CPU_OUTPUT_BASE_DIR if processor == Processor.CPU else GPU_OUTPUT_BASE_DIR
-        full_log_slots = param.log_n - 1
+        full_log_slots = param.log_max_slots()
         slot_cases = [full_log_slots]
-        if param is _p1:
+        if param in (_p1, _p3):
             slot_cases.append(SPARSE_LOG_SLOTS)
 
         for lhs_log_slots in slot_cases:
@@ -364,9 +399,9 @@ class TestTask:
         set_fhe_param(param)
         param_tag = _param_tag(param)
         output_base_dir = CPU_OUTPUT_BASE_DIR if processor == Processor.CPU else GPU_OUTPUT_BASE_DIR
-        full_log_slots = param.log_n - 1
+        full_log_slots = param.log_max_slots()
         slot_cases = [(full_log_slots, full_log_slots)]
-        if param is _p1:
+        if param in (_p1, _p3):
             rhs_log_slots = SPARSE_LOG_SLOTS if same_input else SPARSE_BINARY_RHS_LOG_SLOTS
             slot_cases.append((SPARSE_LOG_SLOTS, rhs_log_slots))
 
@@ -401,9 +436,9 @@ class TestTask:
         set_fhe_param(param)
         param_tag = _param_tag(param)
         output_base_dir = CPU_OUTPUT_BASE_DIR if processor == Processor.CPU else GPU_OUTPUT_BASE_DIR
-        full_log_slots = param.log_n - 1
+        full_log_slots = param.log_max_slots()
         slot_cases = [(full_log_slots, full_log_slots)]
-        if param is _p1:
+        if param in (_p1, _p3):
             rhs_log_slots = SPARSE_LOG_SLOTS if same_input else SPARSE_BINARY_RHS_LOG_SLOTS
             slot_cases.append((SPARSE_LOG_SLOTS, rhs_log_slots))
 
@@ -438,9 +473,9 @@ class TestTask:
         set_fhe_param(param)
         param_tag = _param_tag(param)
         output_base_dir = CPU_OUTPUT_BASE_DIR if processor == Processor.CPU else GPU_OUTPUT_BASE_DIR
-        full_log_slots = param.log_n - 1
+        full_log_slots = param.log_max_slots()
         slot_cases = [(full_log_slots, full_log_slots)]
-        if param is _p1:
+        if param in (_p1, _p3):
             rhs_log_slots = SPARSE_LOG_SLOTS if same_input else SPARSE_BINARY_RHS_LOG_SLOTS
             slot_cases.append((SPARSE_LOG_SLOTS, rhs_log_slots))
 
@@ -474,9 +509,9 @@ class TestTask:
         set_fhe_param(param)
         param_tag = _param_tag(param)
         output_base_dir = CPU_OUTPUT_BASE_DIR if processor == Processor.CPU else GPU_OUTPUT_BASE_DIR
-        full_log_slots = param.log_n - 1
+        full_log_slots = param.log_max_slots()
         slot_cases = [full_log_slots]
-        if param is _p1:
+        if param in (_p1, _p3):
             slot_cases.append(SPARSE_LOG_SLOTS)
 
         for lhs_log_slots in slot_cases:
@@ -500,9 +535,9 @@ class TestTask:
         set_fhe_param(param)
         param_tag = _param_tag(param)
         output_base_dir = CPU_OUTPUT_BASE_DIR if processor == Processor.CPU else GPU_OUTPUT_BASE_DIR
-        full_log_slots = param.log_n - 1
+        full_log_slots = param.log_max_slots()
         slot_cases = [full_log_slots]
-        if param is _p1:
+        if param in (_p1, _p3):
             slot_cases.append(SPARSE_LOG_SLOTS)
 
         for lhs_log_slots in slot_cases:
@@ -525,19 +560,19 @@ class TestTask:
             )
 
     @pytest.mark.min_level(1)
-    @pytest.mark.parametrize('use_default_rotation_keys', [True, False], ids=['default', 'non-default'])
-    def test_rotate_col(self, param, lv, use_default_rotation_keys, processor, steps=[i + 1 for i in range(8)]):
+    @pytest.mark.parametrize('use_naf_decomposed_rotation_keys', [True, False], ids=['naf', 'non-naf'])
+    def test_rotate_col(self, param, lv, use_naf_decomposed_rotation_keys, processor, steps=[i + 1 for i in range(8)]):
         set_fhe_param(param)
         param_tag = _param_tag(param)
         output_base_dir = CPU_OUTPUT_BASE_DIR if processor == Processor.CPU else GPU_OUTPUT_BASE_DIR
-        full_log_slots = param.log_n - 1
+        full_log_slots = param.log_max_slots()
         slot_cases = [full_log_slots]
-        if param is _p1:
+        if param in (_p1, _p3):
             slot_cases.append(SPARSE_LOG_SLOTS)
 
         for lhs_log_slots in slot_cases:
             steps_tag = f'steps_{steps[0]}_to_{steps[-1]}'
-            key_mode_tag = 'default' if use_default_rotation_keys else 'non-default'
+            key_mode_tag = 'naf' if use_naf_decomposed_rotation_keys else 'non-naf'
             slot_tag = f'lslots{lhs_log_slots}'
             task_dir = os.path.join(
                 output_base_dir,
@@ -550,7 +585,12 @@ class TestTask:
             )
             x_list = [CkksCiphertextNode(level=lv, id=f'x_{i}', log_slots=lhs_log_slots) for i in range(N_OP)]
             y_list = [
-                rotate_cols(x_list[i], steps, f'rotated_x_{i}', use_default_rotation_keys=use_default_rotation_keys)
+                rotate_cols(
+                    x_list[i],
+                    steps,
+                    f'rotated_x_{i}',
+                    use_naf_decomposed_rotation_keys=use_naf_decomposed_rotation_keys,
+                )
                 for i in range(N_OP)
             ]
             process_custom_task(
@@ -561,13 +601,63 @@ class TestTask:
             )
 
     @pytest.mark.min_level(1)
-    def test_conjugate(self, param, lv, processor):
+    @pytest.mark.parametrize('use_naf_decomposed_rotation_keys', [True, False], ids=['naf', 'non-naf'])
+    def test_rotate_col_ci(self, param, lv, use_naf_decomposed_rotation_keys, processor):
+        """Conjugate-invariant only.
+
+        The CI ring packs N slots, so its rotation steps range over N, whereas the standard ring
+        only has N/2 slots (rotation steps are taken modulo N/2). This rotates by a plain step
+        beyond that standard range, whose Galois key must be computed with NthRoot = 4N rather
+        than 2N.
+        """
+        if param is not _p3:
+            pytest.skip('CI-only test')
         set_fhe_param(param)
         param_tag = _param_tag(param)
         output_base_dir = CPU_OUTPUT_BASE_DIR if processor == Processor.CPU else GPU_OUTPUT_BASE_DIR
-        full_log_slots = param.log_n - 1
+        full_log_slots = param.log_max_slots()
+        steps = [1, 12000]
+        steps_tag = 'steps_' + '_'.join(str(step) for step in steps)
+        key_mode_tag = 'naf' if use_naf_decomposed_rotation_keys else 'non-naf'
+        slot_tag = f'lslots{full_log_slots}'
+        task_dir = os.path.join(
+            output_base_dir,
+            param_tag,
+            f'CKKS_{N_OP}_rotate_col',
+            steps_tag,
+            key_mode_tag,
+            slot_tag,
+            f'level_{lv}',
+        )
+        x_list = [CkksCiphertextNode(level=lv, id=f'x_{i}', log_slots=full_log_slots) for i in range(N_OP)]
+        y_list = [
+            rotate_cols(
+                x_list[i], steps, f'rotated_x_{i}', use_naf_decomposed_rotation_keys=use_naf_decomposed_rotation_keys
+            )
+            for i in range(N_OP)
+        ]
+        process_custom_task(
+            input_args=[Argument('arg_x', x_list)],
+            output_args=[Argument('arg_y', y_list)],
+            output_instruction_path=task_dir,
+            processor=processor,
+        )
+
+    @pytest.mark.min_level(1)
+    def test_conjugate(self, param, lv, processor):
+        set_fhe_param(param)
+        if param is _p3:
+            # Conjugate is not supported for the conjugate-invariant ring, so the frontend must
+            # reject it.
+            x = CkksCiphertextNode(level=lv, id='x', log_slots=param.log_max_slots())
+            with pytest.raises(ValueError):
+                conjugate(x, 'y')
+            return
+        param_tag = _param_tag(param)
+        output_base_dir = CPU_OUTPUT_BASE_DIR if processor == Processor.CPU else GPU_OUTPUT_BASE_DIR
+        full_log_slots = param.log_max_slots()
         slot_cases = [full_log_slots]
-        if param is _p1:
+        if param in (_p1, _p3):
             slot_cases.append(SPARSE_LOG_SLOTS)
 
         for lhs_log_slots in slot_cases:
@@ -658,14 +748,18 @@ class TestTask:
             processor=processor,
         )
 
+    # Runs for the standard and the conjugate invariant params of residual log_n 14,
+    # 15 and 16, i.e. circuit degree 16 for both. The conjugate invariant ring
+    # bootstraps natively (no domain switch), so it takes the same ring-degree-switch
+    # keys (evk_n1_to_n2 / evk_n2_to_n1) as the standard ring when the residual and
+    # circuit degrees differ.
     @pytest.mark.at_level(0)
+    @pytest.mark.params(BTP_CKKS_PARAMS)
     def test_bootstrap(self, param, lv, processor):
-        if param is not _p1:
-            pytest.skip('only runs for default param (n=16384)')
         set_fhe_param(param)
         param_tag = _param_tag(param)
         output_base_dir = CPU_OUTPUT_BASE_DIR if processor == Processor.CPU else GPU_OUTPUT_BASE_DIR
-        slot_cases = [param.log_n - 1, SPARSE_LOG_SLOTS]
+        slot_cases = [param.log_max_slots(), SPARSE_LOG_SLOTS]
         for log_slots in slot_cases:
             slot_tag = f'lslots{log_slots}'
             task_dir = os.path.join(output_base_dir, param_tag, f'CKKS_{N_OP}_bootstrap', slot_tag, f'level_{lv}')
@@ -679,13 +773,12 @@ class TestTask:
             )
 
     @pytest.mark.at_level(0)
+    @pytest.mark.params(BTP_CKKS_PARAMS)
     def test_bootstrap_multi(self, param, lv, processor):
-        if param is not _p1:
-            pytest.skip('only runs for default param (n=16384)')
         set_fhe_param(param)
         param_tag = _param_tag(param)
         output_base_dir = CPU_OUTPUT_BASE_DIR if processor == Processor.CPU else GPU_OUTPUT_BASE_DIR
-        slot_cases = [param.log_n - 1, SPARSE_LOG_SLOTS]
+        slot_cases = [param.log_max_slots(), SPARSE_LOG_SLOTS]
         for log_slots in slot_cases:
             slot_tag = f'lslots{log_slots}'
             task_dir = os.path.join(output_base_dir, param_tag, f'CKKS_{N_OP}_bootstrap_multi', slot_tag, f'level_{lv}')
@@ -699,13 +792,15 @@ class TestTask:
             )
 
     @pytest.mark.at_level(3)
+    @pytest.mark.params(BTP_CKKS_PARAMS)
     def test_cmc_relin_rescale_bootstrap(self, param, lv, processor):
-        if param is not _p1:
-            pytest.skip('only runs for default param (n=16384)')
         set_fhe_param(param)
         param_tag = _param_tag(param)
         output_base_dir = CPU_OUTPUT_BASE_DIR if processor == Processor.CPU else GPU_OUTPUT_BASE_DIR
-        slot_cases = [(param.log_n - 1, param.log_n - 1), (SPARSE_LOG_SLOTS, SPARSE_BINARY_RHS_LOG_SLOTS)]
+        slot_cases = [
+            (param.log_max_slots(), param.log_max_slots()),
+            (SPARSE_LOG_SLOTS, SPARSE_BINARY_RHS_LOG_SLOTS),
+        ]
         for lhs_log_slots, rhs_log_slots in slot_cases:
             slot_tag = f'lslots{lhs_log_slots}_rslots{rhs_log_slots}'
             task_dir = os.path.join(
@@ -730,3 +825,22 @@ class TestTask:
                 output_instruction_path=task_dir,
                 processor=processor,
             )
+
+    def test_bootstrap_circuit_log_n_rule(self):
+        """The circuit runs at degree 16 for both the standard and the native
+        conjugate invariant ring."""
+        for residual_log_n in (14, 15, 16):
+            assert BootstrappingParameters.default(residual_log_n).log_n == 16
+            assert BootstrappingParameters.default(residual_log_n, RingType.ConjugateInvariant).log_n == 16
+
+        # Residual log_n below 14 or above 16 has no parameter set.
+        for residual_log_n in (12, 13, 17):
+            with pytest.raises(ValueError):
+                BootstrappingParameters.default(residual_log_n)
+
+        # The same rejection surfaces when such a residual is used to build a task.
+        unsupported_param = CkksParam.create_default_param(log_n=13)
+        set_fhe_param(unsupported_param)
+        unsupported_ct = CkksCiphertextNode(level=0, id='x', log_slots=unsupported_param.log_max_slots())
+        with pytest.raises(ValueError):
+            bootstrap(unsupported_ct, 'y')

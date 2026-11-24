@@ -119,7 +119,7 @@ struct DatumNode {
 
         struct ExtraProperty {
             int32_t sp_level = -1;
-            uint32_t galois_element = 0;
+            uint64_t galois_element = 0;
             std::string key_role;
         };
         std::optional<ExtraProperty> p;
@@ -170,7 +170,7 @@ struct ComputeNode {
 
         struct ExtraProperty {
             std::vector<int32_t> rotation_steps;
-            bool use_default_rotation_keys = true;
+            bool use_naf_decomposed_rotation_keys = true;
             int32_t sum_cnt = 0;
             int32_t drop_level = 1;
             ScalarType scalar;

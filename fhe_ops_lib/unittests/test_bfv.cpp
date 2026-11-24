@@ -17,6 +17,7 @@
  */
 
 #include <cstdint>
+#include <iostream>
 #include <map>
 #include <string>
 #include <vector>
@@ -380,7 +381,7 @@ TEMPLATE_TEST_CASE_METHOD(BfvFixture, "BFV mult scalar", "", BfvTestParams) {
 TEMPLATE_TEST_CASE_METHOD(BfvFixture, "BFV rotate columns", "", BfvTestParams) {
     const vector<int32_t> steps = {1, -2, 5, -10, 1000};
 
-    SECTION("default rotation") {
+    SECTION("naf rotation") {
         this->ctx.gen_rotation_keys();
         BfvTestCt test_data = new_ct(this->ctx, this->level);
         std::map<int32_t, BfvCiphertext> rotated = this->ctx.rotate_cols(test_data.ciphertext, steps);
@@ -397,7 +398,7 @@ TEMPLATE_TEST_CASE_METHOD(BfvFixture, "BFV rotate columns", "", BfvTestParams) {
         }
     }
 
-    SECTION("non-default rotation") {
+    SECTION("non-naf rotation") {
         this->ctx.gen_rotation_keys(steps);
         BfvTestCt test_data = new_ct(this->ctx, this->level);
         std::map<int32_t, BfvCiphertext> rotated = this->ctx.rotate_cols(test_data.ciphertext, steps);
@@ -446,38 +447,59 @@ TEMPLATE_TEST_CASE_METHOD(BfvFixture, "BFV ciphertext serialization", "", BfvTes
 
 TEMPLATE_TEST_CASE_METHOD(BfvFixture, "BFV context serialization", "", BfvTestParams) {
     const int32_t step = 3;
-    this->ctx.gen_rotation_keys(vector<int32_t>{step});
 
-    Bytes serialized = this->ctx.serialize();
-    BfvContext restored = BfvContext::deserialize(serialized);
+    auto run_case = [&](bool compressed) {
+        BfvContext context = BfvContext::create_random_context(this->param, EncryptorType::PUBLIC_KEY, compressed);
+        context.gen_rotation_keys(vector<int32_t>{step}, false, -1, compressed);
 
-    REQUIRE(restored.parameter().log_n() == this->param.log_n());
-    REQUIRE(restored.parameter().n() == this->param.n());
-    REQUIRE(restored.parameter().max_level() == this->param.max_level());
-    REQUIRE(restored.parameter().t() == this->param.t());
-    REQUIRE(restored.parameter().q() == this->param.q());
-    REQUIRE(restored.parameter().p() == this->param.p());
+        REQUIRE(context.evaluation_key_set().relin_key().is_compressed() == compressed);
+        for (const auto& [galois_element, galois_key] : context.evaluation_key_set().galois_keys()) {
+            REQUIRE(galois_key.is_compressed() == compressed);
+        }
 
-    BfvTestCt lhs = new_ct(this->ctx, this->level);
-    BfvTestCt rhs = new_ct(this->ctx, this->level);
-    vector<uint64_t> expected_mult = vec_mod_mul(lhs.message, rhs.message, this->param.t());
+        Bytes serialized = context.serialize();
+        const char* mode = compressed ? "compressed" : "uncompressed";
+        std::cout << "BFV context serialization (" << mode << "): " << serialized.size() << " bytes" << std::endl;
+        std::cout << "BFV relin key serialization (" << mode
+                  << "): " << context.evaluation_key_set().relin_key().serialize().size() << " bytes" << std::endl;
 
-    BfvCiphertext product = restored.mult(lhs.ciphertext, rhs.ciphertext);
-    BfvCiphertext relinearized = restored.relinearize(product);
-    REQUIRE(relinearized.degree() == 1);
-    REQUIRE(relinearized.level() == product.level());
+        BfvContext restored = BfvContext::deserialize(serialized);
 
-    BfvPlaintext decrypted_product = this->ctx.decrypt(relinearized);
-    vector<uint64_t> decoded_product;
-    this->ctx.decode(decrypted_product, decoded_product);
-    REQUIRE(decoded_product == expected_mult);
+        REQUIRE(restored.parameter().log_n() == this->param.log_n());
+        REQUIRE(restored.parameter().n() == this->param.n());
+        REQUIRE(restored.parameter().max_level() == this->param.max_level());
+        REQUIRE(restored.parameter().t() == this->param.t());
+        REQUIRE(restored.parameter().q() == this->param.q());
+        REQUIRE(restored.parameter().p() == this->param.p());
 
-    BfvCiphertext rotated = restored.rotate_cols(lhs.ciphertext, step);
-    REQUIRE(rotated.degree() == lhs.ciphertext.degree());
-    REQUIRE(rotated.level() == lhs.ciphertext.level());
+        BfvTestCt lhs = new_ct(context, this->level);
+        BfvTestCt rhs = new_ct(context, this->level);
+        vector<uint64_t> expected_mult = vec_mod_mul(lhs.message, rhs.message, this->param.t());
 
-    BfvPlaintext decrypted_rotation = this->ctx.decrypt(rotated);
-    vector<uint64_t> decoded_rotation;
-    this->ctx.decode(decrypted_rotation, decoded_rotation);
-    REQUIRE(decoded_rotation == vec_rotate_col(lhs.message, step));
+        BfvCiphertext product = restored.mult(lhs.ciphertext, rhs.ciphertext);
+        BfvCiphertext relinearized = restored.relinearize(product);
+        REQUIRE(relinearized.degree() == 1);
+        REQUIRE(relinearized.level() == product.level());
+
+        BfvPlaintext decrypted_product = context.decrypt(relinearized);
+        vector<uint64_t> decoded_product;
+        context.decode(decrypted_product, decoded_product);
+        REQUIRE(decoded_product == expected_mult);
+
+        BfvCiphertext rotated = restored.rotate_cols(lhs.ciphertext, step);
+        REQUIRE(rotated.degree() == lhs.ciphertext.degree());
+        REQUIRE(rotated.level() == lhs.ciphertext.level());
+
+        BfvPlaintext decrypted_rotation = context.decrypt(rotated);
+        vector<uint64_t> decoded_rotation;
+        context.decode(decrypted_rotation, decoded_rotation);
+        REQUIRE(decoded_rotation == vec_rotate_col(lhs.message, step));
+    };
+
+    SECTION("uncompressed") {
+        run_case(false);
+    }
+    SECTION("compressed") {
+        run_case(true);
+    }
 }

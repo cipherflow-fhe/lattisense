@@ -157,12 +157,12 @@ inline ExecutorFunc create_abi_export_executor(Algo algorithm, bool heterogeneou
                         if (abi_export_mutex == nullptr)
                             throw std::runtime_error("ABI export mutex not found");
                         std::lock_guard<std::mutex> lock(*abi_export_mutex);
-                        bfv_ctx->set_relin_key(*rlk);
+                        BfvContextInternal::set_relin_key(*bfv_ctx, *rlk);
                         break;
                     }
 
                     CEvaluationKey* c_rlk = (CEvaluationKey*)malloc(sizeof(CEvaluationKey));
-                    export_evaluation_key(param.get(), rlk->get(), -1, &target_metadata, c_rlk);
+                    CHECK(export_evaluation_key(param.get(), rlk->get(), -1, &target_metadata, c_rlk));
                     local_data[self.output_nodes[0]->id] =
                         std::shared_ptr<CEvaluationKey>(c_rlk, [](CEvaluationKey* p) {
                             free_evaluation_key(p);
@@ -182,11 +182,11 @@ inline ExecutorFunc create_abi_export_executor(Algo algorithm, bool heterogeneou
                         if (abi_export_mutex == nullptr)
                             throw std::runtime_error("ABI export mutex not found");
                         std::lock_guard<std::mutex> lock(*abi_export_mutex);
-                        bfv_ctx->set_galois_key(*glk);
+                        BfvContextInternal::set_galois_key(*bfv_ctx, *glk);
                         break;
                     }
                     CEvaluationKey* c_glk = (CEvaluationKey*)malloc(sizeof(CEvaluationKey));
-                    export_evaluation_key(param.get(), glk->get(), -1, &target_metadata, c_glk);
+                    CHECK(export_evaluation_key(param.get(), glk->get(), -1, &target_metadata, c_glk));
                     local_data[self.output_nodes[0]->id] =
                         std::shared_ptr<CEvaluationKey>(c_glk, [](CEvaluationKey* p) {
                             free_evaluation_key(p);
@@ -289,15 +289,15 @@ inline ExecutorFunc create_abi_export_executor(Algo algorithm, bool heterogeneou
                             throw std::runtime_error("ABI export mutex not found");
                         std::lock_guard<std::mutex> lock(*abi_export_mutex);
                         if (is_bootstrap_key) {
-                            ckks_ctx->set_bootstrapping_relin_key(*rlk);
+                            CkksContextInternal::set_bootstrapping_relin_key(*ckks_ctx, *rlk);
                         } else {
-                            ckks_ctx->set_relin_key(*rlk);
+                            CkksContextInternal::set_relin_key(*ckks_ctx, *rlk);
                         }
                         break;
                     }
 
                     CEvaluationKey* c_rlk = (CEvaluationKey*)malloc(sizeof(CEvaluationKey));
-                    export_evaluation_key(export_param.get(), rlk->get(), -1, &target_metadata, c_rlk);
+                    CHECK(export_evaluation_key(export_param.get(), rlk->get(), -1, &target_metadata, c_rlk));
                     local_data[self.output_nodes[0]->id] =
                         std::shared_ptr<CEvaluationKey>(c_rlk, [](CEvaluationKey* p) {
                             free_evaluation_key(p);
@@ -318,14 +318,14 @@ inline ExecutorFunc create_abi_export_executor(Algo algorithm, bool heterogeneou
                             throw std::runtime_error("ABI export mutex not found");
                         std::lock_guard<std::mutex> lock(*abi_export_mutex);
                         if (is_bootstrap_key) {
-                            ckks_ctx->set_bootstrapping_galois_key(*glk);
+                            CkksContextInternal::set_bootstrapping_galois_key(*ckks_ctx, *glk);
                         } else {
-                            ckks_ctx->set_galois_key(*glk);
+                            CkksContextInternal::set_galois_key(*ckks_ctx, *glk);
                         }
                         break;
                     }
                     CEvaluationKey* c_glk = (CEvaluationKey*)malloc(sizeof(CEvaluationKey));
-                    export_evaluation_key(export_param.get(), glk->get(), -1, &target_metadata, c_glk);
+                    CHECK(export_evaluation_key(export_param.get(), glk->get(), -1, &target_metadata, c_glk));
                     local_data[self.output_nodes[0]->id] =
                         std::shared_ptr<CEvaluationKey>(c_glk, [](CEvaluationKey* p) {
                             free_evaluation_key(p);
@@ -348,20 +348,20 @@ inline ExecutorFunc create_abi_export_executor(Algo algorithm, bool heterogeneou
                         std::lock_guard<std::mutex> lock(*abi_export_mutex);
                         if (is_bootstrap_key) {
                             if (input_node->id == "evk_n1_to_n2") {
-                                ckks_ctx->set_evk_n1_to_n2(*evk);
+                                CkksContextInternal::set_evk_n1_to_n2(*ckks_ctx, *evk);
                             } else if (input_node->id == "evk_n2_to_n1") {
-                                ckks_ctx->set_evk_n2_to_n1(*evk);
+                                CkksContextInternal::set_evk_n2_to_n1(*ckks_ctx, *evk);
                             } else if (input_node->id == "evk_dense_to_sparse") {
-                                ckks_ctx->set_evk_dense_to_sparse(*evk);
+                                CkksContextInternal::set_evk_dense_to_sparse(*ckks_ctx, *evk);
                             } else if (input_node->id == "evk_sparse_to_dense") {
-                                ckks_ctx->set_evk_sparse_to_dense(*evk);
+                                CkksContextInternal::set_evk_sparse_to_dense(*ckks_ctx, *evk);
                             }
                         }
                         break;
                     }
 
                     CEvaluationKey* c_evk = (CEvaluationKey*)malloc(sizeof(CEvaluationKey));
-                    export_evaluation_key(export_param.get(), evk->get(), -1, &target_metadata, c_evk);
+                    CHECK(export_evaluation_key(export_param.get(), evk->get(), -1, &target_metadata, c_evk));
                     local_data[self.output_nodes[0]->id] =
                         std::shared_ptr<CEvaluationKey>(c_evk, [](CEvaluationKey* p) {
                             free_evaluation_key(p);

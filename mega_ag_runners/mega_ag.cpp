@@ -94,7 +94,7 @@ static ComputeNode::FheProperty parse_fhe_property(const nlohmann::json& value, 
 
     if (op_type == OperationType::ROTATE_COL) {
         extra_prop.rotation_steps = value["steps"].get<std::vector<int32_t>>();
-        extra_prop.use_default_rotation_keys = value.value("use_default_rotation_keys", true);
+        extra_prop.use_naf_decomposed_rotation_keys = value.value("use_naf_decomposed_rotation_keys", true);
         has_extra_prop = true;
     } else if (op_type == OperationType::DROP_LEVEL) {
         if (!value.contains("drop_level")) {
@@ -189,7 +189,7 @@ static DatumNode::FheProperty parse_fhe_data_property(const nlohmann::json& valu
         has_extra_prop = true;
     }
     if (value.contains("galois_element")) {
-        extra_prop.galois_element = value["galois_element"].get<uint32_t>();
+        extra_prop.galois_element = value["galois_element"].get<uint64_t>();
         has_extra_prop = true;
     }
     if (value.contains("key_role")) {

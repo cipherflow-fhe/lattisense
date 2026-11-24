@@ -128,6 +128,9 @@ PublicKey PublicKey::deserialize(BytesView data) {
     return PublicKey(std::move(handle));
 }
 
+EvaluationKey::EvaluationKey(uint64_t&& h, bool k, bool compressed)
+    : Handle(std::move(h), k), _compressed(compressed) {}
+
 EvaluationKey EvaluationKey::copy() const {
     if (is_empty()) {
         throw std::runtime_error("evaluation key is not set");
@@ -135,6 +138,19 @@ EvaluationKey EvaluationKey::copy() const {
 
     uint64_t evaluation_key_handle = 0;
     CHECK(CopyEvaluationKey(get(), &evaluation_key_handle));
+    return EvaluationKey(std::move(evaluation_key_handle), false, _compressed);
+}
+
+EvaluationKey EvaluationKey::expand(const Parameter& parameter) const {
+    if (is_empty()) {
+        throw std::runtime_error("evaluation key is not set");
+    }
+    if (parameter.is_empty()) {
+        throw std::runtime_error("parameter is not set");
+    }
+
+    uint64_t evaluation_key_handle = 0;
+    CHECK(ExpandEvaluationKey(this->get(), parameter.get(), &evaluation_key_handle));
     return EvaluationKey(std::move(evaluation_key_handle));
 }
 
@@ -149,10 +165,16 @@ Bytes EvaluationKey::serialize() const {
 EvaluationKey EvaluationKey::deserialize(BytesView data) {
     uint64_t handle = 0;
     CHECK(DeserializeEvaluationKey((uint8_t*)data.data(), data.size(), &handle));
-    return EvaluationKey(std::move(handle));
+    int compressed = 0;
+    CHECK(GetEvaluationKeyCompressed(handle, &compressed));
+    return EvaluationKey(std::move(handle), false, compressed != 0);
 }
 
-RelinKey::RelinKey(const KeyGenerator& key_generator, const SecretKey& secret_key, int level) {
+RelinKey::RelinKey(uint64_t&& h, bool k, bool compressed) : Handle(std::move(h), k), _compressed(compressed) {}
+
+GaloisKey::GaloisKey(uint64_t&& h, bool k, bool compressed) : Handle(std::move(h), k), _compressed(compressed) {}
+
+RelinKey::RelinKey(const KeyGenerator& key_generator, const SecretKey& secret_key, int level, bool compressed) {
     if (key_generator.is_empty()) {
         throw std::runtime_error("key generator is not set");
     }
@@ -161,9 +183,23 @@ RelinKey::RelinKey(const KeyGenerator& key_generator, const SecretKey& secret_ke
     }
 
     uint64_t relin_key_handle = 0;
-    CHECK(GenRelinearizationKey(key_generator.get(), secret_key.get(), level, &relin_key_handle));
+    CHECK(GenRelinearizationKey(key_generator.get(), secret_key.get(), level, compressed ? 1 : 0, &relin_key_handle));
     _value = relin_key_handle;
     _keep = false;
+    _compressed = compressed;
+}
+
+RelinKey RelinKey::expand(const Parameter& parameter) const {
+    if (is_empty()) {
+        throw std::runtime_error("relinearization key is not set");
+    }
+    if (parameter.is_empty()) {
+        throw std::runtime_error("parameter is not set");
+    }
+
+    uint64_t relin_key_handle = 0;
+    CHECK(ExpandRelinearizationKey(this->get(), parameter.get(), &relin_key_handle));
+    return RelinKey(std::move(relin_key_handle));
 }
 
 RelinKey RelinKey::copy() const {
@@ -173,7 +209,7 @@ RelinKey RelinKey::copy() const {
 
     uint64_t relin_key_handle = 0;
     CHECK(CopyRelinearizationKey(get(), &relin_key_handle));
-    return RelinKey(std::move(relin_key_handle));
+    return RelinKey(std::move(relin_key_handle), false, _compressed);
 }
 
 int RelinKey::level() const {
@@ -193,7 +229,9 @@ Bytes RelinKey::serialize() const {
 RelinKey RelinKey::deserialize(BytesView data) {
     uint64_t handle = 0;
     CHECK(DeserializeRelinearizationKey((uint8_t*)data.data(), data.size(), &handle));
-    return RelinKey(std::move(handle));
+    int compressed = 0;
+    CHECK(GetRelinearizationKeyCompressed(handle, &compressed));
+    return RelinKey(std::move(handle), false, compressed != 0);
 }
 
 Encryptor::Encryptor(const Parameter& parameter, const PublicKey& public_key) : _type(EncryptorType::PUBLIC_KEY) {
@@ -245,6 +283,19 @@ GaloisKey GaloisKey::copy() const {
 
     uint64_t galois_key_handle = 0;
     CHECK(CopyGaloisKey(get(), &galois_key_handle));
+    return GaloisKey(std::move(galois_key_handle), false, _compressed);
+}
+
+GaloisKey GaloisKey::expand(const Parameter& parameter) const {
+    if (is_empty()) {
+        throw std::runtime_error("galois key is not set");
+    }
+    if (parameter.is_empty()) {
+        throw std::runtime_error("parameter is not set");
+    }
+
+    uint64_t galois_key_handle = 0;
+    CHECK(ExpandGaloisKey(this->get(), parameter.get(), &galois_key_handle));
     return GaloisKey(std::move(galois_key_handle));
 }
 
@@ -271,7 +322,9 @@ Bytes GaloisKey::serialize() const {
 GaloisKey GaloisKey::deserialize(BytesView data) {
     uint64_t handle = 0;
     CHECK(DeserializeGaloisKey((uint8_t*)data.data(), data.size(), &handle));
-    return GaloisKey(std::move(handle));
+    int compressed = 0;
+    CHECK(GetGaloisKeyCompressed(handle, &compressed));
+    return GaloisKey(std::move(handle), false, compressed != 0);
 }
 
 EvaluationKeySet::EvaluationKeySet(RelinKey&& relin_key, std::map<uint64_t, GaloisKey>&& galois_keys) {
@@ -308,7 +361,13 @@ void EvaluationKeySet::sync_from_handle() {
 
     uint64_t relin_key_handle = 0;
     CHECK(GetEvaluationKeyRelinearizationKey(this->get(), &relin_key_handle));
-    _relin_key = relin_key_handle == 0 ? RelinKey() : RelinKey(std::move(relin_key_handle));
+    if (relin_key_handle == 0) {
+        _relin_key = RelinKey();
+    } else {
+        int compressed = 0;
+        CHECK(GetRelinearizationKeyCompressed(relin_key_handle, &compressed));
+        _relin_key = RelinKey(std::move(relin_key_handle), false, compressed != 0);
+    }
 
     int galois_key_count = 0;
     CHECK(GetEvaluationKeyGaloisKeyCount(this->get(), &galois_key_count));
@@ -319,7 +378,9 @@ void EvaluationKeySet::sync_from_handle() {
     for (uint64_t galois_element : galois_elements) {
         uint64_t galois_key_handle = 0;
         CHECK(GetEvaluationKeyGaloisKey(this->get(), galois_element, &galois_key_handle));
-        galois_keys.emplace(galois_element, GaloisKey(std::move(galois_key_handle)));
+        int compressed = 0;
+        CHECK(GetGaloisKeyCompressed(galois_key_handle, &compressed));
+        galois_keys.emplace(galois_element, GaloisKey(std::move(galois_key_handle), false, compressed != 0));
     }
     _galois_keys = std::move(galois_keys);
 }

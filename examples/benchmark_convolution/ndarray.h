@@ -104,7 +104,7 @@ public:
         return result;
     }
 
-    std::array<uint64_t, dim> get_shape() const noexcept {
+    const std::array<uint64_t, dim>& get_shape() const noexcept {
         return _shape;
     }
 
@@ -174,7 +174,7 @@ public:
         _data[i0 * _shape[1] * _shape[2] * _shape[3] + i1 * _shape[2] * _shape[3] + i2 * _shape[3] + i3] = value;
     }
 
-    std::vector<T> to_array_1d() const {
+    const std::vector<T>& to_array_1d() const {
         return _data;
     }
 

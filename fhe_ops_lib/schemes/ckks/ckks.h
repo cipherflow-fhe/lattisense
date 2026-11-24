@@ -29,6 +29,14 @@
 namespace fhe_ops_lib {
 
 /**
+ * @brief CKKS ring type. Values are aligned with Go ring.Type.
+ */
+enum class RingType : int {
+    Standard = 0,            // Z[X]/(X^N + 1) (default)
+    ConjugateInvariant = 1,  // Z[X + X^-1]/(X^2N + 1)
+};
+
+/**
  * @brief CKKS homomorphic parameters class, containing homomorphic parameters N, q.
  */
 class CkksParameter : public Parameter {
@@ -36,11 +44,14 @@ public:
     using Parameter::Parameter;
 
     // CkksParameter() = delete;
-    static CkksParameter create_parameter(int log_n);
+    static CkksParameter
+    create_parameter(int log_n, RingType ring_type = RingType::Standard, bool enable_bootstrapping = false);
     static CkksParameter create_custom_parameter(int log_n,
                                                  int log_default_scale,
                                                  const std::vector<uint64_t>& q,
-                                                 const std::vector<uint64_t>& p);
+                                                 const std::vector<uint64_t>& p,
+                                                 RingType ring_type = RingType::Standard,
+                                                 bool enable_bootstrapping = false);
 
     CkksParameter copy() const;
 
@@ -67,6 +78,25 @@ public:
     double default_scale() const;
 
     int log_default_scale() const;
+
+    /**
+     * Get the CKKS ring type.
+     * @return The ring type (Standard or ConjugateInvariant).
+     */
+    RingType ring_type() const;
+
+    bool is_standard() const;
+
+    bool is_conjugate_invariant() const;
+
+    /**
+     * Whether the parameter set is the bootstrapped (modulus-trimmed) variant.
+     * @return True for the bootstrapped category, false for non-bootstrapped.
+     */
+    bool enable_bootstrapping() const;
+
+private:
+    bool _enable_bootstrapping = false;
 };
 
 class CkksEncoder : public Handle {
@@ -80,6 +110,9 @@ public:
     using Handle::Handle;
     CkksEvaluator(const CkksParameter& parameter, const EvaluationKeySet& evaluation_key_set);
 
+private:
+    friend class CkksContext;
+
     void update_evaluation_key_set(const EvaluationKeySet& evaluation_key_set);
 };
 
@@ -87,15 +120,15 @@ class BootstrappingEvaluationKeys : public Handle {
 public:
     BootstrappingEvaluationKeys() = default;
     using Handle::Handle;
-    BootstrappingEvaluationKeys(const Handle& bootstrapping_parameter, const SecretKey& secret_key);
+    BootstrappingEvaluationKeys(const Handle& bootstrapping_parameter,
+                                const SecretKey& secret_key,
+                                bool compressed = false);
 
     BootstrappingEvaluationKeys(EvaluationKey&& evk_n1_to_n2,
                                 EvaluationKey&& evk_n2_to_n1,
                                 EvaluationKey&& evk_dense_to_sparse,
                                 EvaluationKey&& evk_sparse_to_dense,
                                 EvaluationKeySet&& evaluation_key_set);
-
-    void sync_from_handle();
 
     Bytes serialize() const;
     static BootstrappingEvaluationKeys deserialize(BytesView data);
@@ -117,6 +150,8 @@ public:
 private:
     friend class CkksContext;
 
+    void sync_from_handle();
+
     EvaluationKey _evk_n1_to_n2;
     EvaluationKey _evk_n2_to_n1;
     EvaluationKey _evk_dense_to_sparse;
@@ -137,7 +172,6 @@ public:
     bool is_batched() const;
     int log_slots() const;
     double scale() const;
-    void sync_metadata();
     Metadata metadata() const;
 
     /**
@@ -151,6 +185,10 @@ public:
     static CkksPlaintext deserialize(BytesView data);
 
 private:
+    friend class CkksContext;
+
+    void sync_metadata();
+
     Metadata _metadata{1, 1, 0, 0, 0, 1.0};
 };
 
@@ -176,8 +214,6 @@ public:
      * @return The ciphertext scale.
      */
     double scale() const;
-    double set_scale(double scale_in);
-    void sync_metadata();
     Metadata metadata() const;
     /**
      * Serialize a CKKS ciphertext.
@@ -195,7 +231,13 @@ public:
 
     void copy(CkksCiphertext& y_ct) const;
 
+    double set_scale(double scale_in);
+
 private:
+    friend class CkksContext;
+
+    void sync_metadata();
+
     Metadata _metadata{0, 1, 1, 0, 0, 1.0};
 };
 
@@ -216,7 +258,7 @@ public:
      */
     static CkksContext create_random_context(const CkksParameter& param,
                                              EncryptorType encryptor_type = EncryptorType::PUBLIC_KEY,
-                                             bool enable_bootstrapping = false);
+                                             bool compressed_keys = false);
 
     const CkksParameter& parameter() override;
 
@@ -226,18 +268,15 @@ public:
 
     const PublicKey& public_key() const override;
 
-    void gen_rotation_keys(int level = -1);
+    void gen_rotation_keys(int level = -1, bool compressed = false);
 
-    void gen_rotation_keys(const std::vector<int32_t>& rots, bool include_swap_rows = false, int level = -1);
-
-    void set_use_default_rotation_keys(bool use_default_rotation_keys);
-
-    void create_bootstrapper();
-
-    void set_enable_bootstrapping(bool enable_bootstrapping = true);
+    void gen_rotation_keys(const std::vector<int32_t>& rots,
+                           bool include_swap_rows = false,
+                           int level = -1,
+                           bool compressed = false);
 
     bool enable_bootstrapping() const {
-        return _enable_bootstrapping;
+        return !_btp_parameter.is_empty();
     }
 
     const BootstrappingEvaluationKeys& bootstrapping_evaluation_keys() const;
@@ -246,37 +285,7 @@ public:
 
     std::vector<CkksCiphertext> bootstrap(const std::vector<CkksCiphertext>& ops);
 
-    EvaluationKey extract_evk_dts() const;
-
-    EvaluationKey extract_evk_std() const;
-
     const EvaluationKeySet& evaluation_key_set() const override;
-
-    /**
-     * Set a relinearization key to a context.
-     * @param rlk The source relinearization key.
-     * @return void.
-     */
-    void set_relin_key(const RelinKey& rlk);
-
-    /**
-     * Set a Galois key to a context.
-     * @param gk The source Galois key.
-     * @return void.
-     */
-    void set_galois_key(const GaloisKey& gk);
-
-    void set_bootstrapping_relin_key(const RelinKey& rlk);
-
-    void set_bootstrapping_galois_key(const GaloisKey& gk);
-
-    void set_evk_n1_to_n2(const EvaluationKey& evk);
-
-    void set_evk_n2_to_n1(const EvaluationKey& evk);
-
-    void set_evk_dense_to_sparse(const EvaluationKey& evk);
-
-    void set_evk_sparse_to_dense(const EvaluationKey& evk);
 
     /**
      * Serialize a CKKS context to binary. Secret key material is not serialized.
@@ -414,19 +423,83 @@ public:
     //                                        const double threshold);
 
 private:
+    friend class CkksContextInternal;
+
     static const uint8_t CONTEXT_MAGIC[8];
+
+    /**
+     * Create the bootstrapping parameter from the residual parameter, and with it
+     * the bootstrapping evaluation keys and evaluator. The circuit ring degree is
+     * the residual ring degree plus one.
+     */
+    void create_bootstrapper(bool compressed = false);
+
+    void set_relin_key(const RelinKey& rlk);
+    void set_galois_key(const GaloisKey& gk);
+    void set_bootstrapping_relin_key(const RelinKey& rlk);
+    void set_bootstrapping_galois_key(const GaloisKey& gk);
+    void set_evk_n1_to_n2(const EvaluationKey& evk);
+    void set_evk_n2_to_n1(const EvaluationKey& evk);
+    void set_evk_dense_to_sparse(const EvaluationKey& evk);
+    void set_evk_sparse_to_dense(const EvaluationKey& evk);
+    void enable_naf_decomposed_rotation_keys(bool enable);
 
 protected:
     CkksParameter _parameter;
     CkksEncoder _encoder;
     CkksEvaluator _evaluator;
-    bool _use_default_rotation_keys = true;
+    bool _enable_naf_decomposed_rotation_keys = true;
 
-    bool _enable_bootstrapping = false;
     Handle _btp_parameter;
     CkksParameter _btp_parameter_n2;  // bootstrapping (N2) ckks.Parameters, cached
     BootstrappingEvaluationKeys _bootstrapping_evaluation_keys;
     Handle _btp_evaluator;
+};
+
+/**
+ * @brief Internal accessor for CKKS context key injection.
+ *
+ * These operations are used by the lattisense runtime (cxx_sdk_v2 ABI bridge) to
+ * inject evaluation keys into a context, and are intentionally not part of the
+ * public CkksContext API.
+ */
+class CkksContextInternal {
+public:
+    static void set_relin_key(CkksContext& ctx, const RelinKey& rlk) {
+        ctx.set_relin_key(rlk);
+    }
+
+    static void set_galois_key(CkksContext& ctx, const GaloisKey& gk) {
+        ctx.set_galois_key(gk);
+    }
+
+    static void set_bootstrapping_relin_key(CkksContext& ctx, const RelinKey& rlk) {
+        ctx.set_bootstrapping_relin_key(rlk);
+    }
+
+    static void set_bootstrapping_galois_key(CkksContext& ctx, const GaloisKey& gk) {
+        ctx.set_bootstrapping_galois_key(gk);
+    }
+
+    static void set_evk_n1_to_n2(CkksContext& ctx, const EvaluationKey& evk) {
+        ctx.set_evk_n1_to_n2(evk);
+    }
+
+    static void set_evk_n2_to_n1(CkksContext& ctx, const EvaluationKey& evk) {
+        ctx.set_evk_n2_to_n1(evk);
+    }
+
+    static void set_evk_dense_to_sparse(CkksContext& ctx, const EvaluationKey& evk) {
+        ctx.set_evk_dense_to_sparse(evk);
+    }
+
+    static void set_evk_sparse_to_dense(CkksContext& ctx, const EvaluationKey& evk) {
+        ctx.set_evk_sparse_to_dense(evk);
+    }
+
+    static void enable_naf_decomposed_rotation_keys(CkksContext& ctx, bool enable) {
+        ctx.enable_naf_decomposed_rotation_keys(enable);
+    }
 };
 
 }  // namespace fhe_ops_lib
