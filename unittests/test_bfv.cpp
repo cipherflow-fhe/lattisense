@@ -458,7 +458,7 @@ TEMPLATE_TEST_CASE_METHOD(BfvFixture, "BFV rotate_col", "", BfvTestDefaultParams
 }
 
 TEMPLATE_TEST_CASE_METHOD(BfvFixture, "BFV rotate_row", "", BfvTestDefaultParams, BfvTestCustomParams) {
-    this->ctx.gen_rotation_keys({}, true);
+    this->ctx.gen_rotation_keys(vector<int32_t>{}, true);
 
     for (int level = 1; level <= this->max_level; level++) {
         string relative_path = this->tag + "/BFV_" + to_string(this->n_op) + "_rotate_row/level_" + to_string(level);
