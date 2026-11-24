@@ -59,6 +59,21 @@ jobs:
           nvidia-smi --query-gpu=name --format=csv,noheader
           python3 --version
 
+      - name: Ensure CMake >= 3.30.4
+        run: |
+          # lattisense-gpu-core pulls in rmm, which requires CMake 3.30.4+
+          need=3.30.4
+          current=$(cmake --version | head -1 | awk '{print $3}')
+          if [ "$(printf '%s\n%s\n' "$need" "$current" | sort -V | head -1)" != "$need" ]; then
+            echo "CMake ${current} is older than ${need}; upgrading"
+            pip3 install --no-cache-dir -U "cmake>=${need}" \
+              -i https://pypi.tuna.tsinghua.edu.cn/simple \
+              || pip3 install --no-cache-dir -U "cmake>=${need}"
+          else
+            echo "CMake ${current} is recent enough"
+          fi
+          cmake --version | head -1
+
       - name: Restore lattisense-gpu-core cache
         run: |
           GPU_CORE_COMMIT=$(git -C backends/lattisense-gpu-core rev-parse HEAD)
