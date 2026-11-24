@@ -161,7 +161,7 @@ inline std::unordered_map<NodeId, std::any> init_available_data(const MegaAG& me
     std::unordered_map<NodeId, std::any> available_data;
 
     size_t handle_idx = 0;
-    for (NodeId input_id : mega_ag.inputs) {
+    for (const NodeId& input_id : mega_ag.inputs) {
         available_data[input_id] = std::shared_ptr<void>(input_handles[handle_idx], [](void*) {});
         handle_idx++;
     }
