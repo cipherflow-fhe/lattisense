@@ -145,10 +145,7 @@ Set global FHE parameters.
 ```Python
 # Create parameter object
 param = Param.create_bfv_custom_param(
-    n=8192,
-    p=[0x7ffffffffb4001],
-    q=[0x3fffffffef8001, 0x4000000011c001, 0x40000000120001],
-    t=0x28001
+    n=8192, p=[0x7FFFFFFFFB4001], q=[0x3FFFFFFFEF8001, 0x4000000011C001, 0x40000000120001], t=0x28001
 )
 
 # Set as global parameter
@@ -513,10 +510,7 @@ from custom_task import *
 
 # Create and set global parameters
 param = Param.create_bfv_custom_param(
-    n=8192,
-    p=[0x7ffffffffb4001],
-    q=[0x3fffffffef8001, 0x4000000011c001, 0x40000000120001],
-    t=0x28001
+    n=8192, p=[0x7FFFFFFFFB4001], q=[0x3FFFFFFFEF8001, 0x4000000011C001, 0x40000000120001], t=0x28001
 )
 set_fhe_param(param)
 

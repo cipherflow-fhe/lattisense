@@ -164,8 +164,7 @@ template <heongpu::Scheme SchemeType> ExecutorFunc create_load_to_gpu_executor()
         auto* operators = ctx.get_arithmetic_context<heongpu::HEArithmeticOperator<SchemeType>>();
         auto* stream_option = ctx.get_other_arg<heongpu::ExecutionOptions>(0);
         auto* context = ctx.get_other_arg<heongpu::HEContext<SchemeType>>(1);
-        auto* residual_galois_key_ptr =
-            ctx.get_other_arg<std::shared_ptr<heongpu::Galoiskey<SchemeType>>>(2);
+        auto* residual_galois_key_ptr = ctx.get_other_arg<std::shared_ptr<heongpu::Galoiskey<SchemeType>>>(2);
         auto* boot_galois_key_ptr = ctx.get_other_arg<std::shared_ptr<heongpu::Galoiskey<SchemeType>>>(3);
         auto* residual_galois_key_mutex = ctx.get_other_arg<std::mutex>(4);
         auto* boot_galois_key_mutex = ctx.get_other_arg<std::mutex>(5);
@@ -265,7 +264,7 @@ template <heongpu::Scheme SchemeType> ExecutorFunc create_load_to_gpu_executor()
                                                      (is_bootstrap_key ? "bootstrap" : "residual") + " ring");
                         }
                         gpu_glk = std::make_shared<heongpu::Galoiskey<SchemeType>>(key_context, glk_elts, glk_level,
-                                                                                  *stream_option);
+                                                                                   *stream_option);
                     }
 
                     export_galois_key(*c_glk, *gpu_glk, galois_element, glk_level, stream_option->stream_);

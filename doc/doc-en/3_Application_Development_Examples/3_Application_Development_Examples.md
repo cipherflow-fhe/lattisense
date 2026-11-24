@@ -80,10 +80,7 @@ For this example, after describing the abstract computation graph, it is necessa
 ```Python
 # Set global parameters (custom parameters, only for CPU execution)
 param = Param.create_bfv_custom_param(
-    n=8192,
-    p=[0x7ffffffffb4001],
-    q=[0x3fffffffef8001, 0x4000000011c001, 0x40000000120001],
-    t=0x28001
+    n=8192, p=[0x7FFFFFFFFB4001], q=[0x3FFFFFFFEF8001, 0x4000000011C001, 0x40000000120001], t=0x28001
 )
 set_fhe_param(param)
 
@@ -164,9 +161,9 @@ for i in range(7):
 # Set global parameters (custom parameters, only for CPU execution)
 param = Param.create_bfv_custom_param(
     n=8192,
-    p=[0x7ffffffffb4001],
-    q=[0x3fffffffef8001, 0x4000000011c001, 0x40000000120001, 0x3fffffffd08001, 0x7fffffffe90001],
-    t=0x1b4001
+    p=[0x7FFFFFFFFB4001],
+    q=[0x3FFFFFFFEF8001, 0x4000000011C001, 0x40000000120001, 0x3FFFFFFFD08001, 0x7FFFFFFFE90001],
+    t=0x1B4001,
 )
 set_fhe_param(param)
 
@@ -237,9 +234,7 @@ In the offline phase, the abstract computation description for this task can be 
 ```python
 # Set global parameters (custom parameters, only for CPU execution)
 param = Param.create_ckks_custom_param(
-    n=8192,
-    p=[0x7ffffffffb4001],
-    q=[0x3fffffffef8001, 0x4000000011c001, 0x40000000120001, 0x3fffffffd08001]
+    n=8192, p=[0x7FFFFFFFFB4001], q=[0x3FFFFFFFEF8001, 0x4000000011C001, 0x40000000120001, 0x3FFFFFFFD08001]
 )
 set_fhe_param(param)
 
@@ -346,7 +341,7 @@ n_input_feature = 30
 
 x = CkksCiphertextNode(level=level)
 w = CkksPlaintextRingtNode()
-b = CkksPlaintextNode(level=level-1)
+b = CkksPlaintextNode(level=level - 1)
 mask = CkksPlaintextRingtNode()
 
 u = rescale(mult(x, w))
@@ -361,9 +356,7 @@ y = rescale(mult(s, mask))
 
 # Set global parameters (custom parameters, only for CPU execution)
 param = Param.create_ckks_custom_param(
-    n=8192,
-    p=[0x7ffffffffb4001],
-    q=[0x3fffffffef8001, 0x4000000011c001, 0x40000000120001, 0x3fffffffd08001]
+    n=8192, p=[0x7FFFFFFFFB4001], q=[0x3FFFFFFFEF8001, 0x4000000011C001, 0x40000000120001, 0x3FFFFFFFD08001]
 )
 set_fhe_param(param)
 

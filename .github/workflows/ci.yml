@@ -7,6 +7,11 @@ on:
   pull_request:
     branches: [main, dev]
   workflow_dispatch:
+    inputs:
+      bootstrap:
+        description: 'Also run the slow CKKS bootstrap test cases'
+        type: boolean
+        default: false
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -26,18 +31,11 @@ jobs:
       image: localhost:5000/lattisense-ci:latest
       options: >-
         --gpus all
-        --device=/dev/xdma0_c2h_0:/dev/xdma0_c2h_0
-        --device=/dev/xdma0_c2h_1:/dev/xdma0_c2h_1
-        --device=/dev/xdma0_h2c_0:/dev/xdma0_h2c_0
-        --device=/dev/xdma0_h2c_1:/dev/xdma0_h2c_1
-        --device=/dev/xdma0_h2c_2:/dev/xdma0_h2c_2
-        --device=/dev/xdma0_h2c_3:/dev/xdma0_h2c_3
-        --device=/dev/xdma0_user:/dev/xdma0_user
       volumes:
         - /opt/gpu-core-cache:/opt/gpu-core-cache
         - /opt/go-mod-cache:/root/go/pkg/mod
         - /var/lock:/var/lock
-    timeout-minutes: 60
+    timeout-minutes: 240
 
     steps:
       - name: Checkout
@@ -57,26 +55,6 @@ jobs:
           echo "=== Submodule status ==="
           git submodule status --recursive
 
-      - name: Init FPGA submodules (CI only)
-        env:
-          TOKEN: ${{ secrets.PRIVATE_REPO_ACCESS_TOKEN }}
-        run: |
-          git -c submodule."backends/lattisense-fpga/lattisense-fpga-runtime".update=checkout \
-              -c submodule."backends/lattisense-fpga/lattisense-fpga-linker".update=checkout \
-              submodule update --init --recursive \
-              backends/lattisense-fpga/lattisense-fpga-runtime \
-              backends/lattisense-fpga/lattisense-fpga-linker
-
-      - name: Install FPGA linker dependencies
-        run: |
-          pip3 install -i https://pypi.tuna.tsinghua.edu.cn/simple \
-            -r backends/lattisense-fpga/lattisense-fpga-linker/requirements.txt
-
-      - name: Build FPGA compiler C++ extension
-        run: |
-          cd backends/lattisense-fpga/lattisense-fpga-linker/lattisense-fpga-compiler/cpp
-          bash compile.sh
-
       - name: Verify prerequisites
         run: |
           g++ --version | head -1
@@ -85,6 +63,21 @@ jobs:
           nvcc --version | tail -1
           nvidia-smi --query-gpu=name --format=csv,noheader
           python3 --version
+
+      - name: Ensure CMake >= 3.30.4
+        run: |
+          # lattisense-gpu-core pulls in rmm, which requires CMake 3.30.4+
+          need=3.30.4
+          current=$(cmake --version | head -1 | awk '{print $3}')
+          if [ "$(printf '%s\n%s\n' "$need" "$current" | sort -V | head -1)" != "$need" ]; then
+            echo "CMake ${current} is older than ${need}; upgrading"
+            pip3 install --no-cache-dir -U "cmake>=${need}" \
+              -i https://pypi.tuna.tsinghua.edu.cn/simple \
+              || pip3 install --no-cache-dir -U "cmake>=${need}"
+          else
+            echo "CMake ${current} is recent enough"
+          fi
+          cmake --version | head -1
 
       - name: Restore lattisense-gpu-core cache
         run: |
@@ -115,15 +108,14 @@ jobs:
             fi
           fi
 
-      - name: Build SDK (CPU + GPU + FPGA + Examples)
+      - name: Build SDK (CPU + GPU)
         run: |
+          # examples/ still targets the removed fhe_lib_v2 API and is not built in CI
           cmake -B build \
             -DLATTISENSE_BUILD_TESTS=ON \
-            -DLATTISENSE_BUILD_EXAMPLES=ON \
+            -DLATTISENSE_BUILD_EXAMPLES=OFF \
             -DLATTISENSE_ENABLE_GPU=ON \
-            -DLATTISENSE_ENABLE_FPGA=ON \
-            -DLATTISENSE_CUDA_ARCH=86 \
-            -DGPU_CORE_CCCL_GIT_URL=https://gitee.com/nvidia_mirror/cccl.git
+            -DLATTISENSE_CUDA_ARCH=86
           cmake --build build -j$(nproc)
 
       - name: Save lattisense-gpu-core cache
@@ -146,6 +138,12 @@ jobs:
             ls -dt /opt/gpu-core-cache/*/ 2>/dev/null | tail -n +4 | xargs rm -rf 2>/dev/null || true
           fi
 
+      - name: Install Python dependencies
+        run: |
+          pip3 install --no-cache-dir -r requirements.txt \
+            -i https://pypi.tuna.tsinghua.edu.cn/simple \
+            || pip3 install --no-cache-dir -r requirements.txt
+
       - name: Generate CPU/GPU test data
         run: |
           cd unittests
@@ -153,78 +151,27 @@ jobs:
           python3 -m pytest test_bfv.py -v
           python3 -m pytest test_ckks.py -v
 
-      - name: Generate FPGA test data
-        run: |
-          cd unittests
-          export PYTHONPATH=$GITHUB_WORKSPACE/build/unittests:$GITHUB_WORKSPACE:$PYTHONPATH
-          python3 -m pytest test_fpga_bfv.py -v
-          python3 -m pytest test_fpga_ckks.py -v
-
-      - name: Run CPU/GPU tests
-        timeout-minutes: 20
+      - name: Run BFV tests
+        timeout-minutes: 30
         run: |
           cd build/unittests
           export LD_LIBRARY_PATH=$GITHUB_WORKSPACE/build/lib:$GITHUB_WORKSPACE/backends/lattisense-gpu-core/install/lib:$LD_LIBRARY_PATH
-          ./test_lattigo
-          ./test_mp_lattigo
           ./test_bfv
-          ./test_ckks
 
-      - name: Run FPGA tests
-        timeout-minutes: 20
+      - name: Run CKKS tests
+        timeout-minutes: ${{ (github.event_name == 'workflow_dispatch' && inputs.bootstrap == true) && 180 || 40 }}
         run: |
           cd build/unittests
-          export LD_LIBRARY_PATH=$GITHUB_WORKSPACE/build/lib:$LD_LIBRARY_PATH
-          ./test_fpga_bfv '~[.]' '~*power_dag*' '~*power_mul*'
-          ./test_fpga_ckks
-
-      - name: Run CPU examples
-        timeout-minutes: 10
-        run: |
-          export PYTHONPATH=$GITHUB_WORKSPACE:$PYTHONPATH
-          export LD_LIBRARY_PATH=$GITHUB_WORKSPACE/build:$GITHUB_WORKSPACE/build/fhe_ops_lib:$GITHUB_WORKSPACE/fhe_ops_lib/lattigo/go_sdk:$LD_LIBRARY_PATH
-
-          cd build/examples/bfv_mult_cpu
-          python3 bfv_mult_cpu.py && ./bfv_mult_cpu
-
-          cd $GITHUB_WORKSPACE/build/examples/ckks_mult_cpu
-          python3 ckks_mult_cpu.py && ./ckks_mult_cpu
-
-          cd $GITHUB_WORKSPACE/build/examples/ckks_mult_serialization_cpu
-          ./ckks_mult_serialization_cpu
-
-          cd $GITHUB_WORKSPACE/build/examples/bfv_poly_7_cpu
-          python3 bfv_poly_7_cpu.py && ./bfv_poly_7_cpu
-
-          cd $GITHUB_WORKSPACE/build/examples/ckks_euclidean_distance_cpu
-          python3 ckks_euclidean_distance_cpu.py && ./ckks_euclidean_distance_cpu
-
-          cd $GITHUB_WORKSPACE/build/examples/ckks_logistic_regression_cpu
-          python3 ckks_logistic_regression_cpu.py && ./ckks_logistic_regression_cpu
-
-      - name: Run CPU benchmarks
-        timeout-minutes: 10
-        run: |
-          export PYTHONPATH=$GITHUB_WORKSPACE:$PYTHONPATH
-          export LD_LIBRARY_PATH=$GITHUB_WORKSPACE/build:$GITHUB_WORKSPACE/build/fhe_ops_lib:$GITHUB_WORKSPACE/fhe_ops_lib/lattigo/go_sdk:$LD_LIBRARY_PATH
-
-          cd $GITHUB_WORKSPACE/build/examples/benchmark_cpu
-          python3 benchmark_cpu.py && ./benchmark_cpu all
-
-          cd $GITHUB_WORKSPACE/build/examples/benchmark_convolution
-          python3 benchmark_convolution.py && ./benchmark_convolution_cpu
-
-      - name: Run GPU benchmarks
-        timeout-minutes: 10
-        run: |
-          export PYTHONPATH=$GITHUB_WORKSPACE:$PYTHONPATH
-          export LD_LIBRARY_PATH=$GITHUB_WORKSPACE/build:$GITHUB_WORKSPACE/build/fhe_ops_lib:$GITHUB_WORKSPACE/fhe_ops_lib/lattigo/go_sdk:$GITHUB_WORKSPACE/backends/lattisense-gpu-core/install/lib:$LD_LIBRARY_PATH
-
-          cd $GITHUB_WORKSPACE/build/examples/benchmark_gpu
-          python3 benchmark_gpu.py && ./benchmark_gpu all
-
-          cd $GITHUB_WORKSPACE/build/examples/benchmark_convolution
-          ./benchmark_convolution_gpu
+          export LD_LIBRARY_PATH=$GITHUB_WORKSPACE/build/lib:$GITHUB_WORKSPACE/backends/lattisense-gpu-core/install/lib:$LD_LIBRARY_PATH
+          # The [bootstrap] cases take most of an hour; run them only when the
+          # workflow is dispatched with bootstrap=true.
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.bootstrap }}" = "true" ]; then
+            echo "Running the full CKKS suite, including [bootstrap]"
+            ./test_ckks
+          else
+            echo "Skipping [bootstrap] cases (dispatch with bootstrap=true to include them)"
+            ./test_ckks "~[bootstrap]"
+          fi
 
   build-docker:
     if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')

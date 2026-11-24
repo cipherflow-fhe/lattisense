@@ -465,8 +465,8 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
     gpu_mem_monitor.stop();
 #endif
     const auto compute_end = std::chrono::steady_clock::now();
-    std::cout << "[GPU] run_tasks time: "
-              << std::chrono::duration<double>(compute_end - compute_start).count() << " s" << std::endl;
+    std::cout << "[GPU] run_tasks time: " << std::chrono::duration<double>(compute_end - compute_start).count() << " s"
+              << std::endl;
 }
 
 // Dispatch function to call _run_mega_ag_impl with appropriate TContext
