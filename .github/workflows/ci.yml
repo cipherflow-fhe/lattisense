@@ -133,6 +133,12 @@ jobs:
             ls -dt /opt/gpu-core-cache/*/ 2>/dev/null | tail -n +4 | xargs rm -rf 2>/dev/null || true
           fi
 
+      - name: Install Python dependencies
+        run: |
+          pip3 install --no-cache-dir -r requirements.txt \
+            -i https://pypi.tuna.tsinghua.edu.cn/simple \
+            || pip3 install --no-cache-dir -r requirements.txt
+
       - name: Generate CPU/GPU test data
         run: |
           cd unittests
