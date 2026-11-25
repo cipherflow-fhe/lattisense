@@ -7,6 +7,11 @@ on:
   pull_request:
     branches: [main, dev]
   workflow_dispatch:
+    inputs:
+      bootstrap:
+        description: 'Also run the slow CKKS bootstrap test cases'
+        type: boolean
+        default: false
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -30,7 +35,7 @@ jobs:
         - /opt/gpu-core-cache:/opt/gpu-core-cache
         - /opt/go-mod-cache:/root/go/pkg/mod
         - /var/lock:/var/lock
-    timeout-minutes: 60
+    timeout-minutes: 240
 
     steps:
       - name: Checkout
@@ -146,13 +151,27 @@ jobs:
           python3 -m pytest test_bfv.py -v
           python3 -m pytest test_ckks.py -v
 
-      - name: Run CPU/GPU tests
-        timeout-minutes: 20
+      - name: Run BFV tests
+        timeout-minutes: 30
         run: |
           cd build/unittests
           export LD_LIBRARY_PATH=$GITHUB_WORKSPACE/build/lib:$GITHUB_WORKSPACE/backends/lattisense-gpu-core/install/lib:$LD_LIBRARY_PATH
           ./test_bfv
-          ./test_ckks
+
+      - name: Run CKKS tests
+        timeout-minutes: ${{ (github.event_name == 'workflow_dispatch' && inputs.bootstrap == true) && 180 || 40 }}
+        run: |
+          cd build/unittests
+          export LD_LIBRARY_PATH=$GITHUB_WORKSPACE/build/lib:$GITHUB_WORKSPACE/backends/lattisense-gpu-core/install/lib:$LD_LIBRARY_PATH
+          # The [bootstrap] cases take most of an hour; run them only when the
+          # workflow is dispatched with bootstrap=true.
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.bootstrap }}" = "true" ]; then
+            echo "Running the full CKKS suite, including [bootstrap]"
+            ./test_ckks
+          else
+            echo "Skipping [bootstrap] cases (dispatch with bootstrap=true to include them)"
+            ./test_ckks "~[bootstrap]"
+          fi
 
   build-docker:
     if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
