@@ -14,6 +14,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+import functools
 import math
 from dataclasses import dataclass
 from enum import Enum, auto
@@ -241,66 +242,63 @@ class BootstrappingParameters:
         real DFT (full packing, log_slots == log_n), so no domain switch keys are
         involved.
         """
-        boot_log_n = BTP_LOG_N_BY_RESIDUAL_LOG_N.get(residual_log_n)
-        if boot_log_n is None:
-            raise ValueError(
-                f'No bootstrapping parameter set for a residual of log_n={residual_log_n} '
-                f'(supported: {sorted(BTP_LOG_N_BY_RESIDUAL_LOG_N)}).'
-            )
-
-        circuit = BTP_CIRCUIT_PARAMS[boot_log_n]
-
-        ci = ring_type == RingType.ConjugateInvariant
-        log_slots = boot_log_n if ci else boot_log_n - 1
-        return cls(
-            log_n=boot_log_n,
-            log_slots=log_slots,
-            slots_to_coeffs=DftMatrixLiteral(
-                type=DftType.HomomorphicDecode,
-                log_slots=log_slots,
-                format=DftFormat.RepackImagAsReal,
-                log_bsgs_ratio=1,
-                levels=[len(level) for level in circuit.slots_to_coeffs_factorization],
-                real=ci,
-            ),
-            coeffs_to_slots=DftMatrixLiteral(
-                type=DftType.HomomorphicEncode,
-                log_slots=log_slots,
-                format=DftFormat.RepackImagAsReal,
-                log_bsgs_ratio=1,
-                levels=[len(level) for level in circuit.coeffs_to_slots_factorization],
-                real=ci,
-            ),
-            circuit=circuit,
-        )
+        return _default_params(residual_log_n, ring_type)
 
     def galois_elements(self) -> List[int]:
-        ring_type = RingType.ConjugateInvariant if self.log_slots == self.log_n else RingType.Standard
-        keys = {_galois_element(1 << i, self.log_n, ring_type) for i in range(self.log_slots, self.log_n - 1)}
-        keys.update(self.coeffs_to_slots.galois_elements(self.log_n))
-        keys.update(self.slots_to_coeffs.galois_elements(self.log_n))
-        if ring_type != RingType.ConjugateInvariant:
-            keys.add(_galois_element_for_complex_conjugation(self.log_n))
-        return sorted(keys)
+        if not hasattr(self, '_galois_cache'):
+            ring_type = RingType.ConjugateInvariant if self.log_slots == self.log_n else RingType.Standard
+            keys = {_galois_element(1 << i, self.log_n, ring_type) for i in range(self.log_slots, self.log_n - 1)}
+            keys.update(self.coeffs_to_slots.galois_elements(self.log_n))
+            keys.update(self.slots_to_coeffs.galois_elements(self.log_n))
+            if ring_type != RingType.ConjugateInvariant:
+                keys.add(_galois_element_for_complex_conjugation(self.log_n))
+            self._galois_cache = sorted(keys)
+        return self._galois_cache
+
+    def rotations(self) -> List[int]:
+        if not hasattr(self, '_rotations_cache'):
+            rotations = {1 << i for i in range(self.log_slots, self.log_n - 1)}
+            rotations.update(self.coeffs_to_slots.rotations(self.log_n))
+            rotations.update(self.slots_to_coeffs.rotations(self.log_n))
+            self._rotations_cache = sorted(rotations)
+        return self._rotations_cache
 
 
-def bootstrapping_galois_elements(residual_log_n: int, ring_type: RingType = RingType.Standard) -> List[int]:
-    return BootstrappingParameters.default(residual_log_n, ring_type).galois_elements()
+@functools.lru_cache(maxsize=None)
+def _default_params(residual_log_n: int, ring_type: RingType = RingType.Standard) -> 'BootstrappingParameters':
+    """!Cached construction of BootstrappingParameters, shared per (residual_log_n, ring_type)."""
+    boot_log_n = BTP_LOG_N_BY_RESIDUAL_LOG_N.get(residual_log_n)
+    if boot_log_n is None:
+        raise ValueError(
+            f'No bootstrapping parameter set for a residual of log_n={residual_log_n} '
+            f'(supported: {sorted(BTP_LOG_N_BY_RESIDUAL_LOG_N)}).'
+        )
 
+    circuit = BTP_CIRCUIT_PARAMS[boot_log_n]
 
-def bootstrapping_rotations(residual_log_n: int, ring_type: RingType = RingType.Standard) -> List[int]:
-    params = BootstrappingParameters.default(residual_log_n, ring_type)
-    rotations = set()
-    for i in range(params.log_slots, params.log_n - 1):
-        rotations.add(1 << i)
-    rotations.update(params.coeffs_to_slots.rotations(params.log_n))
-    rotations.update(params.slots_to_coeffs.rotations(params.log_n))
-    return sorted(rotations)
-
-
-def bootstrapping_log_n(residual_log_n: int, ring_type: RingType = RingType.Standard) -> int:
-    """!Bootstrapping (circuit) ring degree log2, see BootstrappingParameters.default."""
-    return BootstrappingParameters.default(residual_log_n, ring_type).log_n
+    ci = ring_type == RingType.ConjugateInvariant
+    log_slots = boot_log_n if ci else boot_log_n - 1
+    return BootstrappingParameters(
+        log_n=boot_log_n,
+        log_slots=log_slots,
+        slots_to_coeffs=DftMatrixLiteral(
+            type=DftType.HomomorphicDecode,
+            log_slots=log_slots,
+            format=DftFormat.RepackImagAsReal,
+            log_bsgs_ratio=1,
+            levels=[len(level) for level in circuit.slots_to_coeffs_factorization],
+            real=ci,
+        ),
+        coeffs_to_slots=DftMatrixLiteral(
+            type=DftType.HomomorphicEncode,
+            log_slots=log_slots,
+            format=DftFormat.RepackImagAsReal,
+            log_bsgs_ratio=1,
+            levels=[len(level) for level in circuit.coeffs_to_slots_factorization],
+            real=ci,
+        ),
+        circuit=circuit,
+    )
 
 
 def _galois_element(rotation: int, log_n: int, ring_type: RingType = RingType.Standard) -> int:

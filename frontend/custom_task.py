@@ -20,7 +20,6 @@ from typing import Optional
 
 import networkx as nx
 
-from frontend.bootstrap_params import bootstrapping_galois_elements
 from frontend.types import (
     Argument,
     BfvCiphertextNode,
@@ -851,7 +850,7 @@ def bootstrap(
         g_evk_node_dict[evk_sparse_to_dense].key_role = 'bootstrap'
     g_dag.add_edge(g_evk_node_dict[evk_sparse_to_dense], op)
 
-    _gals = bootstrapping_galois_elements(g_param.log_n, g_param.ring_type)
+    _gals = btp.galois_elements()
     for gal_elem in _gals:
         evk_glk = f'evk_glk_{gal_elem}'
         if evk_glk not in g_evk_node_dict:
