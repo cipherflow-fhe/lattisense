@@ -102,10 +102,10 @@ template <cudaMemcpyKind Kind> struct TransferBatch {
             cudaEvent_t ev = nullptr;
             ~PinScratch() {
                 if (buf) {
-                    (void) cudaFreeHost(buf);
+                    (void)cudaFreeHost(buf);
                 }
                 if (ev) {
-                    (void) cudaEventDestroy(ev);
+                    (void)cudaEventDestroy(ev);
                 }
             }
         };

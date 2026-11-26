@@ -362,7 +362,7 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
                         exec_ctx.other_args.push_back(&h2d_batch);                  // [11]
                     }
                     if (has_store_from_backend && !has_load_to_backend) {
-                        exec_ctx.other_args.push_back(&d2h_batch);                  // [2]
+                        exec_ctx.other_args.push_back(&d2h_batch);  // [2]
                     }
 
                     try {
