@@ -16,6 +16,7 @@
 
 #include <iostream>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 #include <thread>
 #include <mutex>
@@ -274,7 +275,7 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
 
     // GPU-specific data structures
     std::unordered_map<NodeId, cudaEvent_t> data_ready_events;
-    std::vector<cudaEvent_t> owned_events;
+    std::unordered_set<cudaEvent_t> owned_events;
     // Galois keys are generated per ring: residual (N) and bootstrapping (N2). Each ring
     // has its own context and Q chain, so they must not share a key object or level.
     std::shared_ptr<heongpu::Galoiskey<SchemeType>> residual_galois_key;
@@ -414,7 +415,7 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
                                 CHECK(cudaEventCreate(&output_event));
                                 try {
                                     std::lock_guard<std::mutex> lock(m_mutex);
-                                    owned_events.push_back(output_event);
+                                    owned_events.insert(output_event);
                                 } catch (...) {
                                     cudaEventDestroy(output_event);
                                     throw;
@@ -472,6 +473,18 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
                                             }
                                         }
                                         mega_ag.purge_unused_data(compute_node, data_ref_counts, available_data);
+                                        // All consumers have synchronized their work before releasing
+                                        // this datum, so its readiness event can now be destroyed.
+                                        for (const auto* input : compute_node.input_nodes) {
+                                            if (available_data.count(input->id))
+                                                continue;
+                                            auto event = data_ready_events.find(input->id);
+                                            if (event != data_ready_events.end()) {
+                                                CHECK(cudaEventDestroy(event->second));
+                                                owned_events.erase(event->second);
+                                                data_ready_events.erase(event);
+                                            }
+                                        }
                                     } catch (...) {
                                         for (size_t i = 0; i < applied_events; ++i) {
                                             const auto& event = previous_events[i];

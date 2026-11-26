@@ -268,6 +268,8 @@ def _is_frontend_handle(dag: nx.DiGraph, data_node) -> bool:
     - it has no producer compute node (external input), OR
     - its producer is a custom compute node.
     """
+    if isinstance(data_node, BackendDataNode):
+        return False
     preds = list(dag.predecessors(data_node))
     return not preds or is_custom_compute(preds[0])
 

@@ -34,6 +34,7 @@ class Processor(Enum):
 
 
 random_ids = set()
+stream_node_counter = None
 
 GALOIS_GEN = 5
 
@@ -122,6 +123,10 @@ def reset_node_state() -> None:
 
 
 def random_id():
+    global stream_node_counter
+    if stream_node_counter is not None:
+        stream_node_counter += 1
+        return f'stream_{stream_node_counter}'
     while True:
         asc = ''.join(random.choices(string.ascii_lowercase, k=12))
         if asc not in random_ids:

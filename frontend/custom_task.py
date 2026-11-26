@@ -55,7 +55,9 @@ from frontend.types import (
 )
 
 g_evk_node_dict: dict[str, 'EvaluationKeyNode'] = {}
-g_dag = nx.DiGraph()
+from frontend.streaming_graph import StreamingGraph
+
+g_dag = StreamingGraph()
 g_param: Optional['Param'] = None
 
 
@@ -911,6 +913,10 @@ def custom_compute(
     if output is None:
         raise ValueError('Output data node is required for custom compute.')
 
+    if type == 'encode_pt' and not inputs and g_dag.stream is not None:
+        output._stream_pending_encoder = attributes
+        return
+
     op = CustomComputeNode(type=type, attributes=attributes)
 
     for input_node in inputs:
@@ -956,6 +962,9 @@ def process_custom_task(
             input_args, output_args, g_evk_node_dict, name='Acc task', algorithm=g_param.algo,
             offline_input_args=offline_input_args,
         )
+
+        if g_dag.stream is not None:
+            return g_dag.finish_stream(ctx, g_param, extra_signature_fields)
 
         # Validate all input nodes exist in g_dag and feed at least one operation
         for x in ctx.inputs:
