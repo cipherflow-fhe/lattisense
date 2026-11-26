@@ -40,6 +40,7 @@
 #include <mutex>
 #include <vector>
 #include <limits>
+#include <cstring>
 
 #include <heongpu/heongpu.hpp>
 
@@ -57,32 +58,163 @@ inline void CHECK(cudaError_t err) {
     }
 }
 
+struct BatchTransferEntry {
+    void* dst;
+    void* src;
+    size_t size;
+};
+
+// ABI transfer queue. Copies go through bounded pinned staging: for H2D, gather
+// the pageable sources into one pinned block from the host pool, then per-entry
+// copy pinned->device; for D2H, per-entry copy device->pinned staging, wait, then
+// scatter into the pageable destinations. Falls back to direct per-entry
+// cudaMemcpyAsync when no pinned staging is available.
+template <cudaMemcpyKind Kind> struct TransferBatch {
+    std::vector<BatchTransferEntry> entries;
+
+    void append(void* dst, const void* src, size_t size) {
+        if (size == 0) {
+            return;
+        }
+        entries.push_back({dst, const_cast<void*>(src), size});
+    }
+
+    void submit(cudaStream_t stream) const {
+        if (entries.empty()) {
+            return;
+        }
+        size_t total = 0;
+        for (const auto& e : entries) {
+            total += e.size;
+        }
+        if (total == 0) {
+            return;
+        }
+
+        // Per-thread reusable pinned scratch (one buffer per thread per transfer
+        // direction). The buffer is grown on demand and reused across batches; an
+        // event gates reuse so a buffer is not overwritten while a previous batch's
+        // async copies on this thread's stream are still in flight.
+        struct PinScratch {
+            char* buf = nullptr;
+            size_t cap = 0;
+            bool pending = false;
+            cudaEvent_t ev = nullptr;
+            ~PinScratch() {
+                if (buf) {
+                    (void)cudaFreeHost(buf);
+                }
+                if (ev) {
+                    (void)cudaEventDestroy(ev);
+                }
+            }
+        };
+        static thread_local PinScratch scratch;
+
+        // Wait out any in-flight copies from the previous batch before reusing.
+        if (scratch.pending) {
+            CHECK(cudaEventSynchronize(scratch.ev));
+            scratch.pending = false;
+        }
+
+        if (total > scratch.cap) {
+            if (scratch.buf) {
+                CHECK(cudaFreeHost(scratch.buf));
+                scratch.buf = nullptr;
+                scratch.cap = 0;
+            }
+            void* pin = nullptr;
+            if (cudaHostAlloc(&pin, total, cudaHostAllocDefault) != cudaSuccess) {
+                for (const auto& e : entries) {
+                    CHECK(cudaMemcpyAsync(e.dst, e.src, e.size, Kind, stream));
+                }
+                return;
+            }
+            scratch.buf = (char*)pin;
+            scratch.cap = total;
+        }
+        if (!scratch.ev) {
+            CHECK(cudaEventCreateWithFlags(&scratch.ev, cudaEventDisableTiming));
+        }
+
+        char* staging = scratch.buf;
+        size_t off = 0;
+        if constexpr (Kind == cudaMemcpyHostToDevice) {
+            for (const auto& e : entries) {
+                std::memcpy(staging + off, e.src, e.size);
+                off += e.size;
+            }
+            off = 0;
+            for (const auto& e : entries) {
+                CHECK(cudaMemcpyAsync(e.dst, staging + off, e.size, Kind, stream));
+                off += e.size;
+            }
+            CHECK(cudaEventRecord(scratch.ev, stream));
+            scratch.pending = true;  // reuse deferred to the next submit on this thread
+        } else {
+            for (const auto& e : entries) {
+                CHECK(cudaMemcpyAsync(staging + off, e.src, e.size, Kind, stream));
+                off += e.size;
+            }
+            CHECK(cudaEventRecord(scratch.ev, stream));
+            CHECK(cudaEventSynchronize(scratch.ev));  // copies must finish before scatter
+            off = 0;
+            for (const auto& e : entries) {
+                std::memcpy(e.dst, staging + off, e.size);
+                off += e.size;
+            }
+            scratch.pending = false;  // already synced, buffer is reusable
+        }
+    }
+};
+
+using H2DBatch = TransferBatch<cudaMemcpyHostToDevice>;
+using D2HBatch = TransferBatch<cudaMemcpyDeviceToHost>;
+
 /**
  * @brief Export plaintext from C struct to GPU device memory
  */
 template <heongpu::Scheme SchemeType>
-void export_plaintext(const CPlaintext& src, heongpu::Plaintext<SchemeType>& dest, cudaStream_t stream) {
-    CHECK(cudaMemcpyAsync(dest.data(), src.data, c_plaintext_rns_size(&src) * src.ring_degree * sizeof(uint64_t),
-                          cudaMemcpyHostToDevice, stream));
+void export_plaintext(const CPlaintext& src,
+                      heongpu::Plaintext<SchemeType>& dest,
+                      cudaStream_t stream,
+                      H2DBatch* batch = nullptr) {
+    size_t bytes = (size_t)c_plaintext_rns_size(&src) * src.ring_degree * sizeof(uint64_t);
+    if (batch) {
+        batch->append(dest.data(), src.data, bytes);
+    } else {
+        CHECK(cudaMemcpyAsync(dest.data(), src.data, bytes, cudaMemcpyHostToDevice, stream));
+    }
 }
 
 /**
  * @brief Export ciphertext from C struct to GPU device memory
  */
 template <heongpu::Scheme SchemeType>
-void export_ciphertext(const CCiphertext& src, heongpu::Ciphertext<SchemeType>& dest, cudaStream_t stream) {
-    CHECK(cudaMemcpyAsync(dest.data(), src.data,
-                          src.cipher_size * c_ciphertext_rns_size(&src) * src.ring_degree * sizeof(uint64_t),
-                          cudaMemcpyHostToDevice, stream));
+void export_ciphertext(const CCiphertext& src,
+                       heongpu::Ciphertext<SchemeType>& dest,
+                       cudaStream_t stream,
+                       H2DBatch* batch = nullptr) {
+    size_t bytes = (size_t)src.cipher_size * c_ciphertext_rns_size(&src) * src.ring_degree * sizeof(uint64_t);
+    if (batch) {
+        batch->append(dest.data(), src.data, bytes);
+    } else {
+        CHECK(cudaMemcpyAsync(dest.data(), src.data, bytes, cudaMemcpyHostToDevice, stream));
+    }
 }
 
 /**
  * @brief Copy evaluation key payload from C struct to GPU key storage
  */
-template <typename GpuKey> void export_evaluation_key(const CEvaluationKey& src, GpuKey& dest, cudaStream_t stream) {
+template <typename GpuKey>
+void export_evaluation_key(const CEvaluationKey& src, GpuKey& dest, cudaStream_t stream, H2DBatch* batch = nullptr) {
     size_t element_count =
         (size_t)c_evaluation_key_decomp_rns(&src) * 2 * c_evaluation_key_rns_size(&src) * src.ring_degree;
-    CHECK(cudaMemcpyAsync(dest.data(), src.data, element_count * sizeof(uint64_t), cudaMemcpyHostToDevice, stream));
+    if (batch) {
+        batch->append(dest.data(), src.data, element_count * sizeof(uint64_t));
+    } else {
+        CHECK(cudaMemcpyAsync(dest.data(), src.data, element_count * sizeof(uint64_t), cudaMemcpyHostToDevice, stream));
+    }
 }
 
 template <heongpu::Scheme SchemeType>
@@ -90,7 +222,8 @@ void export_galois_key(const CEvaluationKey& src,
                        heongpu::Galoiskey<SchemeType>& dest,
                        uint64_t galois_element,
                        int dest_level_q,
-                       cudaStream_t stream) {
+                       cudaStream_t stream,
+                       H2DBatch* batch = nullptr) {
     if (dest_level_q < src.level_q) {
         throw std::runtime_error("GPU Galois key destination level is smaller than source level");
     }
@@ -104,19 +237,24 @@ void export_galois_key(const CEvaluationKey& src,
 
     auto* dest_data = dest.data(galois_element);
 
+    auto copy_limb = [&](uint64_t* dst, const uint64_t* src_limb) {
+        if (batch) {
+            batch->append(dst, src_limb, ring_degree * sizeof(uint64_t));
+        } else {
+            CHECK(cudaMemcpyAsync(dst, src_limb, ring_degree * sizeof(uint64_t), cudaMemcpyHostToDevice, stream));
+        }
+    };
+
     for (int decomp_idx = 0; decomp_idx < src_decomp_count; decomp_idx++) {
         for (int poly_idx = 0; poly_idx < 2; poly_idx++) {
             for (int q_idx = 0; q_idx < src_q_size; q_idx++) {
                 auto* dst = dest_data + (((size_t)decomp_idx * 2 + poly_idx) * dst_rns_size + q_idx) * ring_degree;
-                const uint64_t* src_limb = c_evaluation_key_const_rns_limb(&src, decomp_idx, poly_idx, q_idx);
-                CHECK(cudaMemcpyAsync(dst, src_limb, ring_degree * sizeof(uint64_t), cudaMemcpyHostToDevice, stream));
+                copy_limb(dst, c_evaluation_key_const_rns_limb(&src, decomp_idx, poly_idx, q_idx));
             }
             for (int p_idx = 0; p_idx < src_p_size; p_idx++) {
                 auto* dst =
                     dest_data + (((size_t)decomp_idx * 2 + poly_idx) * dst_rns_size + dst_q_size + p_idx) * ring_degree;
-                const uint64_t* src_limb =
-                    c_evaluation_key_const_rns_limb(&src, decomp_idx, poly_idx, src_q_size + p_idx);
-                CHECK(cudaMemcpyAsync(dst, src_limb, ring_degree * sizeof(uint64_t), cudaMemcpyHostToDevice, stream));
+                copy_limb(dst, c_evaluation_key_const_rns_limb(&src, decomp_idx, poly_idx, src_q_size + p_idx));
             }
         }
     }
@@ -126,10 +264,16 @@ void export_galois_key(const CEvaluationKey& src,
  * @brief Import ciphertext from GPU device memory to C struct
  */
 template <heongpu::Scheme SchemeType>
-void import_ciphertext(heongpu::Ciphertext<SchemeType>& src, CCiphertext* dest, cudaStream_t stream) {
-    CHECK(cudaMemcpyAsync(dest->data, src.data(),
-                          dest->cipher_size * c_ciphertext_rns_size(dest) * dest->ring_degree * sizeof(uint64_t),
-                          cudaMemcpyDeviceToHost, stream));
+void import_ciphertext(heongpu::Ciphertext<SchemeType>& src,
+                       CCiphertext* dest,
+                       cudaStream_t stream,
+                       D2HBatch* batch = nullptr) {
+    size_t bytes = (size_t)dest->cipher_size * c_ciphertext_rns_size(dest) * dest->ring_degree * sizeof(uint64_t);
+    if (batch) {
+        batch->append(dest->data, src.data(), bytes);
+    } else {
+        CHECK(cudaMemcpyAsync(dest->data, src.data(), bytes, cudaMemcpyDeviceToHost, stream));
+    }
 }
 
 /**
@@ -175,6 +319,7 @@ template <heongpu::Scheme SchemeType> ExecutorFunc create_load_to_gpu_executor()
         // Bootstrap keys are generated under the bootstrapping (N2) context;
         // it is only present for LOAD_TO_BACKEND nodes.
         auto* boot_context = ctx.get_other_arg<heongpu::HEContext<SchemeType>>(10);
+        auto* h2d_batch = ctx.get_other_arg<H2DBatch>(11);
 
         if (!stream_option || !context) {
             throw std::runtime_error("GPU stream options or context not found in execution context");
@@ -221,7 +366,7 @@ template <heongpu::Scheme SchemeType> ExecutorFunc create_load_to_gpu_executor()
                 gpu_plaintext->set_log_slot_count(log_slots, stream_option->stream_);
                 gpu_plaintext->set_ringt(is_ringt);
                 gpu_plaintext->set_scale(input_node->fhe_prop->scale);
-                export_plaintext(*c_pt, *gpu_plaintext, stream_option->stream_);
+                export_plaintext(*c_pt, *gpu_plaintext, stream_option->stream_, h2d_batch);
                 local_data[output_id] = gpu_plaintext;
                 break;
             }
@@ -232,7 +377,7 @@ template <heongpu::Scheme SchemeType> ExecutorFunc create_load_to_gpu_executor()
                     std::make_shared<heongpu::Ciphertext<SchemeType>>(*context, c_ct->level, *stream_option);
                 gpu_ciphertext->set_log_slot_count(log_slots);
                 gpu_ciphertext->set_scale(input_node->fhe_prop->scale);
-                export_ciphertext(*c_ct, *gpu_ciphertext, stream_option->stream_);
+                export_ciphertext(*c_ct, *gpu_ciphertext, stream_option->stream_, h2d_batch);
                 local_data[output_id] = gpu_ciphertext;
                 break;
             }
@@ -312,6 +457,8 @@ template <heongpu::Scheme SchemeType> ExecutorFunc create_store_from_gpu_executo
                 throw std::runtime_error("GPU stream options not found in execution context");
             }
 
+            auto* d2h_batch = ctx.get_other_arg<D2HBatch>(2);
+
             // Get input node and GPU data
             const DatumNode* input_node = self.input_nodes[0];
             // Determine data type
@@ -337,7 +484,7 @@ template <heongpu::Scheme SchemeType> ExecutorFunc create_store_from_gpu_executo
                         free(ptr);
                     });
 
-                    import_ciphertext(*gpu_ct, c_ct, stream_option->stream_);
+                    import_ciphertext(*gpu_ct, c_ct, stream_option->stream_, d2h_batch);
                     break;
                 }
                 default: throw std::runtime_error("Unsupported data type for D2H transfer");

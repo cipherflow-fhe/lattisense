@@ -23,9 +23,11 @@
 #include <atomic>
 #include <condition_variable>
 #include <queue>
+#include <deque>
 #include <set>
 #include <memory>
 #include <algorithm>
+#include <cstring>
 #include <HEonGPU-1.1/heongpu/heongpu.hpp>
 
 #include "nlohmann/json.hpp"
@@ -334,6 +336,8 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
                     }
 
                     // Execute computation using unified executor
+                    H2DBatch h2d_batch;
+                    D2HBatch d2h_batch;
                     ExecutionContext exec_ctx;
                     exec_ctx.context = operators.get();
                     exec_ctx.other_args.push_back(&stream_options[stream_id]);
@@ -355,6 +359,10 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
                         exec_ctx.other_args.push_back(&residual_galois_key_level);  // [8]
                         exec_ctx.other_args.push_back(&boot_galois_key_level);      // [9]
                         exec_ctx.other_args.push_back(&boot_context);               // [10]
+                        exec_ctx.other_args.push_back(&h2d_batch);                  // [11]
+                    }
+                    if (has_store_from_backend && !has_load_to_backend) {
+                        exec_ctx.other_args.push_back(&d2h_batch);  // [2]
                     }
 
                     try {
@@ -364,16 +372,22 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
                         throw;
                     }
 
-                    // Create events for GPU backend outputs (not STORE_FROM_BACKEND which outputs to C struct)
-                    std::vector<cudaEvent_t> output_events;
+                    if (has_load_to_backend) {
+                        h2d_batch.submit(streams[stream_id]);
+                    }
+                    if (has_store_from_backend) {
+                        d2h_batch.submit(streams[stream_id]);
+                    }
+
+                    // One completion event per task: a task's outputs are all enqueued
+                    // on the same stream in order, so a single event recorded after the
+                    // task captures readiness for every output and serves both the
+                    // downstream stream wait and the purge wait. (STORE_FROM_BACKEND
+                    // tasks output to C structs and are synced in the D2H batch.)
+                    cudaEvent_t task_output_event = nullptr;
                     if (!has_store_from_backend) {
-                        output_events.reserve(compute_node.output_nodes.size());
-                        for (size_t i = 0; i < compute_node.output_nodes.size(); ++i) {
-                            cudaEvent_t output_event;
-                            CHECK(cudaEventCreate(&output_event));
-                            CHECK(cudaEventRecord(output_event, streams[stream_id]));
-                            output_events.push_back(output_event);
-                        }
+                        CHECK(cudaEventCreateWithFlags(&task_output_event, cudaEventDisableTiming));
+                        CHECK(cudaEventRecord(task_output_event, streams[stream_id]));
                     }
 
                     {
@@ -384,8 +398,10 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
                         }
                         auto newly_available_computes = mega_ag.step_available_computes(compute_node, available_data);
 
-                        for (size_t i = 0; i < output_events.size(); ++i) {
-                            data_ready_events[compute_node.output_nodes[i]->id] = output_events[i];
+                        if (task_output_event) {
+                            for (const auto* output_node : compute_node.output_nodes) {
+                                data_ready_events[output_node->id] = task_output_event;
+                            }
                         }
 
                         for (const auto& new_task_id : newly_available_computes) {
@@ -397,12 +413,12 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
                     }
 
                     gpu_pool.detach_task(
-                        [compute_node, output_events, device, &mega_ag, &m_mutex, &available_data, &data_ref_counts]() {
+                        [compute_node, task_output_event, device, &mega_ag, &m_mutex, &available_data,
+                         &data_ref_counts]() {
                             CHECK(cudaSetDevice(device));
-                            for (auto& output_event : output_events) {
-                                CHECK(cudaEventSynchronize(output_event));
+                            if (task_output_event) {
+                                CHECK(cudaEventSynchronize(task_output_event));
                             }
-
                             {
                                 std::lock_guard<std::mutex> lock(m_mutex);
                                 mega_ag.purge_unused_data(compute_node, data_ref_counts, available_data);
@@ -441,8 +457,13 @@ void _run_mega_ag_impl(gsl::span<CArgument> input_args,
         for (auto stream : streams) {
             CHECK(cudaStreamSynchronize(stream));
         }
+        // Multiple output data ids may share one per-task event, so destroy each
+        // distinct event exactly once.
+        std::set<cudaEvent_t> unique_events;
         for (auto& pair : data_ready_events) {
-            cudaEvent_t event = pair.second;
+            unique_events.insert(pair.second);
+        }
+        for (auto event : unique_events) {
             gpu_pool.detach_task([event]() { CHECK(cudaEventDestroy(event)); });
         }
         gpu_pool.wait();
